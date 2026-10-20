@@ -1,9 +1,5 @@
 import Foundation
 
-public enum BoardStoreError: Error, Sendable {
-    case corruptedFile(underlying: String)
-}
-
 /// Grava e lê o mural em `board.json` dentro de uma pasta.
 public struct BoardStore: Sendable {
     public let directory: URL

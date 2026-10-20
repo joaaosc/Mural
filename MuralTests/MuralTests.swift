@@ -15,7 +15,7 @@ struct MuralTests {
         let text = ItemDetailView.plainText(of: original)
         #expect(ContentClassifier.kind(forText: text) == .checklist)
 
-        let parsed = ChecklistDocument.parse(text)
+        let parsed = ChecklistParser.parse(text)
         #expect(parsed.title == original.title)
         #expect(parsed.sections.map(\.title) == original.sections.map(\.title))
         #expect(parsed.progress == original.progress)

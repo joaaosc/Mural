@@ -114,13 +114,6 @@ public final class BoardModel {
         persist()
     }
 
-    public func move(_ itemID: UUID, to position: BoardPoint) {
-        guard var item = board.item(id: itemID) else { return }
-        item.position = position
-        board.update(item)
-        persist()
-    }
-
     // MARK: Interno
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.

@@ -1,23 +1,5 @@
 import Foundation
 
-/// Posição de um cartão no mural, em pontos, independente de SwiftUI.
-public struct BoardPoint: Codable, Hashable, Sendable {
-    public var x: Double
-    public var y: Double
-
-    public init(x: Double, y: Double) {
-        self.x = x
-        self.y = y
-    }
-
-    public static let zero = BoardPoint(x: 0, y: 0)
-}
-
-/// Cor de fundo de um post-it.
-public enum StickyColor: String, Codable, Sendable, CaseIterable {
-    case yellow, pink, orange, blue, green
-}
-
 /// Um cartão do mural. O mesmo tipo serve para pastas e para os cartões dentro delas.
 public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var id: UUID

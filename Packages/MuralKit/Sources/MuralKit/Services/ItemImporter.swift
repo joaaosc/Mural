@@ -1,11 +1,5 @@
 import Foundation
 
-public enum ImportError: Error, Equatable, Sendable {
-    case fileNotFound(URL)
-    case unsupportedType(String)
-    case emptyText
-}
-
 /// Copia conteúdo colado ou arrastado para a pasta de itens e cria o cartão correspondente.
 ///
 /// A cópia é feita na hora porque o sandbox só libera o arquivo de origem
@@ -76,7 +70,7 @@ public struct ItemImporter: Sendable {
         let kind = ContentClassifier.kind(forText: trimmed)
         switch kind {
         case .checklist:
-            let doc = ChecklistDocument.parse(trimmed)
+            let doc = ChecklistParser.parse(trimmed)
             return BoardItem(kind: .checklist, title: doc.title, parentID: parentID, position: position, checklist: doc)
         case .sticky:
             return BoardItem(
