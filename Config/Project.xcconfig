@@ -1,0 +1,11 @@
+// Configurações comuns a todos os alvos do projeto Mural.
+SDKROOT = macosx
+MACOSX_DEPLOYMENT_TARGET = 27.0
+SWIFT_VERSION = 6.0
+ALWAYS_SEARCH_USER_PATHS = NO
+SWIFT_STRICT_CONCURRENCY = complete
+
+// Debug sem otimização: exigido pelo RenderPreview e pelos previews do Xcode.
+SWIFT_OPTIMIZATION_LEVEL[config=Debug] = -Onone
+SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Debug] = DEBUG $(inherited)
+ONLY_ACTIVE_ARCH[config=Debug] = YES

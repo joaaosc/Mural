@@ -1,0 +1,7 @@
+schemaVersion: 1
+# Gerado por xcprofile --init
+sentryDisabled: true
+incrementalBuildsEnabled: true
+sessionDefaults:
+  projectPath: Mural.xcodeproj
+  scheme: Mural
