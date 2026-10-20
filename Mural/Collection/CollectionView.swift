@@ -22,7 +22,7 @@ struct CollectionView: View {
                 } else if media.isEmpty || notes.isEmpty {
                     grid(children, columns: 4)
                 } else {
-                    ColumnSplitLayout(fractions: [0.62, 0.38]) {
+                    ColumnSplitLayout(fractions: [0.72, 0.28]) {
                         grid(media, columns: 3)
                         grid(notes, columns: 2)
                     }
