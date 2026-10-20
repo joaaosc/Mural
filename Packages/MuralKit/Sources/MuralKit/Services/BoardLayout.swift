@@ -61,6 +61,27 @@ public enum BoardLayout {
         return BoardPoint(x: origin.x, y: origin.y + Double(items.count) * step)
     }
 
+    /// Arredonda a posição e a mantém dentro do mural, que começa em (0, 0).
+    public static func clamped(_ point: BoardPoint) -> BoardPoint {
+        let x = point.x.rounded()
+        let y = point.y.rounded()
+        // `> 0` no lugar de `max` também troca -0 e valores inválidos (NaN) por 0.
+        return BoardPoint(x: x > 0 ? x : 0, y: y > 0 ? y : 0)
+    }
+
+    /// Pasta solta sob o ponto, para receber um cartão solto nela. Com pastas sobrepostas vale a de cima (a última da lista).
+    /// As bordas esquerda e superior contam como dentro; a direita e a inferior, não.
+    /// - Parameter excluded: pasta a ignorar, como a que está sendo arrastada.
+    public static func folderID(at point: BoardPoint, among items: [BoardItem], excluding excluded: UUID? = nil) -> UUID? {
+        let size = cardSize(for: .folder)
+        let hit = items.last { item in
+            guard item.kind == .folder, item.parentID == nil, item.id != excluded else { return false }
+            return point.x >= item.position.x && point.x < item.position.x + size.width
+                && point.y >= item.position.y && point.y < item.position.y + size.height
+        }
+        return hit?.id
+    }
+
     static func overlaps(
         _ a: BoardPoint, _ sa: (width: Double, height: Double),
         _ b: BoardPoint, _ sb: (width: Double, height: Double), gap: Double

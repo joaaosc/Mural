@@ -44,4 +44,41 @@ public struct Board: Codable, Equatable, Sendable {
         items.removeAll { $0.id == id || $0.parentID == id }
         return removed
     }
+
+    /// Muda a posição de um cartão solto e o leva para o fim da lista, que o mural desenha por cima dos outros.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe ou está dentro de uma pasta.
+    @discardableResult
+    public mutating func move(id: UUID, to position: BoardPoint) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].parentID == nil else { return false }
+        var item = items.remove(at: index)
+        item.position = position
+        items.append(item)
+        return true
+    }
+
+    /// Guarda um cartão solto numa pasta solta. A posição do cartão e a ordem da lista não mudam.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe, já está numa pasta ou é uma pasta
+    ///   (pasta não entra em pasta), ou se o destino não é uma pasta solta.
+    @discardableResult
+    public mutating func moveIntoFolder(id: UUID, folderID: UUID) -> Bool {
+        guard id != folderID,
+            let index = items.firstIndex(where: { $0.id == id }),
+            items[index].parentID == nil, items[index].kind != .folder,
+            let folder = item(id: folderID), folder.kind == .folder, folder.parentID == nil
+        else { return false }
+        items[index].parentID = folderID
+        return true
+    }
+
+    /// Tira um cartão de dentro de uma pasta e o solta no mural, no fim da lista (por cima dos outros).
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe ou já está solto.
+    @discardableResult
+    public mutating func moveToBoard(id: UUID, at position: BoardPoint) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].parentID != nil else { return false }
+        var item = items.remove(at: index)
+        item.parentID = nil
+        item.position = position
+        items.append(item)
+        return true
+    }
 }

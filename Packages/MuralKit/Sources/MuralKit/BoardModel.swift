@@ -115,6 +115,26 @@ public final class BoardModel {
         persist()
     }
 
+    /// Muda a posição de um cartão solto (arredondada e nunca abaixo de 0) e o leva para cima dos outros.
+    public func move(_ itemID: UUID, to position: BoardPoint) {
+        guard board.move(id: itemID, to: BoardLayout.clamped(position)) else { return }
+        persist()
+    }
+
+    /// Guarda um cartão solto dentro de uma pasta.
+    public func moveIntoFolder(_ itemID: UUID, folderID: UUID) {
+        guard board.moveIntoFolder(id: itemID, folderID: folderID) else { return }
+        persist()
+    }
+
+    /// Tira o cartão de dentro da pasta e o solta no mural, numa posição livre (a mesma regra de colar).
+    public func moveToBoard(_ itemID: UUID) {
+        guard let item = board.item(id: itemID), item.parentID != nil else { return }
+        let position = BoardLayout.freePosition(for: item.kind, avoiding: board.rootItems)
+        guard board.moveToBoard(id: itemID, at: position) else { return }
+        persist()
+    }
+
     /// Apaga o cartão (e, se for pasta, o conteúdo dela) junto com os arquivos guardados.
     public func delete(_ itemID: UUID) {
         guard !isPersistenceSuspended else {

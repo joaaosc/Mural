@@ -147,4 +147,102 @@ struct BoardModelTests {
         let size = BoardLayout.cardSize(for: .sticky)
         #expect(!BoardLayout.overlaps(a.position, size, b.position, size, gap: 0))
     }
+
+    @Test("Mover cartão grava posição e ordem e reaparece igual ao reabrir")
+    func moveCardPersists() throws {
+        let store = makeStore()
+        let model = BoardModel(store: store)
+        let card = try #require(model.rootItems.first { $0.kind == .text })
+        let target = BoardPoint(x: 512, y: 384)
+        model.move(card.id, to: target)
+        #expect(model.lastError == nil)
+        #expect(model.item(id: card.id)?.position == target)
+        #expect(model.board.items.last?.id == card.id)
+
+        let reopened = BoardModel(store: store)
+        #expect(reopened.item(id: card.id)?.position == target)
+        #expect(reopened.board.items.map(\.id) == model.board.items.map(\.id))
+        #expect(reopened.board.items.map(\.position) == model.board.items.map(\.position))
+    }
+
+    @Test("Posição negativa é limitada a 0 e a fracionária é arredondada")
+    func moveClampsPosition() throws {
+        let store = makeStore()
+        let model = BoardModel(store: store)
+        let card = try #require(model.rootItems.first { $0.kind == .sticky })
+        model.move(card.id, to: BoardPoint(x: -75.5, y: -3))
+        #expect(model.item(id: card.id)?.position == .zero)
+
+        model.move(card.id, to: BoardPoint(x: 120.6, y: -0.2))
+        #expect(model.item(id: card.id)?.position == BoardPoint(x: 121, y: 0))
+        let reopened = BoardModel(store: store)
+        #expect(reopened.item(id: card.id)?.position == BoardPoint(x: 121, y: 0))
+    }
+
+    @Test("Guardar em pasta grava e o cartão reaparece dentro da pasta ao reabrir")
+    func moveIntoFolderPersists() throws {
+        let store = makeStore()
+        let model = BoardModel(store: store)
+        let folder = try #require(model.rootItems.first { $0.kind == .folder })
+        let card = try #require(model.rootItems.first { $0.kind == .text })
+        model.moveIntoFolder(card.id, folderID: folder.id)
+        #expect(model.lastError == nil)
+        #expect(model.children(of: folder.id).contains { $0.id == card.id })
+        #expect(!model.rootItems.contains { $0.id == card.id })
+
+        let reopened = BoardModel(store: store)
+        #expect(reopened.children(of: folder.id).contains { $0.id == card.id })
+        #expect(!reopened.rootItems.contains { $0.id == card.id })
+    }
+
+    @Test("Tirar da pasta solta o cartão numa posição livre e grava")
+    func moveToBoardPersists() throws {
+        let store = makeStore()
+        let model = BoardModel(store: store)
+        let folder = try #require(model.rootItems.first { $0.kind == .folder })
+        let card = try #require(model.children(of: folder.id).first)
+        model.moveToBoard(card.id)
+        #expect(model.lastError == nil)
+        let placed = try #require(model.item(id: card.id))
+        #expect(placed.parentID == nil)
+        #expect(model.board.items.last?.id == card.id)
+        let size = BoardLayout.cardSize(for: placed.kind)
+        for other in model.rootItems where other.id != placed.id {
+            let otherSize = BoardLayout.cardSize(for: other.kind)
+            #expect(!BoardLayout.overlaps(placed.position, size, other.position, otherSize, gap: 0), "colide com \(other.title)")
+        }
+
+        let reopened = BoardModel(store: store)
+        let saved = try #require(reopened.item(id: card.id))
+        #expect(saved.parentID == nil)
+        #expect(saved.position == placed.position)
+        #expect(!reopened.children(of: folder.id).contains { $0.id == card.id })
+    }
+
+    @Test("Movimento recusado não altera o mural nem tenta gravar")
+    func rejectedMovesDoNotPersist() throws {
+        let store = makeStore()
+        let model = BoardModel(store: store)
+        let folder = try #require(model.rootItems.first { $0.kind == .folder })
+        let otherFolder = try #require(model.rootItems.last { $0.kind == .folder })
+        let loose = try #require(model.rootItems.first { $0.kind == .text })
+        let child = try #require(model.children(of: folder.id).first)
+        let boardBeforeMoves = model.board
+
+        // Com uma pasta no lugar do board.json, qualquer gravação falharia e preencheria `lastError`.
+        try FileManager.default.removeItem(at: store.fileURL)
+        try FileManager.default.createDirectory(at: store.fileURL, withIntermediateDirectories: true)
+
+        model.move(child.id, to: BoardPoint(x: 10, y: 10))
+        model.move(UUID(), to: BoardPoint(x: 10, y: 10))
+        model.moveIntoFolder(folder.id, folderID: otherFolder.id)
+        model.moveIntoFolder(loose.id, folderID: loose.id)
+        model.moveToBoard(loose.id)
+        model.moveToBoard(UUID())
+        #expect(model.board == boardBeforeMoves)
+        #expect(model.lastError == nil)
+
+        model.move(loose.id, to: BoardPoint(x: 10, y: 10))
+        #expect(model.lastError != nil, "controle: um movimento válido tenta gravar")
+    }
 }
