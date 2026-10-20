@@ -10,7 +10,9 @@ struct VideoDetailView: View {
 
     var body: some View {
         Group {
-            if let player {
+            if url == nil {
+                ContentUnavailableView("Vídeo não encontrado", systemImage: "exclamationmark.triangle")
+            } else if let player {
                 VideoPlayer(player: player)
             } else {
                 ProgressView()

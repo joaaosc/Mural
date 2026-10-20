@@ -19,7 +19,7 @@ struct ChecklistDetailView: View {
                     }
                     let progress = document.progress
                     Text("\(progress.done) de \(progress.total) marcados")
-                        .font(.label)
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                 }
                 ForEach(document.sections) { section in

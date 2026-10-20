@@ -34,7 +34,7 @@ struct FolderCard: View {
                 .frame(width: 28, height: 8)
             Spacer(minLength: 0)
             Text(folder.tag ?? "Pasta")
-                .font(.system(size: 6, design: .monospaced))
+                .font(.system(size: 7, weight: .medium))
                 .foregroundStyle(.secondary)
             Text(folder.title)
                 .font(.system(size: 10, weight: .semibold))

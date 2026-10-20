@@ -54,8 +54,6 @@ extension PaletteColor {
 }
 
 extension Font {
-    /// Rótulos pequenos em caixa alta, como "CLIENT 001" e os metadados.
-    static let label = Font.system(.caption2, design: .monospaced)
     /// Texto corrido das notas e legendas.
     static let reading = Font.system(.body, design: .serif)
 }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Pares rótulo/valor em monoespaçada pequena, como RESOLUTION / 1332 × 1788.
+/// Pares rótulo/valor ao lado da imagem (Resolução, Tamanho, Data, Perfil de cor).
 struct MetadataColumn: View {
     let rows: [(label: String, value: String)]
 
@@ -8,21 +8,22 @@ struct MetadataColumn: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(rows, id: \.label) { row in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(row.label.uppercased())
-                        .foregroundStyle(.tertiary)
-                    Text(row.value.uppercased())
+                    Text(row.label)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text(row.value)
+                        .font(.callout)
+                        .monospacedDigit()
                 }
                 .accessibilityElement(children: .combine)
             }
         }
-        .font(.label)
     }
 }
 
 #Preview {
     MetadataColumn(rows: [
-        ("Resolution", "1332 × 1788"), ("Size", "12 MB"), ("Date", "15 Aug 2025"), ("Color profile", "sRGB IEC61966-2.1"),
+        ("Resolução", "1332 × 1788"), ("Tamanho", "12 MB"), ("Data", "15/08/2025"), ("Perfil de cor", "sRGB IEC61966-2.1"),
     ])
     .padding(40)
     .background(Theme.page)

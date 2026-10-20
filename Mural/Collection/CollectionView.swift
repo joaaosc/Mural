@@ -26,12 +26,17 @@ struct CollectionView: View {
                     }
                 }
             }
-            .padding(.horizontal, 75)
+            .padding(.leading, 104)
+            .padding(.trailing, 64)
             .padding(.top, 70)
             .padding(.bottom, 90)
         }
         .scrollIndicators(.automatic)
-        .overlay { CornerLabels(folder: folder, count: children.count) }
+        .overlay(alignment: .topTrailing) {
+            FolderInfoButton(folder: folder, children: children)
+                .padding(12)
+                .containerCornerOffset(.top)
+        }
     }
 
     private func card(for item: BoardItem) -> some View {
@@ -60,35 +65,5 @@ struct CollectionView: View {
             Text("Copie imagens, vídeos, PDFs ou texto e cole aqui com ⌘V, ou arraste para a janela.")
         }
         .frame(maxWidth: .infinity, minHeight: 420)
-    }
-}
-
-/// Etiquetas monoespaçadas nos quatro cantos da coleção, como no conceito.
-private struct CornerLabels: View {
-    let folder: BoardItem
-    let count: Int
-
-    var body: some View {
-        ZStack {
-            Text((folder.tag ?? "Pasta").uppercased())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Theme.paper, in: .rect(cornerRadius: 4))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, 16)
-            Text(folder.title.uppercased())
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            Text("Criada em \(folder.createdAt.formatted(.dateTime.day().month(.wide)))".uppercased())
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            Text((count == 1 ? "1 item" : "\(count) itens").uppercased())
-                .fixedSize()
-                .rotationEffect(.degrees(90))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .padding(.trailing, -14)
-        }
-        .font(.label)
-        .foregroundStyle(.secondary)
-        .padding(18)
-        .allowsHitTesting(false)
     }
 }

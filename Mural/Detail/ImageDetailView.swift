@@ -11,14 +11,11 @@ struct ImageDetailView: View {
     private var ratio: CGFloat { CardView.aspectRatio(for: item) }
 
     private var rows: [(label: String, value: String)] {
-        guard let meta = item.imageMetadata else { return [("Date", dateText)] }
-        var rows = [("Resolution", meta.resolutionText), ("Size", meta.fileSizeText), ("Date", dateText)]
-        if let profile = meta.colorProfile { rows.append(("Color profile", profile)) }
+        let date = item.createdAt.formatted(.dateTime.day().month(.twoDigits).year())
+        guard let meta = item.imageMetadata else { return [("Data", date)] }
+        var rows = [("Resolução", meta.resolutionText), ("Tamanho", meta.fileSizeText), ("Data", date)]
+        if let profile = meta.colorProfile { rows.append(("Perfil de cor", profile)) }
         return rows
-    }
-
-    private var dateText: String {
-        item.createdAt.formatted(.dateTime.day(.twoDigits).month(.abbreviated).year())
     }
 
     var body: some View {

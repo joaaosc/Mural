@@ -26,7 +26,7 @@ struct FolderPeek: View {
             }
             if children.isEmpty {
                 Text("Pasta vazia — abra e cole algo com ⌘V")
-                    .font(.label)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)
             }

@@ -26,6 +26,12 @@ struct RootView: View {
         return nil
     }
 
+    /// Título da janela: o nome do que está aberto na frente.
+    private var windowTitle: String {
+        guard let id = path.last?.id, let item = model.item(id: id) else { return "Mural" }
+        return item.title
+    }
+
     private var navigationAnimation: Animation {
         reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.45)
     }
@@ -44,6 +50,7 @@ struct RootView: View {
             }
         }
         .ignoresSafeArea()
+        .navigationTitle(windowTitle)
         .overlay(alignment: .topLeading) {
             FloatingToolbar(level: NavigationLevel(path: path), onBack: goBack, filter: $filter)
                 .padding(12)
