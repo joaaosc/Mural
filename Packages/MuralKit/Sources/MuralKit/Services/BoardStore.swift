@@ -35,6 +35,16 @@ public struct BoardStore: Sendable {
         }
     }
 
+    /// Renomeia um `board.json` ilegível para `board-corrompido-<data>.json`,
+    /// para que o arquivo antigo não seja sobrescrito sem aviso.
+    @discardableResult
+    public func quarantineCorruptedFile(now: Date = .now) throws -> URL {
+        let stamp = Int(now.timeIntervalSince1970)
+        let destination = directory.appendingPathComponent("board-corrompido-\(stamp).json")
+        try FileManager.default.moveItem(at: fileURL, to: destination)
+        return destination
+    }
+
     public func save(_ board: Board) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
