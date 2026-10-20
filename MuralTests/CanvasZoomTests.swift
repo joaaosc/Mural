@@ -54,6 +54,25 @@ struct CanvasZoomTests {
         #expect(controller.liveScale == 1)
     }
 
+    @Test("Ajustar à janela publica o estado confirmado")
+    @MainActor
+    func fitPublishesWorkspace() {
+        var published: CanvasWorkspaceState?
+        let controller = CanvasZoomController { changes, completion in
+            changes()
+            completion()
+        }
+        controller.onWorkspaceChange = { published = $0 }
+        controller.contentExtent = CGSize(width: 1920, height: 920)
+        controller.viewport = CGSize(width: 1000, height: 800)
+        controller.scrollOffset = CGPoint(x: 200, y: 100)
+
+        controller.fitToWindow()
+
+        #expect(published?.confirmedZoom == 0.5)
+        #expect(published?.logicalCenter == BoardPoint(x: 1_000, y: 800))
+    }
+
     @Test("Dentro dos limites, a pinça é direta")
     func insideRangeIsDirect() {
         #expect(CanvasZoom.rubberBanded(1.3) == 1.3)

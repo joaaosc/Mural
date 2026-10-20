@@ -123,8 +123,10 @@ final class CanvasZoomController {
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
             zoom = target
             liveScale = 1
+            scrollOffset = .zero
             scrollPosition.scrollTo(point: .zero)
         }
+        onWorkspaceChange?(confirmedWorkspace())
     }
 
     // MARK: Interno
