@@ -6,16 +6,12 @@ struct BoardCanvasView: View {
     let model: BoardModel
     let hero: HeroContext
     let filter: BoardFilter?
-    var pulseTrigger = 0
     var onOpen: ([Destination]) -> Void
     var onAdd: () -> Void
 
     @State private var zoom = CanvasZoomController()
     @State private var hoveredFolder: UUID?
-    @State private var interactionPulseTrigger = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.scenePhase) private var scenePhase
 
     /// Folga em volta dos cartões, para o mural não terminar colado no último.
     private static let margin: CGFloat = 240
@@ -51,21 +47,7 @@ struct BoardCanvasView: View {
         .scrollPosition($zoom.scrollPosition)
         .onScrollGeometryChange(for: CGPoint.self, of: \.contentOffset) { _, offset in zoom.scrollOffset = offset }
         .discreetScrollIndicators([.horizontal, .vertical])
-        .background {
-            Theme.canvas
-                .overlay {
-                    CanvasPulseOverlay(
-                        trigger: pulseTrigger + interactionPulseTrigger,
-                        isEnabled: !reduceMotion
-                            && !reduceTransparency
-                            && scenePhase == .active
-                            && hero.presented.isEmpty
-                    )
-                    .clipped()
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        .background(Theme.canvas)
         .onGeometryChange(for: CGSize.self, of: \.size) { zoom.viewport = $0 }
         .onChange(of: CGSize(width: extent.width, height: extent.height), initial: true) { zoom.contentExtent = $1 }
         .onChange(of: reduceMotion, initial: true) { zoom.reduceMotion = $1 }
@@ -82,7 +64,6 @@ struct BoardCanvasView: View {
         .focusedSceneValue(hero.presented.isEmpty ? zoom : nil)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: hoveredFolder)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: filter)
-        .onChange(of: filter) { interactionPulseTrigger += 1 }
     }
 
     // MARK: Cartões
@@ -100,11 +81,13 @@ struct BoardCanvasView: View {
                     FolderPeek(folder: item, model: model, hero: hero) { child in
                         open([.collection(item.id), .item(child)])
                     }
+                    // A prévia sai de dentro da pasta: cresce a partir da borda dela enquanto
+                    // uma borda suave (Metal) revela os cartões da esquerda para a direita.
                     .transition(
                         reduceMotion
                             ? .opacity
                             : .asymmetric(
-                                insertion: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity),
+                                insertion: AnyTransition(PeekReveal()).combined(with: .scale(scale: 0.85, anchor: .leading)),
                                 removal: .opacity
                             )
                     )
@@ -112,7 +95,6 @@ struct BoardCanvasView: View {
             }
             .onHover { inside in
                 hoveredFolder = inside ? item.id : (hoveredFolder == item.id ? nil : hoveredFolder)
-                interactionPulseTrigger += 1
             }
         } else {
             cardButton(item, open: [.item(item.id)])

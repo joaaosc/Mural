@@ -14,7 +14,6 @@ struct RootView: View {
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulseTrigger = 0
 
     private var hero: HeroContext {
         HeroContext(namespace: heroNamespace, isEnabled: !reduceMotion, presented: Set(path.map(\.id)))
@@ -53,7 +52,6 @@ struct RootView: View {
                 model: model,
                 hero: hero,
                 filter: filter,
-                pulseTrigger: pulseTrigger,
                 onOpen: open,
                 onAdd: { commands.isImporterPresented = true }
             )
@@ -159,7 +157,6 @@ struct RootView: View {
             path.append(contentsOf: newLevels)
             filter = nil
         }
-        pulseTrigger += 1
         isFolderInfoPresented = false
         isCanvasFocused = true
     }
@@ -170,7 +167,6 @@ struct RootView: View {
             _ = path.removeLast()
             filter = nil
         }
-        pulseTrigger += 1
         isFolderInfoPresented = false
         isCanvasFocused = true
     }
