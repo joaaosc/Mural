@@ -9,6 +9,8 @@ import SwiftUI
 @MainActor
 @Observable
 final class CanvasZoomController {
+    typealias AnimationRunner = (_ changes: () -> Void, _ completion: @escaping () -> Void) -> Void
+
     /// Zoom aplicado ao layout do mural.
     private(set) var zoom: CGFloat = 1
     /// Escala visual extra, só durante a pinça e o assentamento.
@@ -25,6 +27,21 @@ final class CanvasZoomController {
     @ObservationIgnored var scrollOffset: CGPoint = .zero
     @ObservationIgnored var reduceMotion = false
     @ObservationIgnored private var isPinching = false
+    @ObservationIgnored private var settleGeneration = 0
+    @ObservationIgnored private var pendingTargetZoom: CGFloat?
+    @ObservationIgnored private let runSettleAnimation: AnimationRunner
+
+    init(
+        animationRunner: @escaping AnimationRunner = { changes, completion in
+            withAnimation(.smooth(duration: 0.25)) {
+                changes()
+            } completion: {
+                completion()
+            }
+        }
+    ) {
+        runSettleAnimation = animationRunner
+    }
 
     /// Zoom que o usuário vê agora, incluindo a pinça em andamento.
     var displayedZoom: CGFloat { zoom * liveScale }
@@ -34,6 +51,7 @@ final class CanvasZoomController {
     func pinchChanged(magnification: CGFloat, startLocation: CGPoint) {
         if !isPinching {
             isPinching = true
+            invalidatePendingSettle()
             liveAnchor = CGPoint(x: scrollOffset.x + startLocation.x, y: scrollOffset.y + startLocation.y)
         }
         liveScale = CanvasZoom.rubberBanded(zoom * magnification) / zoom
@@ -41,20 +59,22 @@ final class CanvasZoomController {
 
     func pinchEnded(magnification: CGFloat) {
         isPinching = false
-        settle(scale: CanvasZoom.clamped(zoom * magnification) / zoom)
+        settle(to: CanvasZoom.clamped(zoom * magnification))
     }
 
     // MARK: Comandos
 
-    func zoomIn() { zoom(to: zoom * CanvasZoom.step) }
-    func zoomOut() { zoom(to: zoom / CanvasZoom.step) }
+    func zoomIn() { zoom(to: (pendingTargetZoom ?? zoom) * CanvasZoom.step) }
+    func zoomOut() { zoom(to: (pendingTargetZoom ?? zoom) / CanvasZoom.step) }
     func actualSize() { zoom(to: 1) }
 
     /// Mostra todos os cartões, a partir do canto superior esquerdo.
     func fitToWindow() {
         let target = CanvasZoom.fitting(extent: contentExtent, in: viewport)
+        invalidatePendingSettle()
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
             zoom = target
+            liveScale = 1
             scrollPosition.scrollTo(point: .zero)
         }
     }
@@ -64,33 +84,51 @@ final class CanvasZoomController {
     /// Aproxima ou afasta mantendo parado o centro da janela.
     private func zoom(to target: CGFloat) {
         liveAnchor = CGPoint(x: scrollOffset.x + viewport.width / 2, y: scrollOffset.y + viewport.height / 2)
-        settle(scale: CanvasZoom.clamped(target) / zoom)
+        settle(to: CanvasZoom.clamped(target))
     }
 
-    /// Anima a escala visual até `scale` e depois aplica o zoom real de uma vez.
-    private func settle(scale: CGFloat) {
+    /// Anima a escala visual até o alvo absoluto e depois aplica o zoom real de uma vez.
+    private func settle(to targetZoom: CGFloat) {
+        let targetZoom = CanvasZoom.clamped(targetZoom)
+        let generation = settleGeneration &+ 1
+        settleGeneration = generation
+        pendingTargetZoom = targetZoom
+        let baseZoom = zoom
+        let scale = targetZoom / baseZoom
+        let anchor = liveAnchor
+
         guard !reduceMotion else {
-            commit(scale: scale)
+            commit(targetZoom: targetZoom, baseZoom: baseZoom, anchor: anchor, generation: generation)
             return
         }
-        withAnimation(.smooth(duration: 0.25)) {
-            liveScale = scale
-        } completion: { [weak self] in
-            self?.commit(scale: scale)
-        }
+        runSettleAnimation(
+            { [weak self] in self?.liveScale = scale },
+            { [weak self] in
+                self?.commit(targetZoom: targetZoom, baseZoom: baseZoom, anchor: anchor, generation: generation)
+            }
+        )
     }
 
     /// Troca a escala visual pelo zoom real e compensa a rolagem, sem animação: o
     /// resultado na tela é idêntico ao último quadro da escala visual.
-    private func commit(scale: CGFloat) {
-        let offset = CanvasZoom.offset(keeping: liveAnchor, from: scrollOffset, scale: scale)
+    private func commit(targetZoom: CGFloat, baseZoom: CGFloat, anchor: CGPoint, generation: Int) {
+        guard settleGeneration == generation else { return }
+        let targetZoom = CanvasZoom.clamped(targetZoom)
+        let scale = targetZoom / baseZoom
+        let offset = CanvasZoom.offset(keeping: anchor, from: scrollOffset, scale: scale)
         var transaction = Transaction()
         transaction.disablesAnimations = true
         transaction.scrollContentOffsetAdjustmentBehavior = .disabled
         withTransaction(transaction) {
-            zoom *= scale
+            zoom = targetZoom
             liveScale = 1
+            pendingTargetZoom = nil
             scrollPosition.scrollTo(point: offset)
         }
+    }
+
+    private func invalidatePendingSettle() {
+        settleGeneration &+= 1
+        pendingTargetZoom = nil
     }
 }

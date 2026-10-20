@@ -5,6 +5,54 @@ import Testing
 
 @Suite("Zoom do mural")
 struct CanvasZoomTests {
+    @Test("Um assentamento antigo não pode publicar depois de uma nova interação")
+    @MainActor
+    func staleSettleIsIgnored() {
+        var completions: [() -> Void] = []
+        let controller = CanvasZoomController { changes, completion in
+            changes()
+            completions.append(completion)
+        }
+        controller.scrollOffset = CGPoint(x: 120, y: 80)
+        controller.viewport = CGSize(width: 800, height: 600)
+
+        // O primeiro assentamento chega ao limite superior e fica pendente.
+        controller.pinchChanged(magnification: 4, startLocation: CGPoint(x: 240, y: 180))
+        controller.pinchEnded(magnification: 4)
+        // O comando rápido deve partir do alvo pendente, já no limite, e não
+        // programar uma multiplicação posterior do zoom antigo.
+        controller.zoomIn()
+
+        #expect(completions.count == 2)
+        completions[0]()
+        #expect(controller.zoom == 1)
+
+        completions[1]()
+        #expect(controller.zoom == CanvasZoom.range.upperBound)
+        #expect(controller.liveScale == 1)
+    }
+
+    @Test("Ajustar à janela invalida um assentamento pendente")
+    @MainActor
+    func fitInvalidatesPendingSettle() {
+        var completions: [() -> Void] = []
+        let controller = CanvasZoomController { changes, completion in
+            changes()
+            completions.append(completion)
+        }
+        controller.pinchChanged(magnification: 4, startLocation: .zero)
+        controller.pinchEnded(magnification: 4)
+
+        controller.contentExtent = CGSize(width: 1920, height: 920)
+        controller.viewport = CGSize(width: 1000, height: 800)
+        controller.fitToWindow()
+        #expect(controller.zoom == 0.5)
+
+        completions[0]()
+        #expect(controller.zoom == 0.5)
+        #expect(controller.liveScale == 1)
+    }
+
     @Test("Dentro dos limites, a pinça é direta")
     func insideRangeIsDirect() {
         #expect(CanvasZoom.rubberBanded(1.3) == 1.3)
