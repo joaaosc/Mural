@@ -20,7 +20,7 @@ struct FolderCard: View {
                     .offset(x: 14)
             }
             RoundedRectangle(cornerRadius: Theme.cardCorner)
-                .fill(Theme.paper.opacity(0.85))
+                .fill(Theme.paperBack)
                 .offset(x: 6)
                 .cardShadow()
             front

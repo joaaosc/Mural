@@ -32,8 +32,8 @@ enum BoardFilter: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Opacidade de um cartão sob este filtro: o que não combina fica esmaecido.
-    func opacity(for kind: ItemKind) -> Double {
+    /// Destaque de um cartão sob este filtro (1 = normal): o que não combina fica esmaecido.
+    func emphasis(for kind: ItemKind) -> Double {
         matches(kind) ? 1 : 0.25
     }
 

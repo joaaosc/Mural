@@ -43,7 +43,7 @@ struct CollectionView: View {
     private func card(for item: BoardItem) -> some View {
         CardButton(item: item, model: model, hero: hero) { onOpenItem(item.id) }
             .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
-            .opacity(filter?.opacity(for: item.kind) ?? 1)
+            .cardEmphasis(filter?.emphasis(for: item.kind) ?? 1)
     }
 
     private var emptyState: some View {

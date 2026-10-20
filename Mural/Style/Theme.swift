@@ -16,6 +16,11 @@ enum Theme {
     static let paper = dynamic(
         light: .white,
         dark: NSColor(srgbRed: 0.200, green: 0.204, blue: 0.216, alpha: 1))
+    /// Folha de trás da pasta: um tom entre o papel e o mural, mas opaco, para a mídia
+    /// guardada atrás dela não aparecer através da folha.
+    static let paperBack = dynamic(
+        light: NSColor(srgbRed: 0.984, green: 0.985, blue: 0.987, alpha: 1),
+        dark: NSColor(srgbRed: 0.188, green: 0.192, blue: 0.204, alpha: 1))
 
     static let cardCorner: CGFloat = 8
     static let mediaCorner: CGFloat = 12

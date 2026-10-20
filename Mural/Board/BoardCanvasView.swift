@@ -37,9 +37,9 @@ struct BoardCanvasView: View {
             ZStack(alignment: .topLeading) {
                 ForEach(items) { item in
                     cardGroup(for: item)
+                        .cardEmphasis(emphasis(for: item))
                         .offset(x: item.position.x, y: item.position.y)
-                        .opacity(opacity(for: item))
-                        .zIndex(item.id == hoveredFolder ? 1 : 0)
+                        .zIndex(layer(for: item))
                 }
             }
             .frame(width: contentSize.width, height: contentSize.height, alignment: .topLeading)
@@ -133,9 +133,17 @@ struct BoardCanvasView: View {
 
     /// Esmaece o que não é foco: o resto do mural quando uma pasta está em destaque,
     /// ou o que não combina com o filtro escolhido.
-    private func opacity(for item: BoardItem) -> Double {
+    private func emphasis(for item: BoardItem) -> Double {
         if let hoveredFolder, hoveredFolder != item.id { return 0.3 }
-        return filter?.opacity(for: item.kind) ?? 1
+        return filter?.emphasis(for: item.kind) ?? 1
+    }
+
+    /// Empilhamento: a pasta em foco fica por cima de tudo e, com um filtro, os cartões
+    /// destacados passam à frente dos esmaecidos. Como o esmaecido continua sólido, um
+    /// cartão apagado por cima esconderia parte do destacado.
+    private func layer(for item: BoardItem) -> Double {
+        if item.id == hoveredFolder { return 2 }
+        return emphasis(for: item) < 1 ? 0 : 1
     }
 
     /// Ponto em coordenadas do conteúdo convertido para a âncora relativa de `scaleEffect`.
