@@ -11,6 +11,7 @@ struct CardButton: View {
     var onOpen: () -> Void
 
     @State private var isConfirmingDelete = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HeroSlot(id: item.id, context: hero) {
@@ -26,7 +27,7 @@ struct CardButton: View {
             }
             .confirmationDialog("Apagar “\(item.title)”?", isPresented: $isConfirmingDelete) {
                 Button("Apagar", role: .destructive) {
-                    withAnimation(.smooth) { model.delete(item.id) }
+                    withAnimation(reduceMotion ? nil : .smooth) { model.delete(item.id) }
                 }
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: model.children(of: item.id).count))

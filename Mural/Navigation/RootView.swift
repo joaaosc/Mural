@@ -14,6 +14,7 @@ struct RootView: View {
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulseTrigger = 0
 
     private var hero: HeroContext {
         HeroContext(namespace: heroNamespace, isEnabled: !reduceMotion, presented: Set(path.map(\.id)))
@@ -33,16 +34,31 @@ struct RootView: View {
         return item.title
     }
 
-    private var navigationAnimation: Animation {
-        reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.45)
+    private var navigationAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.45)
+    }
+
+    private var importAnimation: Animation? {
+        reduceMotion ? nil : .smooth
+    }
+
+    private var errorTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity)
     }
 
     var body: some View {
         ZStack {
             // Níveis cobertos não recebem cliques nem aparecem para a leitura de tela.
-            BoardCanvasView(model: model, hero: hero, filter: filter, onOpen: open, onAdd: { commands.isImporterPresented = true })
-                .allowsHitTesting(path.isEmpty)
-                .accessibilityHidden(!path.isEmpty)
+            BoardCanvasView(
+                model: model,
+                hero: hero,
+                filter: filter,
+                pulseTrigger: pulseTrigger,
+                onOpen: open,
+                onAdd: { commands.isImporterPresented = true }
+            )
+            .allowsHitTesting(path.isEmpty)
+            .accessibilityHidden(!path.isEmpty)
 
             ForEach(Array(path.enumerated()), id: \.element.id) { index, destination in
                 pageBackground(for: destination)
@@ -67,7 +83,7 @@ struct RootView: View {
                 ErrorBanner(message: message) { model.lastError = nil }
                     .padding(12)
                     .containerCornerOffset(.top)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(errorTransition)
             }
         }
         .focusable()
@@ -84,11 +100,13 @@ struct RootView: View {
             return .handled
         }
         .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in
-            withAnimation(.smooth) { PasteboardImporter.paste(into: model, parentID: currentFolderID) }
+            withAnimation(importAnimation) {
+                PasteboardImporter.paste(into: model, parentID: currentFolderID)
+            }
         }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
-            withAnimation(.smooth) { _ = model.importFiles(files, into: currentFolderID) }
+            withAnimation(importAnimation) { _ = model.importFiles(files, into: currentFolderID) }
         }
         .fileImporter(
             isPresented: $commands.isImporterPresented,
@@ -96,7 +114,7 @@ struct RootView: View {
             allowsMultipleSelection: true
         ) { result in
             guard case .success(let urls) = result else { return }
-            withAnimation(.smooth) {
+            withAnimation(importAnimation) {
                 _ = SecurityScopedAccess.withAccess(to: urls) { model.importFiles(urls, into: currentFolderID) }
             }
         }
@@ -141,6 +159,7 @@ struct RootView: View {
             path.append(contentsOf: newLevels)
             filter = nil
         }
+        pulseTrigger += 1
         isFolderInfoPresented = false
         isCanvasFocused = true
     }
@@ -151,6 +170,7 @@ struct RootView: View {
             _ = path.removeLast()
             filter = nil
         }
+        pulseTrigger += 1
         isFolderInfoPresented = false
         isCanvasFocused = true
     }
