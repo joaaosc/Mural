@@ -1,8 +1,8 @@
 import MuralKit
 import SwiftUI
 
-/// Nível 2: o conteúdo de uma pasta. Mídia numa grade larga à esquerda,
-/// notas e listas numa grade mais estreita à direita, com etiquetas nos cantos.
+/// Nível 2: o conteúdo de uma pasta. Mídia numa faixa à esquerda, notas e listas
+/// numa faixa mais estreita à direita, só com as colunas que os itens ocupam.
 struct CollectionView: View {
     let folder: BoardItem
     let model: BoardModel
@@ -11,20 +11,18 @@ struct CollectionView: View {
     var onOpenItem: (UUID) -> Void
 
     private var children: [BoardItem] { model.children(of: folder.id) }
-    private var media: [BoardItem] { children.filter { $0.kind.storesFile } }
-    private var notes: [BoardItem] { children.filter { !$0.kind.storesFile } }
 
     var body: some View {
         ScrollView {
             Group {
                 if children.isEmpty {
                     emptyState
-                } else if media.isEmpty || notes.isEmpty {
-                    grid(children, columns: 4)
                 } else {
-                    ColumnSplitLayout(fractions: [0.72, 0.28]) {
-                        grid(media, columns: 3)
-                        grid(notes, columns: 2)
+                    GalleryLayout {
+                        ForEach(children) { item in
+                            card(for: item)
+                                .galleryLane(item.kind.storesFile ? .media : .notes)
+                        }
                     }
                 }
             }
@@ -36,27 +34,23 @@ struct CollectionView: View {
         .overlay { CornerLabels(folder: folder, count: children.count) }
     }
 
-    private func grid(_ items: [BoardItem], columns: Int) -> some View {
-        MasonryLayout(columns: columns, spacing: 16) {
-            ForEach(items) { item in
-                HeroSlot(id: item.id, context: hero) {
-                    Button {
-                        onOpenItem(item.id)
-                    } label: {
-                        CardView(item: item, model: model)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(item.title)
-                    .contextMenu {
-                        Button("Abrir") { onOpenItem(item.id) }
-                        Divider()
-                        Button("Apagar", role: .destructive) { model.delete(item.id) }
-                    }
-                }
-                .aspectRatio(CardView.aspectRatio(for: item), contentMode: .fit)
-                .opacity(filter.map { $0.matches(item.kind) ? 1 : 0.25 } ?? 1)
+    private func card(for item: BoardItem) -> some View {
+        HeroSlot(id: item.id, context: hero) {
+            Button {
+                onOpenItem(item.id)
+            } label: {
+                CardView(item: item, model: model)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.title)
+            .contextMenu {
+                Button("Abrir") { onOpenItem(item.id) }
+                Divider()
+                Button("Apagar", role: .destructive) { model.delete(item.id) }
             }
         }
+        .aspectRatio(CardView.aspectRatio(for: item), contentMode: .fit)
+        .opacity(filter.map { $0.matches(item.kind) ? 1 : 0.25 } ?? 1)
     }
 
     private var emptyState: some View {
