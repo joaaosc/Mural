@@ -75,9 +75,11 @@ struct BoardCanvasView: View {
             HStack(alignment: .top, spacing: 28) {
                 cardButton(item, open: [.collection(item.id)])
                     .frame(width: size.width, height: size.height)
-                if hoveredFolder == item.id {
+                // Nunca junto com a pasta aberta: os dois desenhariam os mesmos cartões
+                // com o mesmo id de transição, e o SwiftUI não saberia qual é a origem.
+                if hoveredFolder == item.id && !hero.presented.contains(item.id) {
                     FolderPeek(folder: item, model: model, hero: hero) { child in
-                        onOpen([.collection(item.id), .item(child)])
+                        open([.collection(item.id), .item(child)])
                     }
                     .transition(.asymmetric(insertion: .scale(scale: 0.85, anchor: .leading).combined(with: .opacity), removal: .opacity))
                 }
@@ -92,18 +94,25 @@ struct BoardCanvasView: View {
     private func cardButton(_ item: BoardItem, open destinations: [Destination]) -> some View {
         HeroSlot(id: item.id, context: hero) {
             Button {
-                onOpen(destinations)
+                open(destinations)
             } label: {
                 CardView(item: item, model: model)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(item.title)
             .contextMenu {
-                Button("Abrir") { onOpen(destinations) }
+                Button("Abrir") { open(destinations) }
                 Divider()
                 Button("Apagar", role: .destructive) { model.delete(item.id) }
             }
         }
+    }
+
+    /// Abre um nível e desliga o destaque de pasta: a prévia sai na mesma animação em que
+    /// a pasta entra, e os cartões dela viajam da prévia para a grade.
+    private func open(_ destinations: [Destination]) {
+        hoveredFolder = nil
+        onOpen(destinations)
     }
 
     /// Esmaece o que não é foco: o resto do mural quando uma pasta está em destaque,
