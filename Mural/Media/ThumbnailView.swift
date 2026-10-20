@@ -9,9 +9,18 @@ struct ThumbnailView: View {
     var contentMode: ContentMode = .fill
 
     @State private var image: CGImage?
+    @State private var imageRequest: ThumbnailRequest?
+    @State private var activeRequest: ThumbnailRequest?
+
+    private var request: ThumbnailRequest? {
+        url.map { ThumbnailRequest(url: $0, kind: kind, maxPixelSize: maxPixelSize) }
+    }
 
     var body: some View {
-        let shown = image ?? url.flatMap { ThumbnailCache.shared.cachedImage(for: $0, maxPixelSize: maxPixelSize) }
+        let shown =
+            imageRequest == request
+            ? image
+            : request.flatMap { ThumbnailCache.shared.cachedImage(for: $0) }
         ZStack {
             if let image = shown {
                 Image(decorative: image, scale: 1)
@@ -21,9 +30,17 @@ struct ThumbnailView: View {
                 Rectangle().fill(.quaternary)
             }
         }
-        .task(id: url) {
-            guard let url else { return }
-            image = await ThumbnailCache.shared.image(for: url, kind: kind, maxPixelSize: maxPixelSize)
+        .task(id: request) {
+            activeRequest = request
+            image = nil
+            imageRequest = nil
+            guard let request, !Task.isCancelled else { return }
+
+            let loadedImage = await ThumbnailCache.shared.image(for: request)
+            guard !Task.isCancelled, activeRequest == request else { return }
+
+            image = loadedImage
+            imageRequest = loadedImage == nil ? nil : request
         }
     }
 }
