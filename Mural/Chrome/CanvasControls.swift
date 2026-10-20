@@ -33,7 +33,7 @@ struct CanvasControls: View {
 
                 Button("Adicionar arquivos", systemImage: "plus", action: onAdd)
                     .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
+                    .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
                     .help("Adicionar arquivos (⌘O) — ou cole com ⌘V")
             }
