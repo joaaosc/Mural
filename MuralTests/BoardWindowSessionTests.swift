@@ -133,6 +133,7 @@ struct BoardWindowSessionTests {
             zoom: 1.1,
             viewport: session.zoom.viewport,
             contentSize: CGSize(width: 3_400, height: 2_800))
+        session.zoom.visibleRect = CGRect(origin: session.zoom.scrollOffset, size: session.zoom.viewport)
         for _ in 0..<100 {
             session.recordCanvas(session.zoom.confirmedWorkspace())
             session.captureBoardIfNeeded()
@@ -213,5 +214,54 @@ struct BoardWindowSessionTests {
         let afterRetry = try #require(await failingLibrary.open(route))
         #expect(afterRetry.board.item(id: item.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: assetURL.path))
+    }
+
+    @Test("Mutação de conteúdo durante restauração é autosalva")
+    func contentMutationBeforeCanvasReadyPersists() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Antes do canvas")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        await session.load()
+        #expect(session.restorationPhase == .awaitingLayout)
+        let item = try #require(session.model?.importText("durante restauração"))
+        session.captureBoardIfNeeded()
+        await session.flushAndPrepareToLeave()
+
+        let snapshot = try #require(await library.open(route))
+        #expect(snapshot.board.item(id: item.id)?.text == "durante restauração")
+        #expect(!session.isDirty)
+    }
+
+    @Test("Snapshot mais novo vence falha do flush bloqueado")
+    func newerSnapshotSurvivesBlockedFlushFailure() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let initialLibrary = BoardLibrary(rootDirectory: directory)
+        let route = try await initialLibrary.createNamedBoard("Sequência")
+        let gate = BoardRepositoryFaultGate()
+        let failingLibrary = BoardLibrary(
+            rootDirectory: directory,
+            repositoryFaultInjection: BoardRepositoryFaultInjection(points: [.beforeSwap], gate: gate))
+        let session = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: failingLibrary))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("snapshot 1"))
+        session.captureBoardIfNeeded()
+
+        let firstFlush = Task { await session.flushAndPrepareToLeave() }
+        await gate.waitUntilReached()
+        session.model?.setCaption("snapshot 2", for: item.id)
+        session.captureBoardIfNeeded()
+        await gate.release()
+        await firstFlush.value
+
+        #expect(session.isDirty)
+        await session.flushAndPrepareToLeave()
+        #expect(!session.isDirty)
+        let snapshot = try #require(await failingLibrary.open(route))
+        #expect(snapshot.board.item(id: item.id)?.text == "snapshot 2")
     }
 }

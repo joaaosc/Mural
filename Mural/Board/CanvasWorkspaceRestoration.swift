@@ -22,17 +22,20 @@ struct CanvasScrollMetrics: Equatable {
     let containerSize: CGSize
     let contentSize: CGSize
     let contentInsets: EdgeInsets
+    let visibleRect: CGRect
 
     init(
         contentOffset: CGPoint,
         containerSize: CGSize,
         contentSize: CGSize,
-        contentInsets: EdgeInsets = EdgeInsets()
+        contentInsets: EdgeInsets = EdgeInsets(),
+        visibleRect: CGRect? = nil
     ) {
         self.contentOffset = contentOffset
         self.containerSize = containerSize
         self.contentSize = contentSize
         self.contentInsets = contentInsets
+        self.visibleRect = visibleRect ?? CGRect(origin: contentOffset, size: containerSize)
     }
 
     init(_ geometry: ScrollGeometry) {
@@ -40,6 +43,7 @@ struct CanvasScrollMetrics: Equatable {
         containerSize = geometry.containerSize
         contentSize = geometry.contentSize
         contentInsets = geometry.contentInsets
+        visibleRect = geometry.visibleRect
     }
 }
 
@@ -59,6 +63,11 @@ enum CanvasWorkspaceMath {
             x: (contentOffset.x + contentInsets.leading + availableWidth / 2) / zoom,
             y: (contentOffset.y + contentInsets.top + availableHeight / 2) / zoom
         )
+    }
+
+    static func logicalCenter(visibleRect: CGRect, zoom: CGFloat) -> CGPoint {
+        guard zoom > 0 else { return .zero }
+        return CGPoint(x: visibleRect.midX / zoom, y: visibleRect.midY / zoom)
     }
 
     static func targetOffset(

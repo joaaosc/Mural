@@ -81,6 +81,35 @@ struct CanvasWorkspaceRestorationTests {
         #expect(abs(restored.y - center.y) <= 1)
     }
 
+    @Test("VisibleRect preserva o centro com offset negativo e insets assimétricos")
+    func visibleRectUsesDocumentedGeometry() {
+        let metrics = CanvasScrollMetrics(
+            contentOffset: CGPoint(x: -24, y: -20),
+            containerSize: CGSize(width: 900, height: 700),
+            contentSize: CGSize(width: 3_400, height: 2_800),
+            contentInsets: EdgeInsets(top: 20, leading: 24, bottom: 32, trailing: 40),
+            visibleRect: CGRect(x: -24, y: -20, width: 900, height: 700))
+        let center = CanvasWorkspaceMath.logicalCenter(visibleRect: metrics.visibleRect, zoom: 1.25)
+
+        #expect(center == CGPoint(x: 340.8, y: 264))
+        #expect(
+            CanvasWorkspaceMath.targetOffset(
+                logicalCenter: CGPoint(x: -100, y: -100),
+                zoom: 1,
+                viewport: metrics.containerSize,
+                contentSize: metrics.contentSize,
+                contentInsets: metrics.contentInsets)
+                == CGPoint(x: -24, y: -20))
+        #expect(
+            CanvasWorkspaceMath.targetOffset(
+                logicalCenter: CGPoint(x: 10_000, y: 10_000),
+                zoom: 1,
+                viewport: metrics.containerSize,
+                contentSize: metrics.contentSize,
+                contentInsets: metrics.contentInsets)
+                == CGPoint(x: 2_540, y: 2_132))
+    }
+
     @Test("Cem ciclos não acumulam drift")
     func repeatedCaptureRestoreDoesNotDrift() {
         let viewport = CGSize(width: 900, height: 700)

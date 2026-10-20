@@ -25,6 +25,8 @@ final class CanvasZoomController {
     var contentExtent: CGSize = .zero
     /// Insets reais reportados pela geometria do ScrollView.
     var contentInsets: EdgeInsets = EdgeInsets()
+    /// Retângulo visível em coordenadas do conteúdo, fornecido pelo ScrollGeometry.
+    var visibleRect: CGRect = .zero
 
     /// Lido a cada rolagem; não precisa redesenhar nada, por isso fica fora da observação.
     @ObservationIgnored var scrollOffset: CGPoint = .zero
@@ -32,6 +34,7 @@ final class CanvasZoomController {
     @ObservationIgnored private var isPinching = false
     @ObservationIgnored private var settleGeneration = 0
     @ObservationIgnored private var pendingTargetZoom: CGFloat?
+    @ObservationIgnored private var configuredAtOrigin = false
     @ObservationIgnored private let runSettleAnimation: AnimationRunner
     @ObservationIgnored var onWorkspaceChange: ((CanvasWorkspaceState) -> Void)?
 
@@ -56,6 +59,7 @@ final class CanvasZoomController {
         invalidatePendingSettle()
         zoom = CanvasZoom.clamped(CGFloat(workspace.confirmedZoom))
         liveScale = 1
+        configuredAtOrigin = workspace.isAtOrigin
         if let center = workspace.logicalCenter {
             liveAnchor = CGPoint(x: center.x, y: center.y)
         } else {
@@ -79,12 +83,22 @@ final class CanvasZoomController {
 
     /// Captura apenas o estado confirmado, usando o centro lógico visível.
     func confirmedWorkspace(contentInsets: EdgeInsets? = nil) -> CanvasWorkspaceState {
-        let center = CanvasWorkspaceMath.logicalCenter(
-            contentOffset: scrollOffset,
-            viewport: viewport,
-            zoom: zoom,
-            contentInsets: contentInsets ?? self.contentInsets
-        )
+        let insets = contentInsets ?? self.contentInsets
+        let atLeading = abs(scrollOffset.x + insets.leading) <= 1 && abs(scrollOffset.y + insets.top) <= 1
+        if configuredAtOrigin && atLeading {
+            return CanvasWorkspaceState(confirmedZoom: Double(zoom), anchor: .origin)
+        }
+        configuredAtOrigin = false
+        let center: CGPoint
+        if !visibleRect.isEmpty {
+            center = CanvasWorkspaceMath.logicalCenter(visibleRect: visibleRect, zoom: zoom)
+        } else {
+            center = CanvasWorkspaceMath.logicalCenter(
+                contentOffset: scrollOffset,
+                viewport: viewport,
+                zoom: zoom,
+                contentInsets: insets)
+        }
         if center == .zero && scrollOffset == .zero {
             return CanvasWorkspaceState(confirmedZoom: Double(zoom), anchor: .origin)
         }
@@ -120,10 +134,12 @@ final class CanvasZoomController {
     func fitToWindow() {
         let target = CanvasZoom.fitting(extent: contentExtent, in: viewport)
         invalidatePendingSettle()
+        configuredAtOrigin = false
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
             zoom = target
             liveScale = 1
             scrollOffset = .zero
+            visibleRect = CGRect(origin: .zero, size: viewport)
             scrollPosition.scrollTo(point: .zero)
         }
         onWorkspaceChange?(confirmedWorkspace())
@@ -174,6 +190,7 @@ final class CanvasZoomController {
             liveScale = 1
             pendingTargetZoom = nil
             scrollOffset = offset
+            visibleRect = CGRect(origin: offset, size: viewport)
             scrollPosition.scrollTo(point: offset)
         }
         onWorkspaceChange?(confirmedWorkspace())

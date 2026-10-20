@@ -29,6 +29,9 @@ final class BoardWindowSession {
     @ObservationIgnored private var restoration = CanvasRestorationStateMachine()
     @ObservationIgnored private var pendingBoard: Board?
     @ObservationIgnored private var pendingWorkspace: BoardWorkspaceState?
+    @ObservationIgnored private var pendingBoardSequence: UInt64?
+    @ObservationIgnored private var pendingWorkspaceSequence: UInt64?
+    @ObservationIgnored private var mutationSequence: UInt64 = 0
     @ObservationIgnored private var pendingAutosaveDebounce: Task<Void, Never>?
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
     @ObservationIgnored private var restoreTarget: CGPoint?
@@ -117,6 +120,7 @@ final class BoardWindowSession {
         zoom.viewport = metrics.containerSize
         zoom.scrollOffset = metrics.contentOffset
         zoom.contentInsets = metrics.contentInsets
+        zoom.visibleRect = metrics.visibleRect
         guard restorationPhase != .ready else { return }
         guard let center = workspace.canvas.logicalCenter else {
             if restorationPhase == .awaitingLayout {
@@ -175,7 +179,7 @@ final class BoardWindowSession {
     }
 
     func setNavigation(path: [Destination], filter: BoardFilter?) {
-        guard let model else { return }
+        guard restoration.acceptsPersistence, let model else { return }
         let newPath = Self.workspaceDestinations(from: path, board: model.board)
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
         self.path = Self.destinations(from: newPath, board: model.board)
@@ -197,8 +201,10 @@ final class BoardWindowSession {
     }
 
     func captureBoardIfNeeded() {
-        guard restoration.acceptsPersistence, let model else { return }
+        guard let model else { return }
+        mutationSequence &+= 1
         pendingBoard = model.board
+        pendingBoardSequence = mutationSequence
         scheduleAutosave()
     }
 
@@ -238,8 +244,10 @@ final class BoardWindowSession {
         var changed = workspace
         update(&changed)
         guard changed != workspace else { return }
+        mutationSequence &+= 1
         workspace = changed
         pendingWorkspace = changed
+        pendingWorkspaceSequence = mutationSequence
         scheduleAutosave()
     }
 
@@ -264,8 +272,12 @@ final class BoardWindowSession {
         autosaveFailed = false
         let board = pendingBoard
         let savedWorkspace = pendingWorkspace
+        let boardSequence = pendingBoardSequence
+        let workspaceSequence = pendingWorkspaceSequence
         pendingBoard = nil
         pendingWorkspace = nil
+        pendingBoardSequence = nil
+        pendingWorkspaceSequence = nil
         let previous = sessionPipeline
         sessionPipeline = Task { [weak self] in
             await previous?.value
@@ -288,8 +300,16 @@ final class BoardWindowSession {
                 error = nil
                 autosaveFailed = false
             } catch {
-                if let board { pendingBoard = board }
-                if let savedWorkspace { pendingWorkspace = savedWorkspace }
+                let hasNewerBoard = pendingBoardSequence.map { $0 > (boardSequence ?? 0) } ?? false
+                if let board, !hasNewerBoard {
+                    pendingBoard = board
+                    pendingBoardSequence = boardSequence
+                }
+                let hasNewerWorkspace = pendingWorkspaceSequence.map { $0 > (workspaceSequence ?? 0) } ?? false
+                if let savedWorkspace, !hasNewerWorkspace {
+                    pendingWorkspace = savedWorkspace
+                    pendingWorkspaceSequence = workspaceSequence
+                }
                 isDirty = true
                 autosaveFailed = true
                 self.error = "Não foi possível salvar o mural: \(error.localizedDescription)"

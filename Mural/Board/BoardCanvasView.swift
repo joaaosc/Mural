@@ -77,6 +77,7 @@ struct BoardCanvasView: View {
             zoom.viewport = metrics.containerSize
             zoom.scrollOffset = metrics.contentOffset
             zoom.contentInsets = metrics.contentInsets
+            zoom.visibleRect = metrics.visibleRect
             onCanvasGeometryReady(boardID, generation, metrics)
         }
         .onScrollPhaseChange { _, phase in

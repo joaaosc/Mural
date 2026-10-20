@@ -82,8 +82,8 @@ private struct LoadedRootView: View {
                     session.recordCanvas(boardID: boardID, generation: generation, state: state)
                 }
             )
-            .allowsHitTesting(path.isEmpty)
-            .accessibilityHidden(!path.isEmpty)
+            .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
+            .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
 
             ForEach(Array(path.enumerated()), id: \.element.id) { index, destination in
                 pageBackground(for: destination)
@@ -98,7 +98,7 @@ private struct LoadedRootView: View {
         }
         .ignoresSafeArea()
         .navigationTitle(session.title)
-        .focusedSceneValue(path.isEmpty ? session.actions : nil)
+        .focusedSceneValue(path.isEmpty && session.restorationPhase == .ready ? session.actions : nil)
         .overlay(alignment: .topLeading) {
             FloatingToolbar(
                 level: NavigationLevel(path: path), onBack: goBack,
@@ -106,6 +106,16 @@ private struct LoadedRootView: View {
             )
             .padding(12)
             .containerCornerOffset(.top)
+            .disabled(session.restorationPhase != .ready)
+        }
+        .overlay {
+            if session.restorationPhase != .ready {
+                ProgressView("Restaurando mural…")
+                    .padding(20)
+                    .glassEffect()
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Restaurando mural")
+            }
         }
         .overlay(alignment: .top) {
             if let message = model.lastError ?? session.error {
