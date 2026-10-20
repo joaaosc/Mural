@@ -1,27 +1,22 @@
 import SwiftUI
 
 /// Controles do canto inferior direito do mural: menu de visão (zoom) e adicionar.
+/// Os atalhos de zoom ficam no menu Visualizar.
 struct CanvasControls: View {
-    var zoomPercent: Int
-    var onFit: () -> Void
-    var onActualSize: () -> Void
-    var onZoomIn: () -> Void
-    var onZoomOut: () -> Void
+    let zoom: CanvasZoomController
     var onAdd: () -> Void
+
+    private var zoomPercent: Int { Int((zoom.displayedZoom * 100).rounded()) }
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 Menu {
-                    Button("Ajustar à janela", action: onFit)
-                        .keyboardShortcut("0", modifiers: .command)
-                    Button("Tamanho real", action: onActualSize)
-                        .keyboardShortcut("1", modifiers: .command)
+                    Button("Aproximar", action: zoom.zoomIn)
+                    Button("Afastar", action: zoom.zoomOut)
                     Divider()
-                    Button("Aproximar", action: onZoomIn)
-                        .keyboardShortcut("=", modifiers: .command)
-                    Button("Afastar", action: onZoomOut)
-                        .keyboardShortcut("-", modifiers: .command)
+                    Button("Tamanho real", action: zoom.actualSize)
+                    Button("Ajustar à janela", action: zoom.fitToWindow)
                 } label: {
                     Label("Visão: \(zoomPercent)%", systemImage: "house")
                         .labelStyle(.iconOnly)
@@ -35,14 +30,14 @@ struct CanvasControls: View {
                     .labelStyle(.iconOnly)
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
-                    .help("Adicionar arquivos (⌘O) — ou cole com ⌘V")
+                    .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
             }
         }
     }
 }
 
 #Preview {
-    CanvasControls(zoomPercent: 100, onFit: {}, onActualSize: {}, onZoomIn: {}, onZoomOut: {}, onAdd: {})
+    CanvasControls(zoom: CanvasZoomController(), onAdd: {})
         .padding(40)
         .background(Theme.canvas)
 }

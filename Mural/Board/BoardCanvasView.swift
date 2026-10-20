@@ -9,30 +9,29 @@ struct BoardCanvasView: View {
     var onOpen: ([Destination]) -> Void
     var onAdd: () -> Void
 
-    @State private var zoom: CGFloat = 1
-    @State private var zoomAtGestureStart: CGFloat = 1
-    @State private var viewport: CGSize = .zero
+    @State private var zoom = CanvasZoomController()
     @State private var hoveredFolder: UUID?
-    @State private var scrollPosition = ScrollPosition()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let zoomRange: ClosedRange<CGFloat> = 0.4...2.5
+    /// Folga em volta dos cartões, para o mural não terminar colado no último.
     private static let margin: CGFloat = 240
 
-    /// Tamanho do conteúdo sem zoom: até o último cartão, mais uma margem.
-    private var contentSize: CGSize {
-        let items = model.rootItems
-        let maxX = items.map { $0.position.x + BoardLayout.cardSize(for: $0.kind).width }.max() ?? 0
-        let maxY = items.map { $0.position.y + BoardLayout.cardSize(for: $0.kind).height }.max() ?? 0
-        return CGSize(
-            width: max(maxX + Self.margin, viewport.width / zoom),
-            height: max(maxY + Self.margin, viewport.height / zoom)
-        )
-    }
-
     var body: some View {
+        let items = model.rootItems
+        let extent = BoardLayout.extent(of: items)
+        let viewport = zoom.viewport
+        // Como num quadro branco: sempre uma tela de folga à direita e embaixo, para o
+        // zoom poder manter parado o ponto sob os dedos (ou o centro da janela).
+        let slack = CGSize(width: viewport.width / zoom.zoom, height: viewport.height / zoom.zoom)
+        let contentSize = CGSize(
+            width: max(extent.width + Self.margin, slack.width) + slack.width,
+            height: max(extent.height + Self.margin, slack.height) + slack.height
+        )
+        let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
+
         ScrollView([.horizontal, .vertical]) {
             ZStack(alignment: .topLeading) {
-                ForEach(model.rootItems) { item in
+                ForEach(items) { item in
                     cardGroup(for: item)
                         .offset(x: item.position.x, y: item.position.y)
                         .opacity(opacity(for: item))
@@ -40,29 +39,29 @@ struct BoardCanvasView: View {
                 }
             }
             .frame(width: contentSize.width, height: contentSize.height, alignment: .topLeading)
-            .scaleEffect(zoom, anchor: .topLeading)
-            .frame(width: contentSize.width * zoom, height: contentSize.height * zoom, alignment: .topLeading)
+            .scaleEffect(zoom.zoom, anchor: .topLeading)
+            .frame(width: layoutSize.width, height: layoutSize.height, alignment: .topLeading)
+            // Escala visual da pinça, ancorada no ponto entre os dedos.
+            .scaleEffect(zoom.liveScale, anchor: unitPoint(zoom.liveAnchor, in: layoutSize))
         }
-        .scrollPosition($scrollPosition)
+        .scrollPosition($zoom.scrollPosition)
+        .onScrollGeometryChange(for: CGPoint.self, of: \.contentOffset) { _, offset in zoom.scrollOffset = offset }
         .discreetScrollIndicators([.horizontal, .vertical])
         .background(Theme.canvas)
-        .onGeometryChange(for: CGSize.self, of: \.size) { viewport = $0 }
+        .onGeometryChange(for: CGSize.self, of: \.size) { zoom.viewport = $0 }
+        .onChange(of: CGSize(width: extent.width, height: extent.height), initial: true) { zoom.contentExtent = $1 }
+        .onChange(of: reduceMotion, initial: true) { zoom.reduceMotion = $1 }
         .gesture(
             MagnifyGesture()
-                .onChanged { value in setZoom(zoomAtGestureStart * value.magnification, animated: false) }
-                .onEnded { _ in zoomAtGestureStart = zoom }
+                .onChanged { zoom.pinchChanged(magnification: $0.magnification, startLocation: $0.startLocation) }
+                .onEnded { zoom.pinchEnded(magnification: $0.magnification) }
         )
         .overlay(alignment: .bottomTrailing) {
-            CanvasControls(
-                zoomPercent: Int((zoom * 100).rounded()),
-                onFit: fitToWindow,
-                onActualSize: { setZoom(1) },
-                onZoomIn: { setZoom(zoom * 1.25) },
-                onZoomOut: { setZoom(zoom / 1.25) },
-                onAdd: onAdd
-            )
-            .padding(18)
+            CanvasControls(zoom: zoom, onAdd: onAdd)
+                .padding(18)
         }
+        // O menu Visualizar só age no mural quando ele está na frente.
+        .focusedSceneValue(hero.presented.isEmpty ? zoom : nil)
         .animation(.smooth(duration: 0.25), value: hoveredFolder)
         .animation(.smooth(duration: 0.25), value: filter)
     }
@@ -110,24 +109,9 @@ struct BoardCanvasView: View {
         return filter?.opacity(for: item.kind) ?? 1
     }
 
-    // MARK: Zoom
-
-    private func setZoom(_ value: CGFloat, animated: Bool = true) {
-        let clamped = min(max(value, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
-        if animated {
-            withAnimation(.smooth(duration: 0.3)) { zoom = clamped }
-        } else {
-            zoom = clamped
-        }
-        zoomAtGestureStart = clamped
-    }
-
-    private func fitToWindow() {
-        let items = model.rootItems
-        let maxX = (items.map { $0.position.x + BoardLayout.cardSize(for: $0.kind).width }.max() ?? 400) + 80
-        let maxY = (items.map { $0.position.y + BoardLayout.cardSize(for: $0.kind).height }.max() ?? 300) + 80
-        guard viewport.width > 0, viewport.height > 0 else { return }
-        setZoom(min(viewport.width / maxX, viewport.height / maxY))
-        withAnimation(.smooth(duration: 0.3)) { scrollPosition.scrollTo(point: .zero) }
+    /// Ponto em coordenadas do conteúdo convertido para a âncora relativa de `scaleEffect`.
+    private func unitPoint(_ point: CGPoint, in size: CGSize) -> UnitPoint {
+        guard size.width > 0, size.height > 0 else { return .topLeading }
+        return UnitPoint(x: point.x / size.width, y: point.y / size.height)
     }
 }

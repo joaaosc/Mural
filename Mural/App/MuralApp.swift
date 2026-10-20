@@ -13,11 +13,6 @@ struct MuralApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1240, height: 800)
-        .commands {
-            CommandGroup(replacing: .newItem) {
-                Button("Importar…") { commands.isImporterPresented = true }
-                    .keyboardShortcut("o")
-            }
-        }
+        .commands { MuralCommands(state: commands) }
     }
 }
