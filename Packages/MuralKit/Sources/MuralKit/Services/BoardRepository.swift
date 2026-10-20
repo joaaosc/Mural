@@ -4,15 +4,22 @@ import Foundation
 /// nenhum caminho global ou "mural atual" participa da leitura ou gravação.
 public actor BoardRepository {
     public let rootDirectory: URL
+    public let packageName: String?
     private var faultInjection: BoardRepositoryFaultInjection
 
-    public init(rootDirectory: URL, faultInjection: BoardRepositoryFaultInjection = .none) {
+    public init(
+        rootDirectory: URL,
+        packageName: String? = nil,
+        faultInjection: BoardRepositoryFaultInjection = .none
+    ) {
         self.rootDirectory = rootDirectory
+        self.packageName = packageName
         self.faultInjection = faultInjection
     }
 
     public func packageURL(for id: BoardID) -> URL {
-        rootDirectory.appendingPathComponent("\(id.rawValue.uuidString).mural", isDirectory: true)
+        rootDirectory.appendingPathComponent(
+            packageName ?? "\(id.rawValue.uuidString).mural", isDirectory: true)
     }
 
     public func load(_ id: BoardID) throws -> BoardRepositoryLoadResult? {
@@ -111,6 +118,10 @@ public actor BoardRepository {
     }
 
     public func save(_ snapshot: BoardRepositorySnapshot) async throws {
+        try await save(snapshot, copyingItemsFrom: nil)
+    }
+
+    public func save(_ snapshot: BoardRepositorySnapshot, copyingItemsFrom sourceItems: URL?) async throws {
         let id = snapshot.manifest.id
         let package = packageURL(for: id)
         let existingManifest = try existingManifest(at: package)
@@ -150,7 +161,7 @@ public actor BoardRepository {
                         workspace: manifest.workspaceRevision
                     )
                 }
-                return
+                if manifest.name == existingManifest.name { return }
             }
         }
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
@@ -175,9 +186,10 @@ public actor BoardRepository {
             let items = staging.appendingPathComponent("Items", isDirectory: true)
             try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
             let oldItems = package.appendingPathComponent("Items", isDirectory: true)
-            if FileManager.default.fileExists(atPath: oldItems.path) {
+            let itemsSource = sourceItems ?? oldItems
+            if FileManager.default.fileExists(atPath: itemsSource.path) {
                 try FileManager.default.removeItem(at: items)
-                try FileManager.default.copyItem(at: oldItems, to: items)
+                try FileManager.default.copyItem(at: itemsSource, to: items)
             }
             try encode(manifest).write(to: staging.appendingPathComponent("manifest.json"), options: .atomic)
             try encode(snapshot.board).write(to: staging.appendingPathComponent("board.json"), options: .atomic)
