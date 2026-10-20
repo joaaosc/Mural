@@ -25,11 +25,13 @@ struct ItemImporterTests {
                 pixels[i + 2] = 0  // vermelho puro
             }
         }
-        let context = try #require(
-            CGContext(
-                data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        let image = try #require(context.makeImage())
+        let image = try pixels.withUnsafeMutableBytes { buffer in
+            let context = try #require(
+                CGContext(
+                    data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            return try #require(context.makeImage())
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("teste.png")
         let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))

@@ -33,16 +33,21 @@ public enum ImageInspector {
     public static func palette(from image: CGImage, count: Int) -> [PaletteColor] {
         let width = image.width
         let height = image.height
-        guard width > 0, height > 0 else { return [] }
+        guard width > 0, height > 0, count > 0 else { return [] }
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        guard
-            let context = CGContext(
-                data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            )
-        else { return [] }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let didDraw = pixels.withUnsafeMutableBytes { buffer in
+            guard
+                let context = CGContext(
+                    data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                )
+            else { return false }
+            // O contexto só pode usar o armazenamento enquanto o buffer é válido.
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard didDraw else { return [] }
 
         // Agrupa em caixas de 32 níveis por canal (8 por canal = 512 caixas).
         var buckets: [Int: (sum: (Double, Double, Double), n: Int)] = [:]
