@@ -48,6 +48,7 @@ struct ImageDetailView: View {
             .padding(.bottom, 110)
             .frame(maxWidth: .infinity)
         }
+        .discreetScrollIndicators()
         .onAppear { caption = item.text ?? "" }
         // Sair da tela cancela a espera acima: grava aqui o que ainda não foi gravado.
         .onDisappear { saveCaptionIfChanged() }

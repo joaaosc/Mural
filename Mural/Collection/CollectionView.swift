@@ -31,7 +31,7 @@ struct CollectionView: View {
             .padding(.top, 70)
             .padding(.bottom, 90)
         }
-        .scrollIndicators(.automatic)
+        .discreetScrollIndicators()
         .overlay(alignment: .topTrailing) {
             FolderInfoButton(folder: folder, children: children)
                 .padding(12)

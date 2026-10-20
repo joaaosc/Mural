@@ -31,6 +31,7 @@ struct TextDetailView: View {
                 .padding(.bottom, 110)
                 .frame(maxWidth: .infinity)
             }
+            .discreetScrollIndicators()
         }
     }
 }

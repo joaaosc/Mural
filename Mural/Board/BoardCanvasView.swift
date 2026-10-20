@@ -44,6 +44,7 @@ struct BoardCanvasView: View {
             .frame(width: contentSize.width * zoom, height: contentSize.height * zoom, alignment: .topLeading)
         }
         .scrollPosition($scrollPosition)
+        .discreetScrollIndicators([.horizontal, .vertical])
         .background(Theme.canvas)
         .onGeometryChange(for: CGSize.self, of: \.size) { viewport = $0 }
         .gesture(
