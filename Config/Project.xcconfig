@@ -9,6 +9,3 @@ SWIFT_STRICT_CONCURRENCY = complete
 SWIFT_OPTIMIZATION_LEVEL[config=Debug] = -Onone
 SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Debug] = DEBUG $(inherited)
 ONLY_ACTIVE_ARCH[config=Debug] = YES
-
-// Proteções de execução exigidas para distribuir e autenticar o app.
-ENABLE_HARDENED_RUNTIME = YES
