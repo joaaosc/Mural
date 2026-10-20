@@ -117,10 +117,26 @@ public final class BoardModel {
 
     /// Apaga o cartão (e, se for pasta, o conteúdo dela) junto com os arquivos guardados.
     public func delete(_ itemID: UUID) {
-        for item in board.remove(id: itemID) {
+        guard !isPersistenceSuspended else {
+            lastError = "Não foi possível apagar o item: a persistência está suspensa. Nenhum arquivo foi removido."
+            return
+        }
+
+        var candidate = board
+        let removed = candidate.remove(id: itemID)
+        do {
+            // O mural precisa estar gravado antes de publicar a remoção em memória
+            // ou apagar os arquivos que ele ainda referencia.
+            try store.save(candidate)
+        } catch {
+            lastError = "Não foi possível apagar o item: \(error.localizedDescription). Nenhum arquivo foi removido."
+            return
+        }
+
+        board = candidate
+        for item in removed {
             importer.removeFile(of: item)
         }
-        persist()
     }
 
     // MARK: Interno

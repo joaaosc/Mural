@@ -60,6 +60,48 @@ struct BoardModelTests {
         #expect(model.item(id: folder.id) == nil)
         #expect(model.item(id: media.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: file.path))
+        let reopened = BoardModel(store: model.store)
+        #expect(reopened.item(id: folder.id) == nil)
+        #expect(reopened.item(id: media.id) == nil)
+    }
+
+    @Test("Falha ao salvar a exclusão preserva mural e arquivos")
+    func deleteSaveFailurePreservesBoardAndFiles() throws {
+        let store = makeStore()
+        let model = BoardModel(store: store)
+        let media = try #require(model.importData(Data([3, 4, 5]), fileExtension: "mov", kind: .video, title: "Clipe"))
+        let file = try #require(model.fileURL(for: media))
+        let boardBeforeDelete = model.board
+
+        // Faz o destino do JSON ser uma pasta: a leitura inicial continua válida,
+        // mas a próxima gravação falha sem depender de permissões do sistema.
+        try FileManager.default.removeItem(at: store.fileURL)
+        try FileManager.default.createDirectory(at: store.fileURL, withIntermediateDirectories: true)
+
+        model.delete(media.id)
+
+        #expect(model.board == boardBeforeDelete)
+        #expect(model.item(id: media.id) != nil)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(model.lastError != nil)
+    }
+
+    @Test("Persistência suspensa não altera mural nem remove arquivos")
+    func deleteWhilePersistenceSuspendedPreservesBoardAndFiles() throws {
+        let store = makeStore()
+        try FileManager.default.createDirectory(at: store.fileURL, withIntermediateDirectories: true)
+        let model = BoardModel(store: store)
+        let media = try #require(model.importData(Data([6, 7, 8]), fileExtension: "mov", kind: .video, title: "Clipe"))
+        let file = try #require(model.fileURL(for: media))
+        let boardBeforeDelete = model.board
+
+        #expect(model.isPersistenceSuspended)
+        model.delete(media.id)
+
+        #expect(model.board == boardBeforeDelete)
+        #expect(model.item(id: media.id) != nil)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(model.lastError != nil)
     }
 
     @Test("Arquivo que falha é relatado e os outros entram")
