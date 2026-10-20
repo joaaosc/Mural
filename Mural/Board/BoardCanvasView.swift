@@ -51,16 +51,20 @@ struct BoardCanvasView: View {
         .scrollPosition($zoom.scrollPosition)
         .onScrollGeometryChange(for: CGPoint.self, of: \.contentOffset) { _, offset in zoom.scrollOffset = offset }
         .discreetScrollIndicators([.horizontal, .vertical])
-        .background(Theme.canvas)
-        .overlay {
-            CanvasPulseOverlay(
-                trigger: pulseTrigger + interactionPulseTrigger,
-                isEnabled: !reduceMotion
-                    && !reduceTransparency
-                    && scenePhase == .active
-                    && hero.presented.isEmpty
-            )
-            .clipShape(Rectangle())
+        .background {
+            Theme.canvas
+                .overlay {
+                    CanvasPulseOverlay(
+                        trigger: pulseTrigger + interactionPulseTrigger,
+                        isEnabled: !reduceMotion
+                            && !reduceTransparency
+                            && scenePhase == .active
+                            && hero.presented.isEmpty
+                    )
+                    .clipped()
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .onGeometryChange(for: CGSize.self, of: \.size) { zoom.viewport = $0 }
         .onChange(of: CGSize(width: extent.width, height: extent.height), initial: true) { zoom.contentExtent = $1 }
