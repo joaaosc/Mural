@@ -32,18 +32,3 @@ enum ThumbnailLoader {
         }
     }
 }
-
-/// Guarda as miniaturas já geradas para não refazer a cada redesenho.
-@MainActor
-final class ThumbnailCache {
-    static let shared = ThumbnailCache()
-    private var images: [String: CGImage] = [:]
-
-    func image(for url: URL, kind: ItemKind, maxPixelSize: Int) async -> CGImage? {
-        let key = "\(url.path)#\(maxPixelSize)"
-        if let cached = images[key] { return cached }
-        let image = await ThumbnailLoader.cgImage(for: url, kind: kind, maxPixelSize: maxPixelSize)
-        if let image { images[key] = image }
-        return image
-    }
-}

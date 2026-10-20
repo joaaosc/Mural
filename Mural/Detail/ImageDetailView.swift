@@ -40,7 +40,13 @@ struct ImageDetailView: View {
                     .font(.reading)
                     .lineLimit(1...8)
                     .frame(maxWidth: 440)
-                    .onChange(of: caption) { model.setCaption(caption, for: item.id) }
+                    .task(id: caption) {
+                        // Grava meio segundo depois da última tecla, não a cada tecla.
+                        guard caption != (item.text ?? "") else { return }
+                        try? await Task.sleep(for: .milliseconds(500))
+                        guard !Task.isCancelled else { return }
+                        model.setCaption(caption, for: item.id)
+                    }
             }
             .padding(.top, 80)
             .padding(.bottom, 110)

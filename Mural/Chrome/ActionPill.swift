@@ -1,15 +1,5 @@
 import SwiftUI
 
-/// Uma ação da pílula do detalhe.
-struct PillAction: Identifiable {
-    let title: String
-    let symbol: String
-    var role: ButtonRole?
-    let perform: () -> Void
-
-    var id: String { title }
-}
-
 /// Pílula escura flutuante com as ações do item aberto (copiar, abrir, apagar).
 struct ActionPill: View {
     let actions: [PillAction]
