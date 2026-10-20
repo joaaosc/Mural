@@ -29,4 +29,16 @@ extension ItemKind {
             }
             .joined(separator: ", ")
     }
+
+    /// Aviso mostrado antes de apagar um cartão.
+    static func deleteWarning(for item: BoardItem, childCount: Int) -> String {
+        guard item.kind == .folder else {
+            return "O cartão e o arquivo guardado pelo Mural serão removidos. O arquivo original não é tocado."
+        }
+        return switch childCount {
+        case 0: "A pasta vazia será removida."
+        case 1: "A pasta e o item dentro dela serão removidos."
+        default: "A pasta e os \(childCount) itens dentro dela serão removidos."
+        }
+    }
 }

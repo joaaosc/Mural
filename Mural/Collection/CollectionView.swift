@@ -40,22 +40,9 @@ struct CollectionView: View {
     }
 
     private func card(for item: BoardItem) -> some View {
-        HeroSlot(id: item.id, context: hero) {
-            Button {
-                onOpenItem(item.id)
-            } label: {
-                CardView(item: item, model: model)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.title)
-            .contextMenu {
-                Button("Abrir") { onOpenItem(item.id) }
-                Divider()
-                Button("Apagar", role: .destructive) { model.delete(item.id) }
-            }
-        }
-        .aspectRatio(CardView.aspectRatio(for: item), contentMode: .fit)
-        .opacity(filter.map { $0.matches(item.kind) ? 1 : 0.25 } ?? 1)
+        CardButton(item: item, model: model, hero: hero) { onOpenItem(item.id) }
+            .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
+            .opacity(filter?.opacity(for: item.kind) ?? 1)
     }
 
     private var emptyState: some View {

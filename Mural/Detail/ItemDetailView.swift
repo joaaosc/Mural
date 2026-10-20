@@ -23,7 +23,7 @@ struct ItemDetailView: View {
                     model.delete(item.id)
                 }
             } message: {
-                Text("O cartão e o arquivo guardado pelo Mural serão removidos. O arquivo original não é tocado.")
+                Text(ItemKind.deleteWarning(for: item, childCount: 0))
             }
     }
 
@@ -46,7 +46,9 @@ struct ItemDetailView: View {
     }
 
     private var actions: [PillAction] {
-        var actions = [PillAction(title: "Copiar", symbol: "square.on.square", perform: copyToPasteboard)]
+        var actions = [
+            PillAction(title: "Copiar", symbol: "square.on.square") { PasteboardExporter.copy(item, from: model) }
+        ]
         if let url = model.fileURL(for: item) {
             actions.append(
                 PillAction(title: "Abrir no app padrão", symbol: "arrow.up.forward.app") {
@@ -55,28 +57,5 @@ struct ItemDetailView: View {
         }
         actions.append(PillAction(title: "Apagar", symbol: "trash", role: .destructive) { isConfirmingDelete = true })
         return actions
-    }
-
-    private func copyToPasteboard() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        if let url = model.fileURL(for: item) {
-            pasteboard.writeObjects([url as NSURL])
-        } else if let checklist = item.checklist {
-            pasteboard.setString(Self.plainText(of: checklist), forType: .string)
-        } else {
-            pasteboard.setString(item.text ?? item.title, forType: .string)
-        }
-    }
-
-    /// Lista em texto simples, no mesmo formato que o mural reconhece ao colar.
-    static func plainText(of document: ChecklistDocument) -> String {
-        var lines = [document.title]
-        if !document.intro.isEmpty { lines.append(document.intro) }
-        for section in document.sections {
-            if !section.title.isEmpty { lines.append(section.title) }
-            lines += section.entries.map { "- [\($0.isDone ? "x" : " ")] \($0.text)" }
-        }
-        return lines.joined(separator: "\n")
     }
 }

@@ -18,10 +18,7 @@ struct PaperCard: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.paper, in: .rect(cornerRadius: Theme.cardCorner))
-        .cardShadow()
+        .paperSheet()
     }
 }
 

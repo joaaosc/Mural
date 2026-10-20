@@ -11,9 +11,9 @@ struct CardView: View {
         case .text:
             PaperCard(title: item.title, text: item.text ?? "")
         case .sticky:
-            StickyCard(text: item.text ?? item.title, color: item.stickyColor)
+            StickyCard(text: item.displayText, color: item.stickyColor)
         case .checklist:
-            ChecklistCard(document: item.checklist ?? ChecklistDocument(title: item.title, sections: []))
+            ChecklistCard(document: item.checklistDocument)
         case .image, .video, .pdf:
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
         case .folder:
@@ -25,20 +25,6 @@ struct CardView: View {
                 peekURL: peek.flatMap(model.fileURL(for:)),
                 peekKind: peek?.kind
             )
-        }
-    }
-
-    /// Proporção largura ÷ altura usada na grade das coleções.
-    static func aspectRatio(for item: BoardItem) -> CGFloat {
-        if item.kind == .image, let meta = item.imageMetadata, meta.pixelHeight > 0 {
-            return CGFloat(meta.pixelWidth) / CGFloat(meta.pixelHeight)
-        }
-        return switch item.kind {
-        case .image: 0.75
-        case .video: 0.8
-        case .pdf: 0.77
-        case .text, .checklist, .folder: 0.72
-        case .sticky: 1.25
         }
     }
 }

@@ -7,7 +7,7 @@ struct TextDetailView: View {
 
     var body: some View {
         if item.kind == .sticky {
-            Text(item.text ?? item.title)
+            Text(item.displayText)
                 .font(.system(.title2, design: .monospaced))
                 .foregroundStyle(Theme.stickyInk)
                 .textSelection(.enabled)

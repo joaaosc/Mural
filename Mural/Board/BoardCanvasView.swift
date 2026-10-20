@@ -92,20 +92,7 @@ struct BoardCanvasView: View {
     }
 
     private func cardButton(_ item: BoardItem, open destinations: [Destination]) -> some View {
-        HeroSlot(id: item.id, context: hero) {
-            Button {
-                open(destinations)
-            } label: {
-                CardView(item: item, model: model)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.title)
-            .contextMenu {
-                Button("Abrir") { open(destinations) }
-                Divider()
-                Button("Apagar", role: .destructive) { model.delete(item.id) }
-            }
-        }
+        CardButton(item: item, model: model, hero: hero) { open(destinations) }
     }
 
     /// Abre um nível e desliga o destaque de pasta: a prévia sai na mesma animação em que
@@ -119,8 +106,7 @@ struct BoardCanvasView: View {
     /// ou o que não combina com o filtro escolhido.
     private func opacity(for item: BoardItem) -> Double {
         if let hoveredFolder, hoveredFolder != item.id { return 0.3 }
-        if let filter, !filter.matches(item.kind) { return 0.25 }
-        return 1
+        return filter?.opacity(for: item.kind) ?? 1
     }
 
     // MARK: Zoom

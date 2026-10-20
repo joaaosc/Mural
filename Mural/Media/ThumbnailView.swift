@@ -11,8 +11,9 @@ struct ThumbnailView: View {
     @State private var image: CGImage?
 
     var body: some View {
+        let shown = image ?? url.flatMap { ThumbnailCache.shared.cachedImage(for: $0, maxPixelSize: maxPixelSize) }
         ZStack {
-            if let image {
+            if let image = shown {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)

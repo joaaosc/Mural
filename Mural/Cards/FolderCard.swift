@@ -43,9 +43,6 @@ struct FolderCard: View {
                 .font(.system(size: 6))
                 .foregroundStyle(.tertiary)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.paper, in: .rect(cornerRadius: Theme.cardCorner))
-        .cardShadow()
+        .paperSheet()
     }
 }

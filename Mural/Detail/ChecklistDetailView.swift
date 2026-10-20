@@ -7,7 +7,7 @@ struct ChecklistDetailView: View {
     let model: BoardModel
 
     var body: some View {
-        let document = item.checklist ?? ChecklistDocument(title: item.title, sections: [])
+        let document = item.checklistDocument
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 VStack(alignment: .leading, spacing: 12) {

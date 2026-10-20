@@ -8,7 +8,7 @@ struct ImageDetailView: View {
 
     @State private var caption = ""
 
-    private var ratio: CGFloat { CardView.aspectRatio(for: item) }
+    private var ratio: CGFloat { BoardLayout.aspectRatio(for: item) }
 
     private var rows: [(label: String, value: String)] {
         let date = item.createdAt.formatted(.dateTime.day().month(.twoDigits).year())
@@ -39,10 +39,9 @@ struct ImageDetailView: View {
                     .frame(maxWidth: 440)
                     .task(id: caption) {
                         // Grava meio segundo depois da última tecla, não a cada tecla.
-                        guard caption != (item.text ?? "") else { return }
                         try? await Task.sleep(for: .milliseconds(500))
                         guard !Task.isCancelled else { return }
-                        model.setCaption(caption, for: item.id)
+                        saveCaptionIfChanged()
                     }
             }
             .padding(.top, 80)
@@ -50,5 +49,12 @@ struct ImageDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .onAppear { caption = item.text ?? "" }
+        // Sair da tela cancela a espera acima: grava aqui o que ainda não foi gravado.
+        .onDisappear { saveCaptionIfChanged() }
+    }
+
+    private func saveCaptionIfChanged() {
+        guard caption != (model.item(id: item.id)?.text ?? "") else { return }
+        model.setCaption(caption, for: item.id)
     }
 }

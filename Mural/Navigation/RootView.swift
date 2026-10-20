@@ -38,13 +38,18 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
+            // Níveis cobertos não recebem cliques nem aparecem para a leitura de tela.
             BoardCanvasView(model: model, hero: hero, filter: filter, onOpen: open, onAdd: { commands.isImporterPresented = true })
+                .allowsHitTesting(path.isEmpty)
+                .accessibilityHidden(!path.isEmpty)
 
             ForEach(Array(path.enumerated()), id: \.element.id) { index, destination in
                 pageBackground(for: destination)
                     .heroLink(destination.id, hero)
                     .zIndex(Double(index * 2 + 1))
                 destinationContent(destination)
+                    .allowsHitTesting(index == path.count - 1)
+                    .accessibilityHidden(index != path.count - 1)
                     .transition(.opacity)
                     .zIndex(Double(index * 2 + 2))
             }
@@ -74,7 +79,7 @@ struct RootView: View {
             return .handled
         }
         .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in
-            withAnimation(.smooth) { _ = PasteboardImporter.paste(into: model, parentID: currentFolderID) }
+            withAnimation(.smooth) { PasteboardImporter.paste(into: model, parentID: currentFolderID) }
         }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
@@ -82,7 +87,7 @@ struct RootView: View {
         }
         .fileImporter(
             isPresented: $commands.isImporterPresented,
-            allowedContentTypes: [.image, .movie, .pdf, .plainText, .text],
+            allowedContentTypes: PasteboardImporter.importableTypes,
             allowsMultipleSelection: true
         ) { result in
             guard case .success(let urls) = result else { return }
@@ -123,8 +128,11 @@ struct RootView: View {
     /// Cada nível começa sem filtro: um destaque escolhido no mural não deve
     /// esmaecer o conteúdo da pasta. O foco fica no mural para ⌘V e Esc continuarem.
     private func open(_ destinations: [Destination]) {
+        // Um nível já aberto não entra de novo: repetiria ids na pilha e na transição.
+        let newLevels = destinations.filter { !path.contains($0) }
+        guard !newLevels.isEmpty else { return }
         withAnimation(navigationAnimation) {
-            path.append(contentsOf: destinations)
+            path.append(contentsOf: newLevels)
             filter = nil
         }
         isCanvasFocused = true

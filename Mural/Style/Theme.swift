@@ -47,6 +47,14 @@ extension View {
     func cardShadow() -> some View {
         shadow(color: .black.opacity(0.10), radius: 6, y: 3)
     }
+
+    /// Folha de papel dos cartões de nota, lista e pasta.
+    func paperSheet() -> some View {
+        padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Theme.paper, in: .rect(cornerRadius: Theme.cardCorner))
+            .cardShadow()
+    }
 }
 
 extension PaletteColor {

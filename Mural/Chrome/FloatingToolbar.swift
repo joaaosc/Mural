@@ -57,7 +57,9 @@ struct FloatingToolbar: View {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(4)
+        // Na coluna, a mesma largura do botão Voltar (rótulo de 56 + margem do vidro).
+        .padding(.horizontal, isRail ? 8 : 4)
+        .padding(.vertical, 4)
     }
 }
 

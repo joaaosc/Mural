@@ -32,6 +32,11 @@ enum BoardFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Opacidade de um cartão sob este filtro: o que não combina fica esmaecido.
+    func opacity(for kind: ItemKind) -> Double {
+        matches(kind) ? 1 : 0.25
+    }
+
     /// Filtros que fazem sentido em cada nível: dentro de uma pasta não há pastas,
     /// e um item aberto sozinho não tem o que filtrar.
     static func available(at level: NavigationLevel) -> [BoardFilter] {
