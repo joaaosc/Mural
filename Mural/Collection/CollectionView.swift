@@ -22,11 +22,9 @@ struct CollectionView: View {
                 } else if media.isEmpty || notes.isEmpty {
                     grid(children, columns: 4)
                 } else {
-                    HStack(alignment: .top, spacing: 28) {
+                    ColumnSplitLayout(fractions: [0.62, 0.38]) {
                         grid(media, columns: 3)
-                            .containerRelativeFrame(.horizontal) { width, _ in (width - 150) * 0.62 }
                         grid(notes, columns: 2)
-                            .containerRelativeFrame(.horizontal) { width, _ in (width - 150) * 0.38 - 28 }
                     }
                 }
             }
