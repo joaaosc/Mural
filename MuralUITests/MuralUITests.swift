@@ -81,6 +81,75 @@ final class MuralUITests: XCTestCase {
         XCTAssertEqual(after.y, expected.y, accuracy: 6)
     }
 
+    /// Arrastar um cartão solto o move sem abri-lo, e a nova posição sobrevive a fechar e reabrir o app.
+    @MainActor
+    func testDraggingCardMovesItAndKeepsPosition() throws {
+        let app = launch()
+        let card = app.buttons["Things I need"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let before = card.frame
+
+        drag(card, dx: 40, dy: 200)
+
+        XCTAssertFalse(app.buttons["Voltar"].waitForExistence(timeout: 1), "arrastar não deve abrir o cartão")
+        let moved = card.frame
+        XCTAssertEqual(moved.minX - before.minX, 40, accuracy: 4)
+        XCTAssertEqual(moved.minY - before.minY, 200, accuracy: 4)
+
+        // A janela pode abrir em outro lugar da tela: compara a posição dentro dela.
+        let window = app.windows.firstMatch.frame
+        let relative = CGPoint(x: moved.minX - window.minX, y: moved.minY - window.minY)
+
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        let again = reopened.buttons["Things I need"].firstMatch
+        XCTAssertTrue(again.waitForExistence(timeout: 10), "o cartão deveria continuar após reabrir")
+        let reopenedWindow = reopened.windows.firstMatch.frame
+        XCTAssertEqual(again.frame.minX - reopenedWindow.minX, relative.x, accuracy: 4)
+        XCTAssertEqual(again.frame.minY - reopenedWindow.minY, relative.y, accuracy: 4)
+    }
+
+    /// Arrastar a pasta com a prévia aberta leva a prévia junto e não abre a pasta.
+    @MainActor
+    func testDraggingFolderMovesItsPreviewToo() throws {
+        let app = launch()
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.hover()
+        let peekCard = app.buttons["Meeting Notes – Andrea and Jasmine"].firstMatch
+        XCTAssertTrue(peekCard.waitForExistence(timeout: 5), "a prévia deveria abrir com o ponteiro sobre a pasta")
+        // Espera a entrada da prévia terminar, para medir os quadros finais.
+        Thread.sleep(forTimeInterval: 0.6)
+        let folderBefore = folder.frame
+        let peekBefore = peekCard.frame
+
+        drag(folder, dx: 160, dy: 0)
+
+        XCTAssertFalse(app.buttons["Voltar"].waitForExistence(timeout: 1), "arrastar não deve abrir a pasta")
+        XCTAssertTrue(peekCard.exists, "a prévia deveria continuar aberta")
+        XCTAssertEqual(folder.frame.minX - folderBefore.minX, 160, accuracy: 4)
+        XCTAssertEqual(peekCard.frame.minX - peekBefore.minX, 160, accuracy: 4)
+    }
+
+    /// Com zoom, o cartão acompanha o ponteiro: o arrasto é medido em pontos do mural, sem o zoom.
+    @MainActor
+    func testDraggingWithZoomKeepsCardUnderPointer() throws {
+        let app = launch()
+        let card = app.buttons["Running list of stuff"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+
+        app.typeKey("=", modifierFlags: .command)
+        Thread.sleep(forTimeInterval: 1.0)
+        let before = card.frame
+
+        drag(card, dx: 0, dy: 150)
+
+        XCTAssertFalse(app.buttons["Voltar"].waitForExistence(timeout: 1), "arrastar não deve abrir o cartão")
+        let after = card.frame
+        XCTAssertEqual(after.minX - before.minX, 0, accuracy: 5)
+        XCTAssertEqual(after.minY - before.minY, 150, accuracy: 5)
+    }
+
     @MainActor
     func testChecklistEntryToggles() throws {
         let app = launch()
@@ -152,6 +221,13 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["foto-na-pasta"].waitForExistence(timeout: 5), "a imagem colada entra na pasta aberta")
         XCTAssertTrue(app.buttons["Meeting Notes – Andrea and Jasmine"].exists, "as notas continuam ao lado")
         XCTAssertEqual(app.state, .runningForeground, "o app continua aberto")
+    }
+
+    /// Arrasta o elemento a partir do centro: segura um instante e solta `dx`, `dy` pontos adiante.
+    @MainActor
+    private func drag(_ element: XCUIElement, dx: CGFloat, dy: CGFloat) {
+        let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.click(forDuration: 0.3, thenDragTo: start.withOffset(CGVector(dx: dx, dy: dy)))
     }
 
     /// PNG 40×30 gerado no teste: nenhum arquivo de imagem é versionado.
