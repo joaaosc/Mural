@@ -17,7 +17,8 @@ public struct BoardStore: Sendable {
 
     /// Pasta padrão do app: Application Support/Mural dentro do contêiner.
     public static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base =
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("Mural", isDirectory: true)
     }

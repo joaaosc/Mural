@@ -42,7 +42,9 @@ struct CollectionView: View {
         MasonryLayout(columns: columns, spacing: 16) {
             ForEach(items) { item in
                 HeroSlot(id: item.id, context: hero) {
-                    Button { onOpenItem(item.id) } label: {
+                    Button {
+                        onOpenItem(item.id)
+                    } label: {
                         CardView(item: item, model: model)
                     }
                     .buttonStyle(.plain)

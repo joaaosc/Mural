@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+
 @testable import MuralKit
 
 @Suite("Importação de conteúdo")
@@ -14,17 +15,20 @@ struct ItemImporterTests {
 
     /// Gera um PNG 16×16 metade vermelho, metade branco, para testar metadados e paleta.
     private func makeTestPNG(in directory: URL) throws -> URL {
-        let width = 16, height = 16
+        let width = 16
+        let height = 16
         var pixels = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height where y < height / 2 {
             for x in 0..<width {
                 let i = (y * width + x) * 4
-                pixels[i + 1] = 0; pixels[i + 2] = 0  // vermelho puro
+                pixels[i + 1] = 0
+                pixels[i + 2] = 0  // vermelho puro
             }
         }
-        let context = try #require(CGContext(
-            data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let context = try #require(
+            CGContext(
+                data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = try #require(context.makeImage())
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("teste.png")
@@ -99,7 +103,9 @@ struct ItemImporterTests {
     }
 
     /// Lê a pasta de assets real do usuário, se existir; não versiona nada.
-    @Test("Todos os arquivos suportados da pasta de assets importam", .enabled(if: FileManager.default.fileExists(atPath: ItemImporterTests.assetsPath)))
+    @Test(
+        "Todos os arquivos suportados da pasta de assets importam",
+        .enabled(if: FileManager.default.fileExists(atPath: ItemImporterTests.assetsPath)))
     func importsRealAssets() throws {
         let importer = makeImporter()
         let urls = try FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: Self.assetsPath), includingPropertiesForKeys: nil)

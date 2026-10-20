@@ -39,9 +39,10 @@ public enum BoardLayout {
         return BoardPoint(x: origin.x, y: origin.y + Double(items.count) * step)
     }
 
-    static func overlaps(_ a: BoardPoint, _ sa: (width: Double, height: Double),
-                         _ b: BoardPoint, _ sb: (width: Double, height: Double), gap: Double) -> Bool {
-        a.x < b.x + sb.width + gap && b.x < a.x + sa.width + gap &&
-        a.y < b.y + sb.height + gap && b.y < a.y + sa.height + gap
+    static func overlaps(
+        _ a: BoardPoint, _ sa: (width: Double, height: Double),
+        _ b: BoardPoint, _ sb: (width: Double, height: Double), gap: Double
+    ) -> Bool {
+        a.x < b.x + sb.width + gap && b.x < a.x + sa.width + gap && a.y < b.y + sb.height + gap && b.y < a.y + sa.height + gap
     }
 }

@@ -1,12 +1,12 @@
+import CoreGraphics
 import Foundation
 import ImageIO
-import CoreGraphics
 
 /// Lê resolução, tamanho, perfil de cor e uma paleta simples de uma imagem.
 public enum ImageInspector {
     public static func inspect(_ url: URL, paletteSize: Int = 5) -> ImageMetadata? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         else { return nil }
 
         let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
@@ -31,20 +31,25 @@ public enum ImageInspector {
     }
 
     public static func palette(from image: CGImage, count: Int) -> [PaletteColor] {
-        let width = image.width, height = image.height
+        let width = image.width
+        let height = image.height
         guard width > 0, height > 0 else { return [] }
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        guard let context = CGContext(
-            data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return [] }
+        guard
+            let context = CGContext(
+                data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        else { return [] }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         // Agrupa em caixas de 32 níveis por canal (8 por canal = 512 caixas).
         var buckets: [Int: (sum: (Double, Double, Double), n: Int)] = [:]
         for i in stride(from: 0, to: pixels.count, by: 4) {
-            let r = Double(pixels[i]), g = Double(pixels[i + 1]), b = Double(pixels[i + 2])
+            let r = Double(pixels[i])
+            let g = Double(pixels[i + 1])
+            let b = Double(pixels[i + 2])
             let key = (Int(r) / 32) << 6 | (Int(g) / 32) << 3 | (Int(b) / 32)
             let e = buckets[key] ?? ((0, 0, 0), 0)
             buckets[key] = ((e.sum.0 + r, e.sum.1 + g, e.sum.2 + b), e.n + 1)

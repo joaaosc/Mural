@@ -1,4 +1,5 @@
 import Testing
+
 @testable import MuralKit
 
 @Suite("Posição de cartões novos")

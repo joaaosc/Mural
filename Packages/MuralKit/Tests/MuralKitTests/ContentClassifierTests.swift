@@ -1,14 +1,17 @@
 import Foundation
 import Testing
+
 @testable import MuralKit
 
 @Suite("Classificação de conteúdo")
 struct ContentClassifierTests {
-    @Test("Extensões conhecidas viram o tipo certo", arguments: [
-        ("foto.jpeg", ItemKind.image), ("foto.PNG", .image), ("foto.heic", .image),
-        ("clip.mov", .video), ("clip.mp4", .video),
-        ("doc.pdf", .pdf), ("nota.txt", .text), ("nota.md", .text),
-    ])
+    @Test(
+        "Extensões conhecidas viram o tipo certo",
+        arguments: [
+            ("foto.jpeg", ItemKind.image), ("foto.PNG", .image), ("foto.heic", .image),
+            ("clip.mov", .video), ("clip.mp4", .video),
+            ("doc.pdf", .pdf), ("nota.txt", .text), ("nota.md", .text),
+        ])
     func classifiesFiles(name: String, expected: ItemKind) {
         #expect(ContentClassifier.kind(forFileAt: URL(fileURLWithPath: "/tmp/\(name)")) == expected)
     }

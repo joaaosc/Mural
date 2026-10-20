@@ -34,7 +34,9 @@ enum PasteboardImporter {
 enum SecurityScopedAccess {
     static func withAccess<T>(to urls: [URL], _ body: () -> T) -> T {
         let opened = urls.filter { $0.startAccessingSecurityScopedResource() }
-        defer { opened.forEach { $0.stopAccessingSecurityScopedResource() } }
+        defer {
+            for url in opened { url.stopAccessingSecurityScopedResource() }
+        }
         return body()
     }
 }

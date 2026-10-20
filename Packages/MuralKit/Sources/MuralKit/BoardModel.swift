@@ -30,7 +30,8 @@ public final class BoardModel {
         } catch {
             board = empty
             let moved = try? store.quarantineCorruptedFile()
-            lastError = "O mural salvo estava ilegível e foi guardado como \(moved?.lastPathComponent ?? "cópia"). Um mural novo foi criado."
+            lastError =
+                "O mural salvo estava ilegível e foi guardado como \(moved?.lastPathComponent ?? "cópia"). Um mural novo foi criado."
             persist()
         }
     }
@@ -106,7 +107,9 @@ public final class BoardModel {
     /// Apaga o cartão (e, se for pasta, o conteúdo dela) junto com os arquivos guardados.
     public func delete(_ itemID: UUID) {
         let doomed = board.items.filter { $0.id == itemID || $0.parentID == itemID }
-        doomed.forEach(importer.removeFile(of:))
+        for item in doomed {
+            importer.removeFile(of: item)
+        }
         board.remove(id: itemID)
         persist()
     }

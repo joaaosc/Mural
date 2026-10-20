@@ -6,7 +6,7 @@ let package = Package(
     name: "MuralKit",
     platforms: [.macOS("27.0")],
     products: [
-        .library(name: "MuralKit", targets: ["MuralKit"]),
+        .library(name: "MuralKit", targets: ["MuralKit"])
     ],
     targets: [
         .target(

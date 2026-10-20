@@ -48,9 +48,10 @@ struct ItemDetailView: View {
     private var actions: [PillAction] {
         var actions = [PillAction(title: "Copiar", symbol: "square.on.square", perform: copyToPasteboard)]
         if let url = model.fileURL(for: item) {
-            actions.append(PillAction(title: "Abrir no app padrão", symbol: "arrow.up.forward.app") {
-                NSWorkspace.shared.open(url)
-            })
+            actions.append(
+                PillAction(title: "Abrir no app padrão", symbol: "arrow.up.forward.app") {
+                    NSWorkspace.shared.open(url)
+                })
         }
         actions.append(PillAction(title: "Apagar", symbol: "trash", role: .destructive) { isConfirmingDelete = true })
         return actions

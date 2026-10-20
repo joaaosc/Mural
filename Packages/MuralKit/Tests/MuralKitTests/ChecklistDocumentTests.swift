@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import MuralKit
 
 @Suite("Lista de itens")
@@ -7,14 +8,14 @@ struct ChecklistDocumentTests {
     @Test("Texto com título, introdução e seções é interpretado")
     func parsesSections() {
         let text = """
-        Things I need
-        Lorem ipsum dolor sit amet.
-        Living Room
-        - Sofa
-        - [x] Rug
-        Kitchen
-        • Stools
-        """
+            Things I need
+            Lorem ipsum dolor sit amet.
+            Living Room
+            - Sofa
+            - [x] Rug
+            Kitchen
+            • Stools
+            """
         let doc = ChecklistDocument.parse(text)
         #expect(doc.title == "Things I need")
         #expect(doc.intro == "Lorem ipsum dolor sit amet.")

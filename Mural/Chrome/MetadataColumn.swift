@@ -21,7 +21,9 @@ struct MetadataColumn: View {
 }
 
 #Preview {
-    MetadataColumn(rows: [("Resolution", "1332 × 1788"), ("Size", "12 MB"), ("Date", "15 Aug 2025"), ("Color profile", "sRGB IEC61966-2.1")])
-        .padding(40)
-        .background(Theme.page)
+    MetadataColumn(rows: [
+        ("Resolution", "1332 × 1788"), ("Size", "12 MB"), ("Date", "15 Aug 2025"), ("Color profile", "sRGB IEC61966-2.1"),
+    ])
+    .padding(40)
+    .background(Theme.page)
 }

@@ -11,9 +11,18 @@ extension BoardModel {
         let model = BoardModel(store: BoardStore(directory: directory))
         let folder = model.rootItems.first { $0.kind == .folder && $0.title == "The Cottage" }
         let swatches: [(String, [Color], CGSize)] = [
-            ("Terracota", [Color(red: 0.93, green: 0.42, blue: 0.33), Color(red: 0.45, green: 0.22, blue: 0.16)], CGSize(width: 600, height: 900)),
-            ("Carvalho", [Color(red: 0.80, green: 0.62, blue: 0.42), Color(red: 0.30, green: 0.20, blue: 0.12)], CGSize(width: 900, height: 1200)),
-            ("Pátio", [Color(red: 0.95, green: 0.93, blue: 0.88), Color(red: 0.55, green: 0.55, blue: 0.52)], CGSize(width: 800, height: 1000)),
+            (
+                "Terracota", [Color(red: 0.93, green: 0.42, blue: 0.33), Color(red: 0.45, green: 0.22, blue: 0.16)],
+                CGSize(width: 600, height: 900)
+            ),
+            (
+                "Carvalho", [Color(red: 0.80, green: 0.62, blue: 0.42), Color(red: 0.30, green: 0.20, blue: 0.12)],
+                CGSize(width: 900, height: 1200)
+            ),
+            (
+                "Pátio", [Color(red: 0.95, green: 0.93, blue: 0.88), Color(red: 0.55, green: 0.55, blue: 0.52)],
+                CGSize(width: 800, height: 1000)
+            ),
         ]
         for (title, colors, size) in swatches {
             if let data = PreviewImages.png(colors: colors, size: size) {
@@ -30,8 +39,9 @@ extension BoardModel {
 enum PreviewImages {
     @MainActor
     static func png(colors: [Color], size: CGSize) -> Data? {
-        let renderer = ImageRenderer(content:
-            LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        let renderer = ImageRenderer(
+            content:
+                LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
                 .frame(width: size.width, height: size.height)
         )
         guard let image = renderer.cgImage else { return nil }
@@ -47,8 +57,10 @@ enum PreviewImages {
     @Previewable @Namespace var namespace
     let model = BoardModel.preview()
     let folder = model.rootItems.first { $0.kind == .folder && $0.title == "The Cottage" }!
-    CollectionView(folder: folder, model: model, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil) { _ in }
-        .background(Theme.canvas)
+    CollectionView(folder: folder, model: model, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil) {
+        _ in
+    }
+    .background(Theme.canvas)
 }
 
 #Preview("Detalhe da imagem", traits: .fixedLayout(width: 1100, height: 720)) {

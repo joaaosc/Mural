@@ -61,7 +61,8 @@ final class MuralUITests: XCTestCase {
 
         app.terminate()
         let reopened = launch("-uiTestingKeep")
-        XCTAssertTrue(reopened.buttons["Comprar tinta azul"].waitForExistence(timeout: 10), "o post-it colado deveria continuar após reabrir")
+        XCTAssertTrue(
+            reopened.buttons["Comprar tinta azul"].waitForExistence(timeout: 10), "o post-it colado deveria continuar após reabrir")
     }
 
     @MainActor
@@ -84,9 +85,10 @@ final class MuralUITests: XCTestCase {
 
     /// PNG 40×30 gerado no teste: nenhum arquivo de imagem é versionado.
     private static func makePNG(named name: String) throws -> URL {
-        let rep = try XCTUnwrap(NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8, samplesPerPixel: 4,
-            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let rep = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         for x in 0..<40 {
             for y in 0..<30 {
                 rep.setColor(x < 20 ? .systemOrange : .systemIndigo, atX: x, y: y)

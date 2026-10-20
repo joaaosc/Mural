@@ -56,7 +56,9 @@ public struct ItemImporter: Sendable {
     }
 
     /// Guarda dados em memória (por exemplo, uma imagem copiada de outro app) como arquivo.
-    public func importData(_ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID? = nil, position: BoardPoint = .zero) throws -> BoardItem {
+    public func importData(
+        _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID? = nil, position: BoardPoint = .zero
+    ) throws -> BoardItem {
         let id = UUID()
         let fileName = "\(id.uuidString).\(fileExtension.lowercased())"
         try fileManager.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
@@ -77,9 +79,12 @@ public struct ItemImporter: Sendable {
             let doc = ChecklistDocument.parse(trimmed)
             return BoardItem(kind: .checklist, title: doc.title, parentID: parentID, position: position, checklist: doc)
         case .sticky:
-            return BoardItem(kind: .sticky, title: ContentClassifier.title(forText: trimmed), parentID: parentID, position: position, text: trimmed, stickyColor: .yellow)
+            return BoardItem(
+                kind: .sticky, title: ContentClassifier.title(forText: trimmed), parentID: parentID, position: position, text: trimmed,
+                stickyColor: .yellow)
         default:
-            return BoardItem(kind: .text, title: ContentClassifier.title(forText: trimmed), parentID: parentID, position: position, text: trimmed)
+            return BoardItem(
+                kind: .text, title: ContentClassifier.title(forText: trimmed), parentID: parentID, position: position, text: trimmed)
         }
     }
 

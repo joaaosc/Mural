@@ -5,14 +5,17 @@ import SwiftUI
 /// Cores e medidas do mural, com variante clara e escura.
 enum Theme {
     /// Fundo cinza do mural e das coleções.
-    static let canvas = dynamic(light: NSColor(srgbRed: 0.895, green: 0.902, blue: 0.914, alpha: 1),
-                                dark: NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1))
+    static let canvas = dynamic(
+        light: NSColor(srgbRed: 0.895, green: 0.902, blue: 0.914, alpha: 1),
+        dark: NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1))
     /// Fundo claro das telas de detalhe.
-    static let page = dynamic(light: NSColor(srgbRed: 0.957, green: 0.965, blue: 0.976, alpha: 1),
-                              dark: NSColor(srgbRed: 0.090, green: 0.094, blue: 0.102, alpha: 1))
+    static let page = dynamic(
+        light: NSColor(srgbRed: 0.957, green: 0.965, blue: 0.976, alpha: 1),
+        dark: NSColor(srgbRed: 0.090, green: 0.094, blue: 0.102, alpha: 1))
     /// Papel dos cartões de texto.
-    static let paper = dynamic(light: .white,
-                               dark: NSColor(srgbRed: 0.200, green: 0.204, blue: 0.216, alpha: 1))
+    static let paper = dynamic(
+        light: .white,
+        dark: NSColor(srgbRed: 0.200, green: 0.204, blue: 0.216, alpha: 1))
 
     static let cardCorner: CGFloat = 8
     static let mediaCorner: CGFloat = 12
@@ -32,9 +35,10 @@ enum Theme {
     static let stickyInk = Color.black.opacity(0.78)
 
     private static func dynamic(light: NSColor, dark: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-        })
+        Color(
+            nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            })
     }
 }
 

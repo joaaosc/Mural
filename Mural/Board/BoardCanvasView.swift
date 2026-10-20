@@ -91,7 +91,9 @@ struct BoardCanvasView: View {
 
     private func cardButton(_ item: BoardItem, open destinations: [Destination]) -> some View {
         HeroSlot(id: item.id, context: hero) {
-            Button { onOpen(destinations) } label: {
+            Button {
+                onOpen(destinations)
+            } label: {
                 CardView(item: item, model: model)
             }
             .buttonStyle(.plain)
@@ -147,7 +149,9 @@ private struct FolderPeek: View {
             ForEach(children) { child in
                 let size = BoardLayout.cardSize(for: child.kind)
                 HeroSlot(id: child.id, context: hero) {
-                    Button { onOpenChild(child.id) } label: {
+                    Button {
+                        onOpenChild(child.id)
+                    } label: {
                         CardView(item: child, model: model)
                     }
                     .buttonStyle(.plain)
