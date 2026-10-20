@@ -23,11 +23,24 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(folder.waitForExistence(timeout: 10), "a pasta de exemplo deveria estar no mural")
         XCTAssertFalse(app.buttons["Voltar"].exists, "no mural não há para onde voltar")
 
+        // Um filtro ligado no mural não deve atravessar para dentro da pasta.
+        app.buttons["Pastas"].firstMatch.click()
+        XCTAssertTrue(app.buttons["Pastas"].firstMatch.isSelected)
+
         folder.click()
         let back = app.buttons["Voltar"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["CLIENT 001"].waitForExistence(timeout: 5), "etiqueta da coleção")
         XCTAssertTrue(app.buttons["Meeting Notes – Andrea and Jasmine"].exists, "cartão de dentro da pasta")
+        XCTAssertFalse(app.buttons["Pastas"].exists, "dentro da pasta não há filtro de pastas")
+        XCTAssertFalse(app.buttons["Notas"].firstMatch.isSelected, "cada nível começa sem filtro")
+
+        // Os detalhes da pasta ficam no botão de informação.
+        app.buttons["Informações da pasta"].firstMatch.click()
+        let tag = app.staticTexts["CLIENT 001"]
+        XCTAssertTrue(tag.waitForExistence(timeout: 5), "etiqueta no popover")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(tag.waitForNonExistence(timeout: 5), "Esc fecha o popover")
+        XCTAssertTrue(back.exists, "e não sai da pasta")
 
         back.click()
         XCTAssertTrue(back.waitForNonExistence(timeout: 5))
@@ -46,6 +59,26 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.8)).click()
         XCTAssertTrue(back.waitForNonExistence(timeout: 5), "um clique em qualquer ponto do botão deve voltar")
+    }
+
+    /// Aproximar pelo teclado mantém o centro da janela parado: um cartão se afasta do
+    /// centro exatamente na proporção do zoom (1,25×), em vez de o mural "fugir" para o canto.
+    @MainActor
+    func testZoomInKeepsWindowCenterInPlace() throws {
+        let app = launch()
+        let card = app.buttons["Running list of stuff"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch.frame
+        let center = CGPoint(x: window.midX, y: window.midY)
+        let before = CGPoint(x: card.frame.midX, y: card.frame.midY)
+
+        app.typeKey("=", modifierFlags: .command)
+        Thread.sleep(forTimeInterval: 1.0)
+
+        let after = CGPoint(x: card.frame.midX, y: card.frame.midY)
+        let expected = CGPoint(x: center.x + (before.x - center.x) * 1.25, y: center.y + (before.y - center.y) * 1.25)
+        XCTAssertEqual(after.x, expected.x, accuracy: 6)
+        XCTAssertEqual(after.y, expected.y, accuracy: 6)
     }
 
     @MainActor
@@ -108,7 +141,7 @@ final class MuralUITests: XCTestCase {
         let folder = app.buttons["The Cottage"].firstMatch
         XCTAssertTrue(folder.waitForExistence(timeout: 10))
         folder.click()
-        XCTAssertTrue(app.staticTexts["CLIENT 001"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
 
         let url = try Self.makePNG(named: "foto-na-pasta")
         let pasteboard = NSPasteboard.general
