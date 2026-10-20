@@ -50,7 +50,18 @@ enum PreviewImages {
 }
 
 #Preview("Mural", traits: .fixedLayout(width: 1100, height: 720)) {
-    RootView(model: .preview(), commands: AppCommandsState())
+    @Previewable @Namespace var namespace
+    let model = BoardModel.preview()
+    BoardCanvasView(
+        model: model,
+        hero: HeroContext(namespace: namespace, isEnabled: false, presented: []),
+        filter: nil,
+        zoom: CanvasZoomController(),
+        onOpen: { _ in },
+        onAdd: {},
+        boardID: BoardID(),
+        generation: 0
+    )
 }
 
 #Preview("Coleção", traits: .fixedLayout(width: 1100, height: 720)) {

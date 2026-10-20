@@ -3,16 +3,22 @@ import SwiftUI
 
 @main
 struct MuralApp: App {
-    @State private var model = BoardModel(store: LaunchConfiguration.store())
-    @State private var commands = AppCommandsState()
+    @State private var library: BoardLibrary
+    @State private var registry: BoardSessionRegistry
+
+    init() {
+        let library = BoardLibrary(rootDirectory: LaunchConfiguration.store().directory)
+        _library = State(initialValue: library)
+        _registry = State(initialValue: BoardSessionRegistry(library: library))
+    }
 
     var body: some Scene {
-        Window("Mural", id: "board") {
-            RootView(model: model, commands: commands)
+        WindowGroup(for: BoardRoute.self) { $route in
+            BoardWindowHost(route: route ?? .library, registry: registry)
                 .frame(minWidth: 760, minHeight: 500)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1240, height: 800)
-        .commands { MuralCommands(state: commands) }
+        .commands { MuralCommands() }
     }
 }

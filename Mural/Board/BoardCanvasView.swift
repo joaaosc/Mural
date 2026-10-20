@@ -6,10 +6,14 @@ struct BoardCanvasView: View {
     let model: BoardModel
     let hero: HeroContext
     let filter: BoardFilter?
+    @Bindable var zoom: CanvasZoomController
     var onOpen: ([Destination]) -> Void
     var onAdd: () -> Void
+    var boardID: BoardID
+    var generation: UInt64
+    var onCanvasGeometryReady: (CGSize, CGSize) -> Void = { _, _ in }
+    var onCanvasChange: (BoardID, UInt64, CanvasWorkspaceState) -> Void = { _, _, _ in }
 
-    @State private var zoom = CanvasZoomController()
     @State private var hoveredFolder: UUID?
     /// Pasta sob o ponteiro agora, atualizada mesmo durante um arrasto; vira o foco ao soltar.
     @State private var pointerFolder: UUID?
@@ -68,7 +72,14 @@ struct BoardCanvasView: View {
         .onScrollGeometryChange(for: CGPoint.self, of: \.contentOffset) { _, offset in zoom.scrollOffset = offset }
         .discreetScrollIndicators([.horizontal, .vertical])
         .background(Theme.canvas)
-        .onGeometryChange(for: CGSize.self, of: \.size) { zoom.viewport = $0 }
+        .onGeometryChange(for: CGSize.self, of: \.size) {
+            zoom.viewport = $0
+            onCanvasGeometryReady($0, layoutSize)
+        }
+        .onScrollPhaseChange { _, phase in
+            guard phase == .idle else { return }
+            onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
+        }
         .onChange(of: CGSize(width: extent.width, height: extent.height), initial: true) { zoom.contentExtent = $1 }
         .onChange(of: reduceMotion, initial: true) { zoom.reduceMotion = $1 }
         // Gesto cancelado sem `onEnded`: desfaz o arrasto. Fica para a volta seguinte do laço
@@ -213,26 +224,14 @@ struct BoardCanvasView: View {
                     model.move(item.id, to: target)
                     drag = nil
                 }
+                onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
                 hoveredFolder = pointerFolder
             }
     }
 
-    /// Guarda o cartão arrastado na pasta: ele encolhe em direção a ela e, quando some, sai do
-    /// mural e entra na pasta. Com Reduzir Movimento, entra direto.
+    /// Aceita o drop no domínio imediatamente. A animação de armazenamento não
+    /// pode atrasar a mudança de parentID nem a persistência da sessão.
     private func store(_ item: BoardItem, in folderID: UUID) {
-        guard !reduceMotion else {
-            finishStoring(item, in: folderID)
-            return
-        }
-        withAnimation(.smooth(duration: 0.25)) {
-            storing = item.id
-        } completion: {
-            finishStoring(item, in: folderID)
-        }
-    }
-
-    private func finishStoring(_ item: BoardItem, in folderID: UUID) {
-        // Sem animação: o cartão já sumiu, só falta trocá-lo de lugar nos dados.
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -240,8 +239,7 @@ struct BoardCanvasView: View {
             drag = nil
             storing = nil
         }
-        // Só agora: a prévia da pasta mostraria o mesmo cartão (mesmo id de transição)
-        // enquanto o do mural ainda estava encolhendo.
+        onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
         hoveredFolder = pointerFolder
     }
 

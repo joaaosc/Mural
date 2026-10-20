@@ -1,4 +1,5 @@
 import CoreGraphics
+import MuralKit
 import Testing
 
 @testable import Mural
@@ -99,5 +100,27 @@ struct CanvasZoomTests {
         #expect(
             CanvasZoom.fitting(extent: CGSize(width: 10, height: 10), in: CGSize(width: 1000, height: 800)) == CanvasZoom.range.upperBound)
         #expect(CanvasZoom.fitting(extent: .zero, in: .zero) == 1)
+    }
+
+    @Test("Preparar saída persiste o alvo aceito, nunca a escala visual")
+    @MainActor
+    func prepareToLeaveConsolidatesTarget() {
+        var completions: [() -> Void] = []
+        let controller = CanvasZoomController { changes, completion in
+            changes()
+            completions.append(completion)
+        }
+        controller.viewport = CGSize(width: 800, height: 600)
+        controller.scrollOffset = CGPoint(x: 120, y: 80)
+        controller.pinchChanged(magnification: 1.5, startLocation: CGPoint(x: 240, y: 180))
+        controller.pinchEnded(magnification: 1.5)
+
+        let state = controller.prepareToLeave()
+
+        #expect(controller.liveScale == 1)
+        #expect(state.confirmedZoom == Double(controller.zoom))
+        #expect(state.confirmedZoom > 1)
+        completions[0]()
+        #expect(controller.zoom == CGFloat(state.confirmedZoom))
     }
 }

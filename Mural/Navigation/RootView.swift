@@ -2,18 +2,35 @@ import MuralKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Host de uma cena de mural. O estado de navegação vive na sessão da janela,
+/// nunca em estado global ou num `@State` compartilhado entre cenas.
+struct RootView: View {
+    let session: BoardWindowSession
+
+    var body: some View {
+        if let model = session.model {
+            LoadedRootView(session: session, model: model)
+        } else if let error = session.error {
+            ContentUnavailableView("Mural indisponível", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else {
+            ProgressView("Abrindo mural…")
+        }
+    }
+}
+
 /// Empilha os três níveis (mural → pasta → item) num único ZStack, para que cada
 /// nível cresça a partir do cartão clicado, e recebe ⌘V, arrastar e importar.
-struct RootView: View {
+private struct LoadedRootView: View {
+    @Bindable var session: BoardWindowSession
     let model: BoardModel
-    @Bindable var commands: AppCommandsState
 
-    @State private var path: [Destination] = []
-    @State private var filter: BoardFilter?
     @State private var isFolderInfoPresented = false
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var path: [Destination] { session.path }
+    private var filter: BoardFilter? { session.filter }
 
     private var hero: HeroContext {
         HeroContext(namespace: heroNamespace, isEnabled: !reduceMotion, presented: Set(path.map(\.id)))
@@ -25,12 +42,6 @@ struct RootView: View {
             if case .collection(let id) = destination { return id }
         }
         return nil
-    }
-
-    /// Título da janela: o nome do que está aberto na frente.
-    private var windowTitle: String {
-        guard let id = path.last?.id, let item = model.item(id: id) else { return "Mural" }
-        return item.title
     }
 
     private var navigationAnimation: Animation? {
@@ -52,8 +63,15 @@ struct RootView: View {
                 model: model,
                 hero: hero,
                 filter: filter,
+                zoom: session.zoom,
                 onOpen: open,
-                onAdd: { commands.isImporterPresented = true }
+                onAdd: { session.isImporterPresented = true },
+                boardID: session.boardID,
+                generation: session.generation,
+                onCanvasGeometryReady: { viewport, contentSize in session.restoreCanvas(viewport: viewport, contentSize: contentSize) },
+                onCanvasChange: { boardID, generation, state in
+                    session.recordCanvas(boardID: boardID, generation: generation, state: state)
+                }
             )
             .allowsHitTesting(path.isEmpty)
             .accessibilityHidden(!path.isEmpty)
@@ -70,14 +88,18 @@ struct RootView: View {
             }
         }
         .ignoresSafeArea()
-        .navigationTitle(windowTitle)
+        .navigationTitle(session.title)
+        .focusedSceneValue(path.isEmpty ? session.actions : nil)
         .overlay(alignment: .topLeading) {
-            FloatingToolbar(level: NavigationLevel(path: path), onBack: goBack, filter: $filter)
-                .padding(12)
-                .containerCornerOffset(.top)
+            FloatingToolbar(
+                level: NavigationLevel(path: path), onBack: goBack,
+                filter: Binding(get: { session.filter }, set: { session.setNavigation(path: session.path, filter: $0) })
+            )
+            .padding(12)
+            .containerCornerOffset(.top)
         }
         .overlay(alignment: .top) {
-            if let message = model.lastError {
+            if let message = model.lastError ?? session.error {
                 ErrorBanner(message: message) { model.lastError = nil }
                     .padding(12)
                     .containerCornerOffset(.top)
@@ -101,13 +123,15 @@ struct RootView: View {
             withAnimation(importAnimation) {
                 PasteboardImporter.paste(into: model, parentID: currentFolderID)
             }
+            session.captureBoardIfNeeded()
         }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
             withAnimation(importAnimation) { _ = model.importFiles(files, into: currentFolderID) }
+            session.captureBoardIfNeeded()
         }
         .fileImporter(
-            isPresented: $commands.isImporterPresented,
+            isPresented: $session.isImporterPresented,
             allowedContentTypes: PasteboardImporter.importableTypes,
             allowsMultipleSelection: true
         ) { result in
@@ -115,6 +139,10 @@ struct RootView: View {
             withAnimation(importAnimation) {
                 _ = SecurityScopedAccess.withAccess(to: urls) { model.importFiles(urls, into: currentFolderID) }
             }
+            session.captureBoardIfNeeded()
+        }
+        .onChange(of: model.board) { _, _ in
+            session.captureBoardIfNeeded()
         }
     }
 
@@ -154,8 +182,7 @@ struct RootView: View {
         let newLevels = destinations.filter { !path.contains($0) }
         guard !newLevels.isEmpty else { return }
         withAnimation(navigationAnimation) {
-            path.append(contentsOf: newLevels)
-            filter = nil
+            session.setNavigation(path: session.path + newLevels, filter: nil)
         }
         isFolderInfoPresented = false
         isCanvasFocused = true
@@ -164,8 +191,7 @@ struct RootView: View {
     private func goBack() {
         guard !path.isEmpty else { return }
         withAnimation(navigationAnimation) {
-            _ = path.removeLast()
-            filter = nil
+            session.setNavigation(path: Array(session.path.dropLast()), filter: nil)
         }
         isFolderInfoPresented = false
         isCanvasFocused = true

@@ -1,3 +1,4 @@
+import MuralKit
 import SwiftUI
 
 /// Estado do zoom do mural, compartilhado entre a tela, os controles do canto e o
@@ -30,6 +31,7 @@ final class CanvasZoomController {
     @ObservationIgnored private var settleGeneration = 0
     @ObservationIgnored private var pendingTargetZoom: CGFloat?
     @ObservationIgnored private let runSettleAnimation: AnimationRunner
+    @ObservationIgnored var onWorkspaceChange: ((CanvasWorkspaceState) -> Void)?
 
     init(
         animationRunner: @escaping AnimationRunner = { changes, completion in
@@ -45,6 +47,50 @@ final class CanvasZoomController {
 
     /// Zoom que o usuário vê agora, incluindo a pinça em andamento.
     var displayedZoom: CGFloat { zoom * liveScale }
+
+    /// Configura a escala confirmada e a âncora persistida de uma sessão.
+    /// A origem é explícita: um canvas sem estado restaurável começa no canto superior esquerdo.
+    func configure(workspace: CanvasWorkspaceState) {
+        invalidatePendingSettle()
+        zoom = CanvasZoom.clamped(CGFloat(workspace.confirmedZoom))
+        liveScale = 1
+        if let center = workspace.logicalCenter {
+            liveAnchor = CGPoint(x: center.x, y: center.y)
+        } else {
+            liveAnchor = .zero
+            scrollPosition.scrollTo(point: .zero)
+        }
+    }
+
+    /// Consolida o alvo aceito antes de uma janela ser fechada. Nunca publica a escala visual.
+    @discardableResult
+    func prepareToLeave() -> CanvasWorkspaceState {
+        let target = pendingTargetZoom ?? zoom
+        if pendingTargetZoom != nil {
+            let generation = settleGeneration
+            commit(targetZoom: target, baseZoom: zoom, anchor: liveAnchor, generation: generation)
+        } else {
+            liveScale = 1
+        }
+        return confirmedWorkspace()
+    }
+
+    /// Captura apenas o estado confirmado, usando o centro lógico visível.
+    func confirmedWorkspace(contentInsets: EdgeInsets = EdgeInsets()) -> CanvasWorkspaceState {
+        let center = CanvasWorkspaceMath.logicalCenter(
+            contentOffset: scrollOffset,
+            viewport: viewport,
+            zoom: zoom,
+            contentInsets: contentInsets
+        )
+        if center == .zero && scrollOffset == .zero {
+            return CanvasWorkspaceState(confirmedZoom: Double(zoom), anchor: .origin)
+        }
+        return CanvasWorkspaceState(
+            confirmedZoom: Double(zoom),
+            anchor: .logicalCenter(BoardPoint(x: center.x, y: center.y))
+        )
+    }
 
     // MARK: Pinça
 
@@ -123,8 +169,10 @@ final class CanvasZoomController {
             zoom = targetZoom
             liveScale = 1
             pendingTargetZoom = nil
+            scrollOffset = offset
             scrollPosition.scrollTo(point: offset)
         }
+        onWorkspaceChange?(confirmedWorkspace())
     }
 
     private func invalidatePendingSettle() {

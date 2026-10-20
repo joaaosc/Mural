@@ -1,7 +1,2 @@
-import Observation
-
-/// Estado ligado aos comandos de menu (por exemplo, Arquivo › Importar…).
-@Observable
-final class AppCommandsState {
-    var isImporterPresented = false
-}
+/// Compatibilidade de arquivo para o grupo do projeto; comandos vivem na cena focada.
+enum AppCommandsState {}

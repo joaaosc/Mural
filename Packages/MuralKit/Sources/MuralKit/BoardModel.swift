@@ -8,6 +8,11 @@ import Observation
 @MainActor
 @Observable
 public final class BoardModel {
+    public enum Persistence: Sendable, Equatable {
+        case immediate
+        case deferred
+    }
+
     public private(set) var board: Board
     /// Última falha a mostrar ao usuário (importação, gravação, arquivo corrompido).
     public var lastError: String?
@@ -17,11 +22,13 @@ public final class BoardModel {
 
     @ObservationIgnored let store: BoardStore
     @ObservationIgnored let importer: ItemImporter
+    @ObservationIgnored let persistence: Persistence
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
-    public init(store: BoardStore, seedIfEmpty: Bool = true) {
+    public init(store: BoardStore, seedIfEmpty: Bool = true, persistence: Persistence = .immediate) {
         self.store = store
         self.importer = ItemImporter(itemsDirectory: store.itemsDirectory)
+        self.persistence = persistence
         let empty = seedIfEmpty ? SampleBoard.make() : Board()
         do {
             if let loaded = try store.load() {
@@ -45,6 +52,15 @@ public final class BoardModel {
             isPersistenceSuspended = true
             lastError = "Não foi possível abrir o mural salvo (\(error.localizedDescription)). Nada será gravado para não sobrescrevê-lo."
         }
+    }
+
+    /// Creates a UI adapter from a snapshot already loaded by a `BoardSession`.
+    /// Deferred persistence lets the session own revisions and atomic flushes.
+    public init(board: Board, store: BoardStore, persistence: Persistence = .immediate) {
+        self.store = store
+        self.importer = ItemImporter(itemsDirectory: store.itemsDirectory)
+        self.persistence = persistence
+        self.board = board
     }
 
     // MARK: Leitura
@@ -172,7 +188,7 @@ public final class BoardModel {
     }
 
     private func persist() {
-        guard !isPersistenceSuspended else { return }
+        guard persistence == .immediate, !isPersistenceSuspended else { return }
         do {
             try store.save(board)
         } catch {

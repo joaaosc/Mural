@@ -17,9 +17,9 @@ struct MuralTests {
 
     @Test("Dentro da pasta não há filtro de pastas; num item, não há filtros")
     func filtersPerLevel() {
-        #expect(BoardFilter.available(at: .board) == BoardFilter.allCases)
-        #expect(!BoardFilter.available(at: .folder).contains(.folders))
-        #expect(BoardFilter.available(at: .item).isEmpty)
+        #expect(Mural.BoardFilter.available(at: .board) == Mural.BoardFilter.allCases)
+        #expect(!Mural.BoardFilter.available(at: .folder).contains(.folders))
+        #expect(Mural.BoardFilter.available(at: .item).isEmpty)
     }
 
     @Test("Nível da barra segue o topo da pilha")
@@ -33,7 +33,7 @@ struct MuralTests {
     @Test("Filtros da barra separam os tipos sem sobreposição")
     func filtersAreDisjoint() {
         for kind in ItemKind.allCases {
-            let matches = BoardFilter.allCases.filter { $0.matches(kind) }
+            let matches = Mural.BoardFilter.allCases.filter { $0.matches(kind) }
             #expect(matches.count <= 1, "\(kind) aparece em mais de um filtro")
         }
     }

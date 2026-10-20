@@ -2,13 +2,12 @@ import SwiftUI
 
 /// Itens de menu do Mural: importar em Arquivo e zoom em Visualizar.
 struct MuralCommands: Commands {
-    let state: AppCommandsState
-
     @FocusedValue(CanvasZoomController.self) private var zoom
+    @FocusedValue(FocusedBoardActions.self) private var actions
 
     var body: some Commands {
         CommandGroup(replacing: .importExport) {
-            Button("Importar…") { state.isImporterPresented = true }
+            Button("Importar…", action: { actions?.addFiles() })
                 .keyboardShortcut("i", modifiers: [.command, .shift])
         }
         CommandGroup(after: .toolbar) {
@@ -23,6 +22,8 @@ struct MuralCommands: Commands {
                     .keyboardShortcut("9", modifiers: .command)
             }
             .disabled(zoom == nil)
+            Button("Tentar novamente", action: { actions?.retryFlush() })
+                .disabled(actions == nil)
         }
     }
 }
