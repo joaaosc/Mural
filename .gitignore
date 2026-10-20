@@ -1,14 +1,19 @@
+# macOS
 .DS_Store
+
+# Xcode e SwiftPM
 xcuserdata/
+*.xcuserstate
 DerivedData/
 build/
 .build/
+.swiftpm/
 *.xcresult
 buildServer.json
 /Makefile
 xcodemake_*.log
 
-# Material de teste nunca versionado
+# Material de teste nunca versionado (o app recebe conteúdo por colar/arrastar)
 /Assets/
 *.jpeg
 *.jpg
