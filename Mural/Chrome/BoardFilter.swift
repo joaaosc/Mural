@@ -1,6 +1,6 @@
 import MuralKit
 
-/// Destaque aplicado pelos três botões da barra: os cartões fora do filtro ficam esmaecidos.
+/// Destaque aplicado pelos botões da barra: os cartões fora do filtro ficam esmaecidos.
 enum BoardFilter: String, CaseIterable, Identifiable {
     case notes
     case folders
@@ -18,9 +18,9 @@ enum BoardFilter: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .notes: "list.bullet"
-        case .folders: "number.sign"
-        case .tasks: "checkmark"
+        case .notes: "text.document"
+        case .folders: "folder"
+        case .tasks: "checklist"
         }
     }
 
@@ -29,6 +29,16 @@ enum BoardFilter: String, CaseIterable, Identifiable {
         case .notes: kind == .text || kind == .sticky
         case .folders: kind == .folder
         case .tasks: kind == .checklist
+        }
+    }
+
+    /// Filtros que fazem sentido em cada nível: dentro de uma pasta não há pastas,
+    /// e um item aberto sozinho não tem o que filtrar.
+    static func available(at level: NavigationLevel) -> [BoardFilter] {
+        switch level {
+        case .board: allCases
+        case .folder: [.notes, .tasks]
+        case .item: []
         }
     }
 }

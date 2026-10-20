@@ -45,11 +45,18 @@ struct RootView: View {
         }
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
-            GlassToolbar(canGoBack: !path.isEmpty, onBack: goBack, filter: $filter)
-                .padding(.top, 34)
-                .padding(.leading, 14)
+            FloatingToolbar(level: NavigationLevel(path: path), onBack: goBack, filter: $filter)
+                .padding(12)
+                .containerCornerOffset(.top)
         }
-        .overlay(alignment: .top) { errorBanner }
+        .overlay(alignment: .top) {
+            if let message = model.lastError {
+                ErrorBanner(message: message) { model.lastError = nil }
+                    .padding(12)
+                    .containerCornerOffset(.top)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .focusable()
         .focusEffectDisabled()
         .focused($isCanvasFocused)
@@ -106,33 +113,22 @@ struct RootView: View {
 
     // MARK: Navegação
 
+    /// Cada nível começa sem filtro: um destaque escolhido no mural não deve
+    /// esmaecer o conteúdo da pasta. O foco fica no mural para ⌘V e Esc continuarem.
     private func open(_ destinations: [Destination]) {
-        withAnimation(navigationAnimation) { path.append(contentsOf: destinations) }
+        withAnimation(navigationAnimation) {
+            path.append(contentsOf: destinations)
+            filter = nil
+        }
+        isCanvasFocused = true
     }
 
     private func goBack() {
         guard !path.isEmpty else { return }
-        withAnimation(navigationAnimation) { _ = path.removeLast() }
-        isCanvasFocused = true
-    }
-
-    // MARK: Erros
-
-    @ViewBuilder
-    private var errorBanner: some View {
-        if let message = model.lastError {
-            HStack(spacing: 10) {
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                Button("Fechar", systemImage: "xmark") { model.lastError = nil }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .glassEffect(.regular, in: .capsule)
-            .padding(.top, 34)
-            .transition(.move(edge: .top).combined(with: .opacity))
+        withAnimation(navigationAnimation) {
+            _ = path.removeLast()
+            filter = nil
         }
+        isCanvasFocused = true
     }
 }

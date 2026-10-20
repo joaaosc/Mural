@@ -33,6 +33,21 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(back.waitForNonExistence(timeout: 5))
     }
 
+    /// Defeito relatado: um clique perto da borda do botão Voltar (fora do desenho da seta)
+    /// acendia o vidro, mas não voltava. O clique simulado no centro nunca mostrava o problema.
+    @MainActor
+    func testBackRespondsToClickNearItsEdge() throws {
+        let app = launch()
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.click()
+
+        let back = app.buttons["Voltar"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.8)).click()
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5), "um clique em qualquer ponto do botão deve voltar")
+    }
+
     @MainActor
     func testChecklistEntryToggles() throws {
         let app = launch()
