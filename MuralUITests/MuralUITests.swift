@@ -85,6 +85,27 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(resolution.waitForExistence(timeout: 5), "detalhe da imagem mostra a resolução lida do arquivo")
     }
 
+    /// Colar com uma pasta aberta põe o conteúdo dentro dela; com notas e imagem
+    /// juntas, a coleção mostra as duas grades lado a lado.
+    @MainActor
+    func testPastingImageIntoFolderShowsBothColumns() throws {
+        let app = launch()
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.click()
+        XCTAssertTrue(app.staticTexts["CLIENT 001"].waitForExistence(timeout: 5))
+
+        let url = try Self.makePNG(named: "foto-na-pasta")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([url as NSURL])
+        app.typeKey("v", modifierFlags: .command)
+
+        XCTAssertTrue(app.buttons["foto-na-pasta"].waitForExistence(timeout: 5), "a imagem colada entra na pasta aberta")
+        XCTAssertTrue(app.buttons["Meeting Notes – Andrea and Jasmine"].exists, "as notas continuam ao lado")
+        XCTAssertEqual(app.state, .runningForeground, "o app continua aberto")
+    }
+
     /// PNG 40×30 gerado no teste: nenhum arquivo de imagem é versionado.
     private static func makePNG(named name: String) throws -> URL {
         let rep = try XCTUnwrap(
