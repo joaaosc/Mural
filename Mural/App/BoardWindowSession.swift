@@ -27,8 +27,12 @@ final class BoardWindowSession {
     var isImporterPresented = false
 
     @ObservationIgnored private var restoration = CanvasRestorationStateMachine()
-    @ObservationIgnored private var pendingCapture: Task<Void, Never>?
-    @ObservationIgnored private var pendingWorkspaceSave: Task<Void, Never>?
+    @ObservationIgnored private var pendingBoard: Board?
+    @ObservationIgnored private var pendingWorkspace: BoardWorkspaceState?
+    @ObservationIgnored private var pendingAutosaveDebounce: Task<Void, Never>?
+    @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
+    @ObservationIgnored private var restoreTarget: CGPoint?
+    @ObservationIgnored private var autosaveFailed = false
 
     init(route: BoardRoute, registry: BoardSessionRegistry) {
         self.route = route
@@ -108,32 +112,61 @@ final class BoardWindowSession {
         restorationPhase = restoration.phase
     }
 
-    func restoreCanvas(viewport: CGSize, contentSize: CGSize) {
-        zoom.viewport = viewport
+    func restoreCanvas(boardID callbackBoardID: BoardID, generation callbackGeneration: UInt64, metrics: CanvasScrollMetrics) {
+        guard self.boardID == callbackBoardID, generation == callbackGeneration else { return }
+        zoom.viewport = metrics.containerSize
+        zoom.scrollOffset = metrics.contentOffset
+        zoom.contentInsets = metrics.contentInsets
         guard restorationPhase != .ready else { return }
-        if restorationPhase == .awaitingLayout {
-            beginApplyingZoom()
-            beginApplyingPosition()
-            let point: CGPoint
-            if let center = workspace.canvas.logicalCenter {
-                point = CanvasWorkspaceMath.targetOffset(
-                    logicalCenter: CGPoint(x: center.x, y: center.y),
-                    zoom: zoom.zoom,
-                    viewport: viewport,
-                    contentSize: contentSize
-                )
-            } else {
-                point = .zero
+        guard let center = workspace.canvas.logicalCenter else {
+            if restorationPhase == .awaitingLayout {
+                beginApplyingZoom()
+                beginApplyingPosition()
+                restoreTarget = .zero
+                scroll(to: .zero)
+                return
             }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                zoom.scrollPosition.scrollTo(point: point)
+            if restorationPhase == .applyingPosition, let restoreTarget,
+                abs(metrics.contentOffset.x - restoreTarget.x) <= 1,
+                abs(metrics.contentOffset.y - restoreTarget.y) <= 1
+            {
+                confirmReady()
             }
             return
         }
+        let target = CanvasWorkspaceMath.targetOffset(
+            logicalCenter: CGPoint(x: center.x, y: center.y),
+            zoom: zoom.zoom,
+            viewport: metrics.containerSize,
+            contentSize: metrics.contentSize,
+            contentInsets: metrics.contentInsets
+        )
+        if restorationPhase == .awaitingLayout {
+            beginApplyingZoom()
+            beginApplyingPosition()
+            restoreTarget = target
+            scroll(to: target)
+            return
+        }
         if restorationPhase == .applyingPosition {
-            confirmReady()
+            if restoreTarget != target {
+                restoreTarget = target
+                scroll(to: target)
+            } else if abs(metrics.contentOffset.x - target.x) <= 1,
+                abs(metrics.contentOffset.y - target.y) <= 1
+            {
+                confirmReady()
+            } else {
+                scroll(to: target)
+            }
+        }
+    }
+
+    private func scroll(to point: CGPoint) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            zoom.scrollPosition.scrollTo(point: point)
         }
     }
 
@@ -164,38 +197,35 @@ final class BoardWindowSession {
     }
 
     func captureBoardIfNeeded() {
-        guard restoration.acceptsPersistence, let model, let domainSession else { return }
-        let board = model.board
-        let expectedGeneration = generation
-        pendingCapture?.cancel()
-        pendingCapture = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await domainSession.update(board: board, expectedGeneration: expectedGeneration)
-                generation = await domainSession.generation
-                isDirty = await domainSession.isDirty
-            } catch {
-                self.error = error.localizedDescription
-                self.isDirty = true
-            }
-        }
+        guard restoration.acceptsPersistence, let model else { return }
+        pendingBoard = model.board
+        scheduleAutosave()
     }
 
     func flushAndPrepareToLeave() async {
         guard let domainSession else { return }
         let canvas = zoom.prepareToLeave()
         recordCanvas(canvas)
+        pendingAutosaveDebounce?.cancel()
+        pendingAutosaveDebounce = nil
+        enqueueAutosave()
         isSaving = true
         defer { isSaving = false }
         do {
-            await pendingCapture?.value
-            await pendingWorkspaceSave?.value
-            _ = try await domainSession.prepareToLeave()
+            await sessionPipeline?.value
+            guard !autosaveFailed else {
+                isDirty = true
+                return
+            }
+            if await domainSession.isDirty {
+                _ = try await domainSession.prepareToLeave()
+                model?.finalizeDeferredDeletions()
+            }
             isDirty = await domainSession.isDirty
             error = nil
         } catch {
             isDirty = true
-            self.error = "Não foi possível salvar o mural: \\(error.localizedDescription)"
+            self.error = "Não foi possível salvar o mural: \(error.localizedDescription)"
         }
     }
 
@@ -207,21 +237,19 @@ final class BoardWindowSession {
         guard restoration.acceptsPersistence else { return }
         var changed = workspace
         update(&changed)
-        guard changed != workspace, let domainSession else { return }
+        guard changed != workspace else { return }
         workspace = changed
-        let expectedGeneration = generation
-        pendingWorkspaceSave?.cancel()
-        pendingWorkspaceSave = Task { [weak self] in
+        pendingWorkspace = changed
+        scheduleAutosave()
+    }
+
+    private func scheduleAutosave() {
+        pendingAutosaveDebounce?.cancel()
+        pendingAutosaveDebounce = Task { [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(250))
                 guard let self, !Task.isCancelled else { return }
-                do {
-                    try await domainSession.update(workspace: changed, expectedGeneration: expectedGeneration)
-                } catch BoardSessionError.generationMismatch {
-                    try await domainSession.update(workspace: changed, expectedGeneration: await domainSession.generation)
-                }
-                generation = await domainSession.generation
-                isDirty = await domainSession.isDirty
+                enqueueAutosave()
             } catch is CancellationError {
                 return
             } catch {
@@ -231,15 +259,53 @@ final class BoardWindowSession {
         }
     }
 
+    private func enqueueAutosave() {
+        guard let domainSession else { return }
+        autosaveFailed = false
+        let board = pendingBoard
+        let savedWorkspace = pendingWorkspace
+        pendingBoard = nil
+        pendingWorkspace = nil
+        let previous = sessionPipeline
+        sessionPipeline = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
+            do {
+                var expectedGeneration = await domainSession.generation
+                if let board {
+                    try await domainSession.update(board: board, expectedGeneration: expectedGeneration)
+                    expectedGeneration = await domainSession.generation
+                }
+                if let savedWorkspace {
+                    try await domainSession.update(workspace: savedWorkspace, expectedGeneration: expectedGeneration)
+                }
+                if await domainSession.isDirty {
+                    _ = try await domainSession.flush()
+                    model?.finalizeDeferredDeletions()
+                }
+                generation = await domainSession.generation
+                isDirty = await domainSession.isDirty
+                error = nil
+                autosaveFailed = false
+            } catch {
+                if let board { pendingBoard = board }
+                if let savedWorkspace { pendingWorkspace = savedWorkspace }
+                isDirty = true
+                autosaveFailed = true
+                self.error = "Não foi possível salvar o mural: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private static func destinations(from values: [WorkspaceDestination], board: Board) -> [Destination] {
         values.compactMap { value in
             switch value {
             case .collection(let id):
-                guard let item = board.item(id: id.rawValue), item.kind == .folder else { return nil }
-                return .collection(id.rawValue)
+                guard let item = board.item(id: id), item.kind == .folder else { return nil }
+                return .collection(id)
             case .item(let id):
-                guard board.item(id: id.rawValue) != nil else { return nil }
-                return .item(id.rawValue)
+                guard board.item(id: id) != nil else { return nil }
+                return .item(id)
             }
         }
     }
@@ -249,10 +315,10 @@ final class BoardWindowSession {
             switch value {
             case .collection(let id):
                 guard let item = board.item(id: id), item.kind == .folder else { return nil }
-                return .collection(BoardID(id))
+                return .collection(id)
             case .item(let id):
                 guard board.item(id: id) != nil else { return nil }
-                return .item(BoardID(id))
+                return .item(id)
             }
         }
     }

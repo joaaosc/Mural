@@ -23,6 +23,8 @@ final class CanvasZoomController {
     var viewport: CGSize = .zero
     /// Área ocupada pelos cartões, sem zoom.
     var contentExtent: CGSize = .zero
+    /// Insets reais reportados pela geometria do ScrollView.
+    var contentInsets: EdgeInsets = EdgeInsets()
 
     /// Lido a cada rolagem; não precisa redesenhar nada, por isso fica fora da observação.
     @ObservationIgnored var scrollOffset: CGPoint = .zero
@@ -76,12 +78,12 @@ final class CanvasZoomController {
     }
 
     /// Captura apenas o estado confirmado, usando o centro lógico visível.
-    func confirmedWorkspace(contentInsets: EdgeInsets = EdgeInsets()) -> CanvasWorkspaceState {
+    func confirmedWorkspace(contentInsets: EdgeInsets? = nil) -> CanvasWorkspaceState {
         let center = CanvasWorkspaceMath.logicalCenter(
             contentOffset: scrollOffset,
             viewport: viewport,
             zoom: zoom,
-            contentInsets: contentInsets
+            contentInsets: contentInsets ?? self.contentInsets
         )
         if center == .zero && scrollOffset == .zero {
             return CanvasWorkspaceState(confirmedZoom: Double(zoom), anchor: .origin)

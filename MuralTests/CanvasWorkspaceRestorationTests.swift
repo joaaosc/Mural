@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import MuralKit
+import SwiftUI
 import Testing
 
 @testable import Mural
@@ -56,6 +57,28 @@ struct CanvasWorkspaceRestorationTests {
         )
 
         #expect(offset == CGPoint(x: 300, y: 200))
+    }
+
+    @Test("Insets entram no centro lógico e no intervalo alcançável")
+    func insetsRoundTrip() {
+        let insets = EdgeInsets(top: 20, leading: 24, bottom: 32, trailing: 40)
+        let center = CGPoint(x: 1_200, y: 980)
+        let viewport = CGSize(width: 900, height: 700)
+        let content = CGSize(width: 3_400, height: 2_800)
+        let offset = CanvasWorkspaceMath.targetOffset(
+            logicalCenter: center,
+            zoom: 1.1,
+            viewport: viewport,
+            contentSize: content,
+            contentInsets: insets)
+        let restored = CanvasWorkspaceMath.logicalCenter(
+            contentOffset: offset,
+            viewport: viewport,
+            zoom: 1.1,
+            contentInsets: insets)
+
+        #expect(abs(restored.x - center.x) <= 1)
+        #expect(abs(restored.y - center.y) <= 1)
     }
 
     @Test("Cem ciclos não acumulam drift")

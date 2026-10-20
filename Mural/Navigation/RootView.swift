@@ -68,7 +68,16 @@ private struct LoadedRootView: View {
                 onAdd: { session.isImporterPresented = true },
                 boardID: session.boardID,
                 generation: session.generation,
-                onCanvasGeometryReady: { viewport, contentSize in session.restoreCanvas(viewport: viewport, contentSize: contentSize) },
+                onCanvasGeometryReady: { boardID, generation, metrics in
+                    let wasReady = session.restorationPhase == .ready
+                    session.restoreCanvas(boardID: boardID, generation: generation, metrics: metrics)
+                    if wasReady {
+                        session.recordCanvas(
+                            boardID: boardID,
+                            generation: generation,
+                            state: session.zoom.confirmedWorkspace())
+                    }
+                },
                 onCanvasChange: { boardID, generation, state in
                     session.recordCanvas(boardID: boardID, generation: generation, state: state)
                 }

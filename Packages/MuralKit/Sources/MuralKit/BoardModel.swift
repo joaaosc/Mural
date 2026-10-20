@@ -23,6 +23,7 @@ public final class BoardModel {
     @ObservationIgnored let store: BoardStore
     @ObservationIgnored let importer: ItemImporter
     @ObservationIgnored let persistence: Persistence
+    @ObservationIgnored private var deferredDeletions: [BoardItem] = []
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
     public init(store: BoardStore, seedIfEmpty: Bool = true, persistence: Persistence = .immediate) {
@@ -160,6 +161,12 @@ public final class BoardModel {
 
         var candidate = board
         let removed = candidate.remove(id: itemID)
+        guard !removed.isEmpty else { return }
+        if persistence == .deferred {
+            board = candidate
+            deferredDeletions.append(contentsOf: removed)
+            return
+        }
         do {
             // O mural precisa estar gravado antes de publicar a remoção em memória
             // ou apagar os arquivos que ele ainda referencia.
@@ -170,6 +177,17 @@ public final class BoardModel {
         }
 
         board = candidate
+        for item in removed {
+            importer.removeFile(of: item)
+        }
+    }
+
+    /// Finaliza a remoção de arquivos somente depois de a sessão ter publicado
+    /// com sucesso o snapshot transacional do novo board.
+    public func finalizeDeferredDeletions() {
+        guard persistence == .deferred else { return }
+        let removed = deferredDeletions
+        deferredDeletions.removeAll(keepingCapacity: true)
         for item in removed {
             importer.removeFile(of: item)
         }

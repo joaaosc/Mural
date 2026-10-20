@@ -86,6 +86,22 @@ struct BoardModelTests {
         #expect(model.lastError != nil)
     }
 
+    @Test("Exclusão deferred retém assets até o snapshot ser publicado")
+    func deferredDeleteRetainsAssetUntilFinalize() throws {
+        let model = BoardModel(store: makeStore(), persistence: .deferred)
+        let media = try #require(model.importData(Data([9, 8, 7]), fileExtension: "mov", kind: .video, title: "Clipe"))
+        let file = try #require(model.fileURL(for: media))
+        #expect(FileManager.default.fileExists(atPath: file.path))
+
+        model.delete(media.id)
+        #expect(model.item(id: media.id) == nil)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+
+        // A failed session flush does not call this finalization boundary.
+        model.finalizeDeferredDeletions()
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
     @Test("Persistência suspensa não altera mural nem remove arquivos")
     func deleteWhilePersistenceSuspendedPreservesBoardAndFiles() throws {
         let store = makeStore()

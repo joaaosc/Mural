@@ -109,12 +109,12 @@ struct BoardRepositoryTests {
             board(id: rootID, kind: .text),
         ])
         let state = BoardWorkspaceState(path: [
-            .collection(BoardID(folderID)),
-            .item(BoardID(rootID)),
-            .item(BoardID(childID)),
+            .collection(folderID),
+            .item(rootID),
+            .item(childID),
         ])
         let result = state.canonicalized(for: board)
-        #expect(result.state.path == [.collection(BoardID(folderID))])
+        #expect(result.state.path == [.collection(folderID)])
         #expect(result.issues.contains(.invalidPath(index: 1)))
     }
 

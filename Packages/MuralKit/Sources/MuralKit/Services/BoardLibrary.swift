@@ -15,7 +15,8 @@ public actor BoardLibrary {
 
     public init(
         rootDirectory: URL = BoardStore.defaultDirectory(),
-        faultInjection: BoardLibraryFaultInjection = .none
+        faultInjection: BoardLibraryFaultInjection = .none,
+        repositoryFaultInjection: BoardRepositoryFaultInjection = .none
     ) {
         self.rootDirectory = rootDirectory
         self.boardsDirectory = rootDirectory.appendingPathComponent("Boards", isDirectory: true)
@@ -23,11 +24,13 @@ public actor BoardLibrary {
         self.transfersDirectory = rootDirectory.appendingPathComponent("Transfers", isDirectory: true)
         self.importStagingDirectory = rootDirectory.appendingPathComponent("ImportStaging", isDirectory: true)
         self.libraryStateURL = rootDirectory.appendingPathComponent("LibraryState.json")
-        self.savedRepository = BoardRepository(rootDirectory: rootDirectory.appendingPathComponent("Boards", isDirectory: true))
+        self.savedRepository = BoardRepository(
+            rootDirectory: rootDirectory.appendingPathComponent("Boards", isDirectory: true),
+            faultInjection: repositoryFaultInjection)
         self.draftRepository = BoardRepository(
             rootDirectory: rootDirectory.appendingPathComponent("Drafts", isDirectory: true),
-            packageName: "Welcome.mural"
-        )
+            packageName: "Welcome.mural",
+            faultInjection: repositoryFaultInjection)
         self.faultInjection = faultInjection
     }
 

@@ -11,7 +11,7 @@ struct BoardCanvasView: View {
     var onAdd: () -> Void
     var boardID: BoardID
     var generation: UInt64
-    var onCanvasGeometryReady: (CGSize, CGSize) -> Void = { _, _ in }
+    var onCanvasGeometryReady: (BoardID, UInt64, CanvasScrollMetrics) -> Void = { _, _, _ in }
     var onCanvasChange: (BoardID, UInt64, CanvasWorkspaceState) -> Void = { _, _, _ in }
 
     @State private var hoveredFolder: UUID?
@@ -69,12 +69,15 @@ struct BoardCanvasView: View {
             .scaleEffect(zoom.liveScale, anchor: unitPoint(zoom.liveAnchor, in: layoutSize))
         }
         .scrollPosition($zoom.scrollPosition)
-        .onScrollGeometryChange(for: CGPoint.self, of: \.contentOffset) { _, offset in zoom.scrollOffset = offset }
         .discreetScrollIndicators([.horizontal, .vertical])
         .background(Theme.canvas)
-        .onGeometryChange(for: CGSize.self, of: \.size) {
-            zoom.viewport = $0
-            onCanvasGeometryReady($0, layoutSize)
+        .onScrollGeometryChange(for: CanvasScrollMetrics.self) { geometry in
+            CanvasScrollMetrics(geometry)
+        } action: { _, metrics in
+            zoom.viewport = metrics.containerSize
+            zoom.scrollOffset = metrics.contentOffset
+            zoom.contentInsets = metrics.contentInsets
+            onCanvasGeometryReady(boardID, generation, metrics)
         }
         .onScrollPhaseChange { _, phase in
             guard phase == .idle else { return }

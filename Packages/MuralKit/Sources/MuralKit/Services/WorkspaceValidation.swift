@@ -26,13 +26,13 @@ extension BoardWorkspaceState {
         }
 
         var validPath: [WorkspaceDestination] = []
-        var seen = Set<BoardID>()
+        var seen = Set<UUID>()
         for (index, destination) in canonical.path.enumerated() {
             guard index < 2 else {
                 issues.append(.pathTruncated(index: index))
                 break
             }
-            let id: BoardID
+            let id: UUID
             switch destination {
             case .collection(let collectionID): id = collectionID
             case .item(let itemID): id = itemID
@@ -88,7 +88,7 @@ extension BoardWorkspaceState {
         path: [WorkspaceDestination],
         board: Board
     ) -> Bool {
-        guard let id = destination.id, let item = board.item(id: id.rawValue) else { return false }
+        guard let id = destination.id, let item = board.item(id: id) else { return false }
         switch (index, destination) {
         case (0, .collection(_)):
             return item.kind == .folder && item.parentID == nil
@@ -96,7 +96,7 @@ extension BoardWorkspaceState {
             return item.kind != .folder && item.parentID == nil
         case (1, .item(_)):
             guard case .collection(let parentID) = path[0] else { return false }
-            return item.kind != .folder && item.parentID == parentID.rawValue
+            return item.kind != .folder && item.parentID == parentID
         default:
             return false
         }
@@ -130,7 +130,7 @@ extension BoardWorkspaceState {
 }
 
 extension WorkspaceDestination {
-    fileprivate var id: BoardID? {
+    fileprivate var id: UUID? {
         switch self {
         case .collection(let id), .item(let id): id
         }

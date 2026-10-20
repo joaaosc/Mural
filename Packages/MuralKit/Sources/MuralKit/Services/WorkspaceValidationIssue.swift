@@ -2,7 +2,7 @@ import Foundation
 
 public enum WorkspaceValidationIssue: Equatable, Sendable {
     case invalidPath(index: Int)
-    case repeatedPathID(BoardID)
+    case repeatedPathID(UUID)
     case pathTruncated(index: Int)
     case nonFiniteZoom
     case zoomClamped

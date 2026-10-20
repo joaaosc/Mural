@@ -17,6 +17,32 @@ struct CanvasRestorationToken: Equatable, Sendable {
     let generation: UInt64
 }
 
+struct CanvasScrollMetrics: Equatable {
+    let contentOffset: CGPoint
+    let containerSize: CGSize
+    let contentSize: CGSize
+    let contentInsets: EdgeInsets
+
+    init(
+        contentOffset: CGPoint,
+        containerSize: CGSize,
+        contentSize: CGSize,
+        contentInsets: EdgeInsets = EdgeInsets()
+    ) {
+        self.contentOffset = contentOffset
+        self.containerSize = containerSize
+        self.contentSize = contentSize
+        self.contentInsets = contentInsets
+    }
+
+    init(_ geometry: ScrollGeometry) {
+        contentOffset = geometry.contentOffset
+        containerSize = geometry.containerSize
+        contentSize = geometry.contentSize
+        contentInsets = geometry.contentInsets
+    }
+}
+
 /// Operações geométricas puras do canvas. O ponto persistido está em coordenadas
 /// lógicas, não em pontos físicos da janela, portanto sobrevive a resize e zoom.
 enum CanvasWorkspaceMath {
@@ -49,11 +75,16 @@ enum CanvasWorkspaceMath {
             x: logicalCenter.x * zoom - contentInsets.leading - availableWidth / 2,
             y: logicalCenter.y * zoom - contentInsets.top - availableHeight / 2
         )
-        let maxX = max(0, contentSize.width - viewport.width)
-        let maxY = max(0, contentSize.height - viewport.height)
+        // ScrollGeometry reports offsets relative to the inset content. The
+        // reachable interval therefore starts at the leading inset and ends
+        // after the trailing inset, rather than assuming a zero-origin scroll.
+        let minX = -contentInsets.leading
+        let minY = -contentInsets.top
+        let maxX = max(minX, contentSize.width - viewport.width + contentInsets.trailing)
+        let maxY = max(minY, contentSize.height - viewport.height + contentInsets.bottom)
         return CGPoint(
-            x: min(max(0, proposed.x), maxX),
-            y: min(max(0, proposed.y), maxY)
+            x: min(max(minX, proposed.x), maxX),
+            y: min(max(minY, proposed.y), maxY)
         )
     }
 }
