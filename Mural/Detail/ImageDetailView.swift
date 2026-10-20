@@ -5,8 +5,13 @@ import SwiftUI
 struct ImageDetailView: View {
     let item: BoardItem
     let model: BoardModel
+    let session: BoardWindowSession?
 
     @State private var caption = ""
+    @State private var scrollPosition = ScrollPosition()
+    @State private var metrics = DetailScrollMetrics()
+    @State private var savedPosition: ReadingPosition?
+    @State private var restoring = false
 
     private var ratio: CGFloat { BoardLayout.aspectRatio(for: item) }
 
@@ -48,10 +53,79 @@ struct ImageDetailView: View {
             .padding(.bottom, 110)
             .frame(maxWidth: .infinity)
         }
+        .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: DetailScrollMetrics.self) { geometry in
+            DetailScrollMetrics(geometry)
+        } action: { _, newMetrics in
+            metrics = newMetrics
+            confirmRestoreIfPossible()
+        }
+        .onScrollPhaseChange { _, phase in
+            guard phase == .idle else { return }
+            capturePosition()
+        }
         .discreetScrollIndicators()
-        .onAppear { caption = item.text ?? "" }
+        .task(id: item.id) {
+            beginRestore()
+            caption = session?.captionDraft(for: item.id) ?? item.text ?? ""
+        }
+        .onChange(of: caption) { _, text in
+            session?.setCaptionDraft(text, for: item.id)
+        }
         // Sair da tela cancela a espera acima: grava aqui o que ainda não foi gravado.
-        .onDisappear { saveCaptionIfChanged() }
+        .onDisappear {
+            session?.setCaptionDraft(caption, for: item.id)
+            session?.commitCaptionDrafts()
+            saveCaptionIfChanged()
+        }
+        .allowsHitTesting(!restoring)
+        .accessibilityHidden(restoring)
+    }
+
+    private func beginRestore() {
+        guard let session else { return }
+        savedPosition = session.beginReadingRestore(
+            for: item.id,
+            boardID: session.boardID,
+            generation: session.generation,
+            navigationGeneration: session.navigationGeneration)
+        guard case .item = savedPosition else {
+            restoring = false
+            session.finishReadingRestore(for: item.id)
+            return
+        }
+        restoring = true
+        confirmRestoreIfPossible()
+    }
+
+    private func confirmRestoreIfPossible() {
+        guard restoring, let session, let savedPosition,
+            metrics.containerSize != .zero, metrics.contentSize != .zero,
+            let targetY = ReadingPosition.itemTargetY(
+                savedPosition,
+                contentHeight: metrics.contentSize.height,
+                viewportHeight: metrics.containerSize.height,
+                contentInsetsTop: metrics.contentInsets.top,
+                contentInsetsBottom: metrics.contentInsets.bottom)
+        else { return }
+        if abs(metrics.visibleRect.minY - targetY) > 1 {
+            scrollPosition.scrollTo(y: targetY)
+            return
+        }
+        restoring = false
+        session.finishReadingRestore(for: item.id)
+    }
+
+    private func capturePosition() {
+        guard !restoring, let session,
+            session.restorationPhase == .ready,
+            session.acceptsPersistence(for: session.boardID, generation: session.generation)
+        else { return }
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: max(0, metrics.visibleRect.minY)),
+            boardID: session.boardID,
+            generation: session.generation,
+            navigationGeneration: session.navigationGeneration)
     }
 
     private func saveCaptionIfChanged() {

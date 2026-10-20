@@ -6,6 +6,7 @@ import SwiftUI
 struct ItemDetailView: View {
     let item: BoardItem
     let model: BoardModel
+    let session: BoardWindowSession?
     var onClose: () -> Void
 
     @State private var isConfirmingDelete = false
@@ -20,7 +21,7 @@ struct ItemDetailView: View {
             .confirmationDialog("Apagar “\(item.title)”?", isPresented: $isConfirmingDelete) {
                 Button("Apagar", role: .destructive) {
                     onClose()
-                    model.delete(item.id)
+                    if let session { session.delete(item.id) } else { model.delete(item.id) }
                 }
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: 0))
@@ -31,15 +32,15 @@ struct ItemDetailView: View {
     private var content: some View {
         switch item.kind {
         case .image:
-            ImageDetailView(item: item, model: model)
+            ImageDetailView(item: item, model: model, session: session)
         case .video:
             VideoDetailView(url: model.fileURL(for: item), title: item.title)
         case .pdf:
-            PDFDetailView(url: model.fileURL(for: item))
+            PDFDetailView(itemID: item.id, url: model.fileURL(for: item), session: session)
         case .text, .sticky:
-            TextDetailView(item: item)
+            TextDetailView(item: item, session: session)
         case .checklist:
-            ChecklistDetailView(item: item, model: model)
+            ChecklistDetailView(item: item, model: model, session: session)
         case .folder:
             EmptyView()
         }

@@ -69,7 +69,7 @@ enum PreviewImages {
     let model = BoardModel.preview()
     let folder = model.rootItems.first { $0.kind == .folder && $0.title == "The Cottage" }!
     CollectionView(
-        folder: folder, model: model, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil,
+        folder: folder, model: model, session: nil, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil,
         isInfoPresented: .constant(false)
     ) {
         _ in
@@ -80,14 +80,14 @@ enum PreviewImages {
 #Preview("Detalhe da imagem", traits: .fixedLayout(width: 1100, height: 720)) {
     let model = BoardModel.preview()
     let image = model.rootItems.first { $0.kind == .image }!
-    ItemDetailView(item: image, model: model, onClose: {})
+    ItemDetailView(item: image, model: model, session: nil, onClose: {})
         .background(Theme.page)
 }
 
 #Preview("Lista", traits: .fixedLayout(width: 1100, height: 720)) {
     let model = BoardModel.preview()
     let list = model.rootItems.first { $0.kind == .checklist }!
-    ItemDetailView(item: list, model: model, onClose: {})
+    ItemDetailView(item: list, model: model, session: nil, onClose: {})
         .background(Theme.page)
 }
 #endif

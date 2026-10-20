@@ -264,4 +264,150 @@ struct BoardWindowSessionTests {
         let snapshot = try #require(await failingLibrary.open(route))
         #expect(snapshot.board.item(id: item.id)?.text == "snapshot 2")
     }
+
+    @Test("Posições de leitura usam âncora, fallback e limites reais")
+    func readingPositionGeometryContracts() {
+        let folderID = UUID()
+        let firstID = UUID()
+        let position = ReadingPosition.collectionSnapshot(
+            folderID: folderID,
+            visibleRect: CGRect(x: 0, y: 145, width: 800, height: 600),
+            itemFrames: [
+                (id: firstID, frame: CGRect(x: 0, y: 120, width: 300, height: 180)),
+                (id: UUID(), frame: CGRect(x: 0, y: 330, width: 300, height: 180)),
+            ])
+        #expect(
+            position
+                == .collection(
+                    folderID: folderID,
+                    firstVisibleItemID: firstID,
+                    relativeOffset: 25,
+                    fallbackContentY: 145))
+        #expect(
+            ReadingPosition.collectionTargetY(
+                position,
+                itemFrame: CGRect(x: 0, y: 120, width: 300, height: 180),
+                contentHeight: 1_000,
+                viewportHeight: 400,
+                contentInsetsTop: 20,
+                contentInsetsBottom: 30) == 145)
+        #expect(
+            ReadingPosition.itemTargetY(
+                .item(itemID: firstID, visibleContentY: -50),
+                contentHeight: 1_000,
+                viewportHeight: 400,
+                contentInsetsTop: 20,
+                contentInsetsBottom: 30) == -20)
+    }
+
+    @Test("PDF position clamps page, scale e ponto")
+    func pdfPositionClampContract() {
+        let itemID = UUID()
+        let position = ReadingPosition.clampedPDF(
+            itemID: itemID,
+            pageIndex: 99,
+            pageCount: 4,
+            scale: 99,
+            scaleRange: 0.5...3,
+            pointInPage: BoardPoint(x: -10, y: 900),
+            pageBounds: CGRect(x: 0, y: 0, width: 612, height: 792))
+        #expect(
+            position
+                == .pdf(
+                    itemID: itemID,
+                    pageIndex: 3,
+                    scale: 3,
+                    pointInPage: BoardPoint(x: 0, y: 792)))
+    }
+
+    @Test("Barreira inicial impede callback e libera captura depois do layout")
+    func readingRestoreBarrierRejectsInitialCallback() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Leitura")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("texto"))
+        let generation = session.generation
+        _ = session.beginReadingRestore(for: item.id)
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 400),
+            boardID: session.boardID,
+            generation: generation)
+        #expect(session.readingPosition(for: item.id) == nil)
+        session.finishReadingRestore(for: item.id)
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 400),
+            boardID: session.boardID,
+            generation: generation)
+        #expect(session.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 400))
+    }
+
+    @Test("Caption draft é gravado imediatamente no leave e reabre")
+    func captionDraftCommitsWithoutDebounce() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Legenda")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("imagem"))
+        session.setCaptionDraft("última tecla", for: item.id)
+        await session.flushAndPrepareToLeave()
+        let reloaded = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        await reloaded.load()
+        #expect(reloaded.model?.item(id: item.id)?.text == "última tecla")
+    }
+
+    @Test("Reading position sobrevive A/B/A e novo registry")
+    func readingPositionRoundTripThroughRegistry() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let routeA = try await library.createNamedBoard("A")
+        let routeB = try await library.createNamedBoard("B")
+        let registry = BoardSessionRegistry(library: library)
+        let a = BoardWindowSession(route: routeA, registry: registry)
+        let b = BoardWindowSession(route: routeB, registry: registry)
+        try await makeReady(a)
+        try await makeReady(b)
+        let item = try #require(a.model?.importText("leitura A"))
+        a.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 321),
+            boardID: a.boardID,
+            generation: a.generation)
+        a.captureBoardIfNeeded()
+        await a.flushAndPrepareToLeave()
+        let itemB = try #require(b.model?.importText("B"))
+        b.setCaptionDraft("não misturar", for: itemB.id)
+        await b.flushAndPrepareToLeave()
+
+        let reloaded = BoardWindowSession(
+            route: routeA,
+            registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        #expect(reloaded.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 321))
+    }
+
+    @Test("Exclusão remove path e reading position canônicos")
+    func deletionPrunesWorkspaceState() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Prune")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("aberto"))
+        session.setNavigation(path: [.item(item.id)], filter: nil)
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 80),
+            boardID: session.boardID,
+            generation: session.generation)
+        session.delete(item.id)
+        #expect(session.path.isEmpty)
+        #expect(session.readingPosition(for: item.id) == nil)
+    }
 }

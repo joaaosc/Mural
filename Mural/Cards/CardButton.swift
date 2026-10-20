@@ -9,6 +9,9 @@ struct CardButton: View {
     let model: BoardModel
     let hero: HeroContext
     var onOpen: () -> Void
+    var onDelete: ((UUID) -> Void)? = nil
+    var onMoveToBoard: ((UUID) -> Void)? = nil
+    var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
 
     @State private var isConfirmingDelete = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -28,7 +31,7 @@ struct CardButton: View {
             }
             .confirmationDialog("Apagar “\(item.title)”?", isPresented: $isConfirmingDelete) {
                 Button("Apagar", role: .destructive) {
-                    withAnimation(reduceMotion ? nil : .smooth) { model.delete(item.id) }
+                    withAnimation(reduceMotion ? nil : .smooth) { onDelete?(item.id) ?? model.delete(item.id) }
                 }
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: model.children(of: item.id).count))
@@ -42,7 +45,7 @@ struct CardButton: View {
     private var moveMenu: some View {
         if item.parentID != nil {
             Button("Mover para o mural") {
-                withAnimation(reduceMotion ? nil : .smooth) { model.moveToBoard(item.id) }
+                withAnimation(reduceMotion ? nil : .smooth) { onMoveToBoard?(item.id) ?? model.moveToBoard(item.id) }
             }
         } else if item.kind != .folder {
             let folders = model.rootItems.filter { $0.kind == .folder }
@@ -50,7 +53,9 @@ struct CardButton: View {
                 Menu("Mover para a pasta") {
                     ForEach(folders) { folder in
                         Button(folder.title) {
-                            withAnimation(reduceMotion ? nil : .smooth) { model.moveIntoFolder(item.id, folderID: folder.id) }
+                            withAnimation(reduceMotion ? nil : .smooth) {
+                                onMoveIntoFolder?(item.id, folder.id) ?? model.moveIntoFolder(item.id, folderID: folder.id)
+                            }
                         }
                     }
                 }

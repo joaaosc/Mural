@@ -13,6 +13,10 @@ struct BoardCanvasView: View {
     var generation: UInt64
     var onCanvasGeometryReady: (BoardID, UInt64, CanvasScrollMetrics) -> Void = { _, _, _ in }
     var onCanvasChange: (BoardID, UInt64, CanvasWorkspaceState) -> Void = { _, _, _ in }
+    var onDelete: ((UUID) -> Void)? = nil
+    var onMoveToBoard: ((UUID) -> Void)? = nil
+    var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
+    var onMove: ((UUID, BoardPoint) -> Void)? = nil
 
     @State private var hoveredFolder: UUID?
     /// Pasta sob o ponteiro agora, atualizada mesmo durante um arrasto; vira o foco ao soltar.
@@ -150,7 +154,14 @@ struct BoardCanvasView: View {
     }
 
     private func cardButton(_ item: BoardItem, open destinations: [Destination]) -> some View {
-        CardButton(item: item, model: model, hero: hero) { open(destinations) }
+        CardButton(
+            item: item,
+            model: model,
+            hero: hero,
+            onOpen: { open(destinations) },
+            onDelete: onDelete,
+            onMoveToBoard: onMoveToBoard,
+            onMoveIntoFolder: onMoveIntoFolder)
     }
 
     /// Posição do cartão: a gravada mais o arrasto em andamento.
@@ -225,7 +236,7 @@ struct BoardCanvasView: View {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    model.move(item.id, to: target)
+                    if let onMove { onMove(item.id, target) } else { model.move(item.id, to: target) }
                     drag = nil
                 }
                 onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
@@ -239,7 +250,7 @@ struct BoardCanvasView: View {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            model.moveIntoFolder(item.id, folderID: folderID)
+            if let onMoveIntoFolder { onMoveIntoFolder(item.id, folderID) } else { model.moveIntoFolder(item.id, folderID: folderID) }
             drag = nil
             storing = nil
         }

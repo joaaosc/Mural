@@ -80,7 +80,11 @@ private struct LoadedRootView: View {
                 },
                 onCanvasChange: { boardID, generation, state in
                     session.recordCanvas(boardID: boardID, generation: generation, state: state)
-                }
+                },
+                onDelete: session.delete,
+                onMoveToBoard: session.moveToBoard,
+                onMoveIntoFolder: session.moveIntoFolder,
+                onMove: session.move
             )
             .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
             .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
@@ -180,14 +184,16 @@ private struct LoadedRootView: View {
         switch destination {
         case .collection(let id):
             if let folder = model.item(id: id) {
-                CollectionView(folder: folder, model: model, hero: hero, filter: filter, isInfoPresented: $isFolderInfoPresented) {
+                CollectionView(
+                    folder: folder, model: model, session: session, hero: hero, filter: filter, isInfoPresented: $isFolderInfoPresented
+                ) {
                     childID in
                     open([.item(childID)])
                 }
             }
         case .item(let id):
             if let item = model.item(id: id) {
-                ItemDetailView(item: item, model: model, onClose: goBack)
+                ItemDetailView(item: item, model: model, session: session, onClose: goBack)
             }
         }
     }

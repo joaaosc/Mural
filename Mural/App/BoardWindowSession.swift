@@ -2,6 +2,22 @@ import MuralKit
 import Observation
 import SwiftUI
 
+struct DetailScrollMetrics: Equatable {
+    var containerSize: CGSize = .zero
+    var contentSize: CGSize = .zero
+    var contentInsets: EdgeInsets = EdgeInsets()
+    var visibleRect: CGRect = .zero
+
+    init() {}
+
+    init(_ geometry: ScrollGeometry) {
+        containerSize = geometry.containerSize
+        contentSize = geometry.contentSize
+        contentInsets = geometry.contentInsets
+        visibleRect = geometry.visibleRect
+    }
+}
+
 /// Adaptador MainActor de uma sessão de domínio para uma janela SwiftUI.
 /// Cada instância pertence a exatamente um `BoardID`; não há estado de mural atual.
 @MainActor
@@ -21,6 +37,9 @@ final class BoardWindowSession {
     private(set) var error: String?
     private(set) var isDirty = false
     private(set) var isSaving = false
+    private(set) var navigationGeneration: UInt64 = 0
+    private(set) var readingPositions: [UUID: ReadingPosition] = [:]
+    private(set) var captionDrafts: [UUID: String] = [:]
 
     var path: [Destination] = []
     var filter: BoardFilter?
@@ -36,6 +55,7 @@ final class BoardWindowSession {
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
     @ObservationIgnored private var restoreTarget: CGPoint?
     @ObservationIgnored private var autosaveFailed = false
+    @ObservationIgnored private var restoringReadingItems: Set<UUID> = []
 
     init(route: BoardRoute, registry: BoardSessionRegistry) {
         self.route = route
@@ -79,6 +99,7 @@ final class BoardWindowSession {
 
             domainSession = session
             workspace = loadedWorkspace
+            readingPositions = loadedWorkspace.readingPositions
             generation = loadedGeneration
             manifestName = manifest.name
             let store = BoardStore(directory: packageURL)
@@ -184,6 +205,7 @@ final class BoardWindowSession {
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
         self.path = Self.destinations(from: newPath, board: model.board)
         self.filter = Self.filter(from: newFilter, path: self.path, board: model.board)
+        navigationGeneration &+= 1
         updateWorkspace { workspace in
             workspace.path = newPath
             workspace.filter = newFilter
@@ -208,8 +230,126 @@ final class BoardWindowSession {
         scheduleAutosave()
     }
 
+    // MARK: Posições de leitura e drafts
+
+    func readingPosition(for itemID: UUID) -> ReadingPosition? {
+        readingPositions[itemID]
+    }
+
+    /// Marca a barreira local da tela que está restaurando uma posição. O
+    /// callback inicial do ScrollView/PDFView é ignorado até `finish...`.
+    @discardableResult
+    func beginReadingRestore(
+        for itemID: UUID,
+        boardID callbackBoardID: BoardID? = nil,
+        generation callbackGeneration: UInt64? = nil,
+        navigationGeneration callbackNavigationGeneration: UInt64? = nil
+    ) -> ReadingPosition? {
+        guard callbackBoardID.map({ $0 == boardID }) ?? true,
+            callbackGeneration.map({ $0 == generation }) ?? true,
+            callbackNavigationGeneration.map({ $0 == navigationGeneration }) ?? true
+        else { return nil }
+        restoringReadingItems.insert(itemID)
+        return readingPositions[itemID]
+    }
+
+    func finishReadingRestore(for itemID: UUID) {
+        restoringReadingItems.remove(itemID)
+    }
+
+    func recordReadingPosition(
+        _ position: ReadingPosition,
+        boardID callbackBoardID: BoardID,
+        generation callbackGeneration: UInt64,
+        navigationGeneration callbackNavigationGeneration: UInt64? = nil
+    ) {
+        guard acceptsPersistence(for: callbackBoardID, generation: callbackGeneration),
+            callbackNavigationGeneration.map({ $0 == navigationGeneration }) ?? true,
+            !restoringReadingItems.contains(position.targetItemID)
+        else { return }
+        updateWorkspace { workspace in
+            workspace.readingPositions[position.targetItemID] = position
+        }
+        readingPositions[position.targetItemID] = workspace.readingPositions[position.targetItemID]
+    }
+
+    func setReadingPosition(
+        _ position: ReadingPosition,
+        boardID callbackBoardID: BoardID,
+        generation callbackGeneration: UInt64,
+        navigationGeneration callbackNavigationGeneration: UInt64? = nil
+    ) {
+        recordReadingPosition(
+            position,
+            boardID: callbackBoardID,
+            generation: callbackGeneration,
+            navigationGeneration: callbackNavigationGeneration)
+    }
+
+    func removeReadingPosition(
+        for itemID: UUID,
+        boardID callbackBoardID: BoardID? = nil,
+        generation callbackGeneration: UInt64? = nil
+    ) {
+        guard callbackBoardID.map({ $0 == boardID }) ?? true,
+            callbackGeneration.map({ $0 == generation }) ?? true
+        else { return }
+        guard readingPositions[itemID] != nil else { return }
+        updateWorkspace { $0.readingPositions.removeValue(forKey: itemID) }
+        readingPositions.removeValue(forKey: itemID)
+    }
+
+    func captionDraft(for itemID: UUID) -> String {
+        captionDrafts[itemID] ?? model?.item(id: itemID)?.text ?? ""
+    }
+
+    func setCaptionDraft(_ text: String, for itemID: UUID) {
+        captionDrafts[itemID] = text
+    }
+
+    /// Publica drafts no BoardModel antes de capturar o snapshot. A operação é
+    /// síncrona no MainActor; a gravação de disco continua pertencendo ao
+    /// `BoardSession` assíncrono.
+    func commitCaptionDrafts() {
+        guard let model else { return }
+        for (itemID, text) in captionDrafts {
+            guard model.item(id: itemID) != nil,
+                model.item(id: itemID)?.text != (text.isEmpty ? nil : text)
+            else { continue }
+            model.setCaption(text, for: itemID)
+        }
+    }
+
+    func delete(_ itemID: UUID) {
+        guard let model, model.item(id: itemID) != nil else { return }
+        model.delete(itemID)
+        canonicalizeWorkspaceAfterContentMutation()
+        captionDrafts.removeValue(forKey: itemID)
+        restoringReadingItems.remove(itemID)
+        captureBoardIfNeeded()
+    }
+
+    func move(_ itemID: UUID, to position: BoardPoint) {
+        model?.move(itemID, to: position)
+        captureBoardIfNeeded()
+    }
+
+    func moveIntoFolder(_ itemID: UUID, folderID: UUID) {
+        model?.moveIntoFolder(itemID, folderID: folderID)
+        canonicalizeWorkspaceAfterContentMutation()
+        captureBoardIfNeeded()
+    }
+
+    func moveToBoard(_ itemID: UUID) {
+        model?.moveToBoard(itemID)
+        canonicalizeWorkspaceAfterContentMutation()
+        captureBoardIfNeeded()
+    }
+
     func flushAndPrepareToLeave() async {
         guard let domainSession else { return }
+        commitCaptionDrafts()
+        captureBoardIfNeeded()
         let canvas = zoom.prepareToLeave()
         recordCanvas(canvas)
         pendingAutosaveDebounce?.cancel()
@@ -246,7 +386,23 @@ final class BoardWindowSession {
         guard changed != workspace else { return }
         mutationSequence &+= 1
         workspace = changed
+        readingPositions = changed.readingPositions
         pendingWorkspace = changed
+        pendingWorkspaceSequence = mutationSequence
+        scheduleAutosave()
+    }
+
+    private func canonicalizeWorkspaceAfterContentMutation() {
+        guard let model else { return }
+        let canonical = workspace.canonicalized(for: model.board).state
+        guard canonical != workspace else { return }
+        workspace = canonical
+        readingPositions = canonical.readingPositions
+        path = Self.destinations(from: canonical.path, board: model.board)
+        filter = Self.filter(from: canonical.filter, path: path, board: model.board)
+        navigationGeneration &+= 1
+        mutationSequence &+= 1
+        pendingWorkspace = canonical
         pendingWorkspaceSequence = mutationSequence
         scheduleAutosave()
     }
