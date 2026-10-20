@@ -19,14 +19,14 @@ public struct ItemImporter: Sendable {
     }
 
     /// Importa um arquivo do disco: copia para a pasta de itens e devolve o cartão.
-    public func importFile(at source: URL, parentID: UUID? = nil, position: BoardPoint = .zero) throws -> BoardItem {
+    public func importFile(at source: URL, parentID: UUID? = nil) throws -> BoardItem {
         guard fileManager.fileExists(atPath: source.path) else { throw ImportError.fileNotFound(source) }
         guard let kind = ContentClassifier.kind(forFileAt: source) else {
             throw ImportError.unsupportedType(source.pathExtension)
         }
         if kind == .text {
             let text = try Self.readText(at: source)
-            var item = try importText(text, parentID: parentID, position: position)
+            var item = try importText(text, parentID: parentID)
             item.title = source.deletingPathExtension().lastPathComponent
             return item
         }
@@ -40,7 +40,6 @@ public struct ItemImporter: Sendable {
             kind: kind,
             title: source.deletingPathExtension().lastPathComponent,
             parentID: parentID,
-            position: position,
             fileName: fileName
         )
         if kind == .image {
@@ -51,44 +50,43 @@ public struct ItemImporter: Sendable {
 
     /// Guarda dados em memória (por exemplo, uma imagem copiada de outro app) como arquivo.
     public func importData(
-        _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID? = nil, position: BoardPoint = .zero
+        _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID? = nil
     ) throws -> BoardItem {
         let id = UUID()
         let fileName = "\(id.uuidString).\(fileExtension.lowercased())"
         try fileManager.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
         let destination = itemsDirectory.appendingPathComponent(fileName)
         try data.write(to: destination, options: .atomic)
-        var item = BoardItem(id: id, kind: kind, title: title, parentID: parentID, position: position, fileName: fileName)
+        var item = BoardItem(id: id, kind: kind, title: title, parentID: parentID, fileName: fileName)
         if kind == .image { item.imageMetadata = ImageInspector.inspect(destination) }
         return item
     }
 
     /// Transforma texto colado em post-it, lista ou nota.
-    public func importText(_ text: String, parentID: UUID? = nil, position: BoardPoint = .zero) throws -> BoardItem {
+    public func importText(_ text: String, parentID: UUID? = nil) throws -> BoardItem {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ImportError.emptyText }
         let kind = ContentClassifier.kind(forText: trimmed)
         switch kind {
         case .checklist:
             let doc = ChecklistParser.parse(trimmed)
-            return BoardItem(kind: .checklist, title: doc.title, parentID: parentID, position: position, checklist: doc)
+            return BoardItem(kind: .checklist, title: doc.title, parentID: parentID, checklist: doc)
         case .sticky:
             return BoardItem(
-                kind: .sticky, title: ContentClassifier.title(forText: trimmed), parentID: parentID, position: position, text: trimmed,
+                kind: .sticky, title: ContentClassifier.title(forText: trimmed), parentID: parentID, text: trimmed,
                 stickyColor: .yellow)
         default:
             return BoardItem(
-                kind: .text, title: ContentClassifier.title(forText: trimmed), parentID: parentID, position: position, text: trimmed)
+                kind: .text, title: ContentClassifier.title(forText: trimmed), parentID: parentID, text: trimmed)
         }
     }
 
     /// Lê um arquivo de texto detectando a codificação pela marca de ordem de bytes;
-    /// sem marca, tenta UTF-8 e depois Latin-1 (que nunca falha).
+    /// sem marca reconhecida, usa Latin-1, que aceita qualquer sequência de bytes.
     static func readText(at url: URL) throws -> String {
         var encoding = String.Encoding.utf8
         if let text = try? String(contentsOf: url, usedEncoding: &encoding) { return text }
         let data = try Data(contentsOf: url)
-        if let text = String(data: data, encoding: .utf8) { return text }
         return String(data: data, encoding: .isoLatin1) ?? ""
     }
 

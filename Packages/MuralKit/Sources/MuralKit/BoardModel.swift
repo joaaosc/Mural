@@ -11,9 +11,12 @@ public final class BoardModel {
     public private(set) var board: Board
     /// Última falha a mostrar ao usuário (importação, gravação, arquivo corrompido).
     public var lastError: String?
+    /// Verdadeiro quando o mural salvo não pôde ser lido nem guardado à parte: nada é
+    /// gravado, para não sobrescrever o arquivo original com um mural novo.
+    public private(set) var isPersistenceSuspended = false
 
-    @ObservationIgnored public let store: BoardStore
-    @ObservationIgnored public let importer: ItemImporter
+    @ObservationIgnored let store: BoardStore
+    @ObservationIgnored let importer: ItemImporter
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
     public init(store: BoardStore, seedIfEmpty: Bool = true) {
@@ -27,12 +30,20 @@ public final class BoardModel {
                 board = empty
                 persist()
             }
+        } catch BoardStoreError.corruptedFile {
+            board = empty
+            do {
+                let moved = try store.quarantineCorruptedFile()
+                lastError = "O mural salvo estava ilegível e foi guardado como \(moved.lastPathComponent). Um mural novo foi criado."
+                persist()
+            } catch {
+                isPersistenceSuspended = true
+                lastError = "O mural salvo está ilegível e não pôde ser guardado à parte. Nada será gravado até isso ser resolvido."
+            }
         } catch {
             board = empty
-            let moved = try? store.quarantineCorruptedFile()
-            lastError =
-                "O mural salvo estava ilegível e foi guardado como \(moved?.lastPathComponent ?? "cópia"). Um mural novo foi criado."
-            persist()
+            isPersistenceSuspended = true
+            lastError = "Não foi possível abrir o mural salvo (\(error.localizedDescription)). Nada será gravado para não sobrescrevê-lo."
         }
     }
 
@@ -106,11 +117,9 @@ public final class BoardModel {
 
     /// Apaga o cartão (e, se for pasta, o conteúdo dela) junto com os arquivos guardados.
     public func delete(_ itemID: UUID) {
-        let doomed = board.items.filter { $0.id == itemID || $0.parentID == itemID }
-        for item in doomed {
+        for item in board.remove(id: itemID) {
             importer.removeFile(of: item)
         }
-        board.remove(id: itemID)
         persist()
     }
 
@@ -127,6 +136,7 @@ public final class BoardModel {
     }
 
     private func persist() {
+        guard !isPersistenceSuspended else { return }
         do {
             try store.save(board)
         } catch {

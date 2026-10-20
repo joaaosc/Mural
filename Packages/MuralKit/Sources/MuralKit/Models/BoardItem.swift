@@ -50,3 +50,13 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.tag = tag
     }
 }
+
+extension BoardItem {
+    /// Texto que representa o cartão: o corpo, se houver, senão o título.
+    public var displayText: String { text ?? title }
+
+    /// Lista do cartão; uma lista sem conteúdo vira um documento vazio com o título.
+    public var checklistDocument: ChecklistDocument {
+        checklist ?? ChecklistDocument(title: title, sections: [])
+    }
+}

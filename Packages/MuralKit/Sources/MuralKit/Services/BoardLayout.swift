@@ -12,6 +12,28 @@ public enum BoardLayout {
         }
     }
 
+    /// Proporção largura ÷ altura de um cartão na grade da pasta; fotos usam a do arquivo.
+    public static func aspectRatio(for item: BoardItem) -> Double {
+        if item.kind == .image, let meta = item.imageMetadata, meta.pixelHeight > 0 {
+            return Double(meta.pixelWidth) / Double(meta.pixelHeight)
+        }
+        return switch item.kind {
+        case .image: 0.75
+        case .video: 0.8
+        case .pdf: 0.77
+        case .text, .checklist, .folder: 0.72
+        case .sticky: 1.25
+        }
+    }
+
+    /// Canto inferior direito ocupado pelos cartões soltos; um mural vazio ocupa zero.
+    public static func extent(of items: [BoardItem]) -> (width: Double, height: Double) {
+        items.reduce((width: 0, height: 0)) { partial, item in
+            let size = cardSize(for: item.kind)
+            return (max(partial.width, item.position.x + size.width), max(partial.height, item.position.y + size.height))
+        }
+    }
+
     /// Percorre uma grade (passo fixo) e devolve a primeira célula que não encosta em ninguém.
     public static func freePosition(
         for kind: ItemKind,

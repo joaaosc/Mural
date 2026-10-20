@@ -12,7 +12,7 @@ public enum ContentClassifier {
         if type.conforms(to: .image) { return .image }
         if type.conforms(to: .movie) { return .video }
         if type.conforms(to: .pdf) { return .pdf }
-        if type.conforms(to: .text) { return .text }
+        if type.conforms(to: .plainText) { return .text }
         return nil
     }
 

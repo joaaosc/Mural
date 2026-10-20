@@ -16,9 +16,11 @@ struct ContentClassifierTests {
         #expect(ContentClassifier.kind(forFileAt: URL(fileURLWithPath: "/tmp/\(name)")) == expected)
     }
 
-    @Test("Extensão desconhecida não é importada")
+    @Test("Extensão desconhecida e texto rico não são importados")
     func rejectsUnknown() {
         #expect(ContentClassifier.kind(forFileAt: URL(fileURLWithPath: "/tmp/x.xyz123")) == nil)
+        #expect(ContentClassifier.kind(forFileAt: URL(fileURLWithPath: "/tmp/x.rtf")) == nil, "viraria nota com o código RTF")
+        #expect(ContentClassifier.kind(forFileAt: URL(fileURLWithPath: "/tmp/x.html")) == nil)
     }
 
     @Test("Texto curto vira post-it, longo vira nota, com marcadores vira lista")

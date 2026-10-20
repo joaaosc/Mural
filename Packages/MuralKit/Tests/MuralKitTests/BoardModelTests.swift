@@ -83,6 +83,20 @@ struct BoardModelTests {
         #expect(try store.load() != nil)
     }
 
+    @Test("Falha de leitura que não é corrupção não sobrescreve o mural salvo")
+    func unreadableBoardIsNeverOverwritten() throws {
+        let store = makeStore()
+        // Uma pasta no lugar de board.json: a leitura falha sem ser um JSON corrompido.
+        try FileManager.default.createDirectory(at: store.fileURL, withIntermediateDirectories: true)
+        let model = BoardModel(store: store)
+        #expect(model.isPersistenceSuspended)
+        #expect(model.lastError != nil)
+        model.importText("Não deve ser gravado")
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: store.fileURL.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue, "o caminho original continua intocado")
+    }
+
     @Test("Cartões colados no mural não se sobrepõem")
     func newCardsDoNotOverlap() {
         let model = BoardModel(store: makeStore())

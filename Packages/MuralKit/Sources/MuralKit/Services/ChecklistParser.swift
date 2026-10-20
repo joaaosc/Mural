@@ -42,6 +42,18 @@ public enum ChecklistParser {
         return ChecklistDocument(title: resolvedTitle, intro: intro.joined(separator: " "), sections: sections)
     }
 
+    /// Escreve a lista em texto simples, no formato que `parse` lê de volta
+    /// (o texto de abertura volta como abertura se terminar em ponto ou for longo).
+    public static func format(_ document: ChecklistDocument) -> String {
+        var lines = [document.title]
+        if !document.intro.isEmpty { lines.append(document.intro) }
+        for section in document.sections {
+            if !section.title.isEmpty { lines.append(section.title) }
+            lines += section.entries.map { "- [\($0.isDone ? "x" : " ")] \($0.text)" }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private static func lines(of text: String) -> [String] {
         text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }

@@ -37,7 +37,11 @@ public struct Board: Codable, Equatable, Sendable {
     }
 
     /// Remove o cartão e, se for pasta, tudo que estiver dentro dela.
-    public mutating func remove(id: UUID) {
+    /// - Returns: os cartões removidos (para apagar os arquivos guardados).
+    @discardableResult
+    public mutating func remove(id: UUID) -> [BoardItem] {
+        let removed = items.filter { $0.id == id || $0.parentID == id }
         items.removeAll { $0.id == id || $0.parentID == id }
+        return removed
     }
 }

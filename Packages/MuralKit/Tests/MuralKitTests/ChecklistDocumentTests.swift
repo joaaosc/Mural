@@ -49,6 +49,19 @@ struct ChecklistDocumentTests {
         #expect(doc.sections.map(\.title) == ["Mercado"])
     }
 
+    @Test("Lista escrita em texto volta igual ao ser lida")
+    func formatRoundTrip() {
+        var original = SampleBoard.thingsINeed
+        original.toggle(entryID: original.sections[0].entries[0].id)
+        let text = ChecklistParser.format(original)
+        #expect(ContentClassifier.kind(forText: text) == .checklist)
+        let parsed = ChecklistParser.parse(text)
+        #expect(parsed.title == original.title)
+        #expect(parsed.intro == original.intro)
+        #expect(parsed.sections.map(\.title) == original.sections.map(\.title))
+        #expect(parsed.progress == original.progress)
+    }
+
     @Test("Marcar e desmarcar um item")
     func toggles() {
         var doc = SampleBoard.thingsINeed
