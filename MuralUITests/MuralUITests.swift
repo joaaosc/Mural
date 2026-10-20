@@ -40,7 +40,8 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         list.click()
 
-        let entry = app.buttons["Sofa / sectional"].firstMatch
+        // A linha da lista é exposta como caixa de seleção (traço de alternância).
+        let entry = app.checkBoxes["Sofa / sectional"].firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         XCTAssertEqual(entry.value as? String, "Não marcado")
         entry.click()
@@ -79,8 +80,9 @@ final class MuralUITests: XCTestCase {
         let card = app.buttons["foto-teste"]
         XCTAssertTrue(card.waitForExistence(timeout: 5), "⌘V com arquivo de imagem deveria criar um cartão")
         card.click()
-        XCTAssertTrue(app.staticTexts["RESOLUTION"].waitForExistence(timeout: 5), "detalhe da imagem mostra os metadados")
-        XCTAssertTrue(app.staticTexts["40 × 30"].exists)
+        // Rótulo e valor formam um só elemento de acessibilidade: "RESOLUTION, 40 × 30".
+        let resolution = app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "40 × 30")).firstMatch
+        XCTAssertTrue(resolution.waitForExistence(timeout: 5), "detalhe da imagem mostra a resolução lida do arquivo")
     }
 
     /// PNG 40×30 gerado no teste: nenhum arquivo de imagem é versionado.
