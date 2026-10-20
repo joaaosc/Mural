@@ -37,12 +37,13 @@ public enum SampleBoard {
                       text: "Call the carpenter. Order the pendant lights. Review the floor plan with the client. Reply to the tile supplier."),
             BoardItem(kind: .text, title: "Running list of stuff", createdAt: now, position: BoardPoint(x: 300, y: 250),
                       text: "Running list of stuff that needs doing: fix the latch, repaint the hallway, replace the door handle, find a rug."),
+            BoardItem(kind: .checklist, title: thingsINeed.title, createdAt: now, position: BoardPoint(x: 160, y: 420), checklist: thingsINeed),
+            cottage, street, acme,
+            // Post-its por último: ficam por cima das folhas e pastas, como no conceito.
             BoardItem(kind: .sticky, title: "The idea is this", createdAt: now, position: BoardPoint(x: 80, y: 110),
                       text: "The idea is this: make every room feel like the garden is inside it.", stickyColor: .pink),
             BoardItem(kind: .sticky, title: "Don't forget", createdAt: now, position: BoardPoint(x: 400, y: 560),
                       text: "Don't forget: the client prefers warm light, nothing above 3000K.", stickyColor: .orange),
-            BoardItem(kind: .checklist, title: thingsINeed.title, createdAt: now, position: BoardPoint(x: 160, y: 420), checklist: thingsINeed),
-            cottage, street, acme,
         ]
 
         // Conteúdo da pasta "The Cottage", para a coleção já ter cartões.
