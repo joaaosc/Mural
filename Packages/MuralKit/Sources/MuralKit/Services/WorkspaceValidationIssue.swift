@@ -8,6 +8,6 @@ public enum WorkspaceValidationIssue: Equatable, Sendable {
     case zoomClamped
     case nonFiniteCanvasCenter
     case invalidFilter
-    case removedReadingPosition(BoardID)
+    case removedReadingPosition(UUID)
     case contentRevisionAdjusted
 }

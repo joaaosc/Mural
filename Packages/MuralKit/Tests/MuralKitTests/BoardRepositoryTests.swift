@@ -124,7 +124,7 @@ struct BoardRepositoryTests {
         let board = Board(items: [board(id: pdfID, kind: .pdf)])
         let state = BoardWorkspaceState(
             canvas: CanvasWorkspaceState(confirmedZoom: .infinity, logicalCenter: BoardPoint(x: .nan, y: 1)),
-            readingPositions: [BoardID(pdfID): ReadingPosition(pdfID: BoardID(pdfID), page: 0, progress: .nan)]
+            readingPositions: [pdfID: .pdf(itemID: pdfID, pageIndex: 0, scale: .nan, pointInPage: .zero)]
         )
         let result = state.canonicalized(for: board)
         #expect(result.state.canvas.confirmedZoom == CanvasWorkspaceState.defaultZoom)
@@ -158,5 +158,142 @@ struct BoardRepositoryTests {
                 ))
         }
         #expect(try await repository.load(id)?.snapshot.board.items.count == 1)
+    }
+
+    @Test("Falha antes da troca preserva o pacote e remove staging")
+    func faultBeforeSwapPreservesPackage() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = BoardID()
+        let baseline = Board(items: [board(id: UUID(), title: "baseline")])
+        let initial = BoardRepository(rootDirectory: root)
+        try await initial.save(
+            id: id,
+            board: baseline,
+            workspace: .default,
+            manifest: BoardManifest(id: id, contentRevision: 1)
+        )
+        let failing = BoardRepository(
+            rootDirectory: root,
+            faultInjection: BoardRepositoryFaultInjection(points: [.beforeSwap])
+        )
+        await #expect(throws: BoardRepositoryError.self) {
+            try await failing.save(
+                id: id,
+                board: Board(items: [board(id: UUID(), title: "novo")]),
+                workspace: .default,
+                manifest: BoardManifest(id: id, contentRevision: 2)
+            )
+        }
+        #expect(try await initial.load(id)?.snapshot.board == baseline)
+        try assertNoTransactionArtifacts(in: root)
+    }
+
+    @Test("Falha depois da troca restaura o pacote anterior")
+    func faultAfterSwapRestoresPackage() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = BoardID()
+        let baseline = Board(items: [board(id: UUID(), title: "baseline")])
+        let initial = BoardRepository(rootDirectory: root)
+        try await initial.save(
+            id: id,
+            board: baseline,
+            workspace: .default,
+            manifest: BoardManifest(id: id, contentRevision: 1)
+        )
+        let failing = BoardRepository(
+            rootDirectory: root,
+            faultInjection: BoardRepositoryFaultInjection(points: [.afterSwap])
+        )
+        await #expect(throws: BoardRepositoryError.self) {
+            try await failing.save(
+                id: id,
+                board: Board(items: [board(id: UUID(), title: "novo")]),
+                workspace: .default,
+                manifest: BoardManifest(id: id, contentRevision: 2)
+            )
+        }
+        #expect(try await initial.load(id)?.snapshot.board == baseline)
+        try assertNoTransactionArtifacts(in: root)
+    }
+
+    @Test("Mesma revisão com conteúdo diferente é conflito, não overwrite")
+    func equalRevisionConflictIsRejected() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = BoardRepository(rootDirectory: root)
+        let id = BoardID()
+        let baseline = Board(items: [board(id: UUID(), title: "primeiro")])
+        try await repository.save(
+            id: id,
+            board: baseline,
+            workspace: .default,
+            manifest: BoardManifest(id: id, contentRevision: 4)
+        )
+        await #expect(throws: BoardRepositoryError.self) {
+            try await repository.save(
+                id: id,
+                board: Board(items: [board(id: UUID(), title: "segundo")]),
+                workspace: .default,
+                manifest: BoardManifest(id: id, contentRevision: 4)
+            )
+        }
+        #expect(try await repository.load(id)?.snapshot.board == baseline)
+    }
+
+    @Test("Schemas futuros não são restaurados como estado atual")
+    func futureSchemasAreTyped() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = BoardID()
+        let repository = BoardRepository(rootDirectory: root)
+        try await repository.save(id: id, board: Board(), workspace: .default)
+
+        let package = await repository.packageURL(for: id)
+        let manifestURL = package.appendingPathComponent("manifest.json")
+        var manifestObject = try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as! [String: Any]
+        manifestObject["schemaVersion"] = BoardManifest.currentSchemaVersion + 1
+        try JSONSerialization.data(withJSONObject: manifestObject).write(to: manifestURL)
+        await #expect(throws: BoardRepositoryError.self) { try await repository.load(id) }
+
+        manifestObject["schemaVersion"] = BoardManifest.currentSchemaVersion
+        try JSONSerialization.data(withJSONObject: manifestObject).write(to: manifestURL)
+        let viewStateURL = package.appendingPathComponent("view-state.json")
+        var workspaceObject = try JSONSerialization.jsonObject(with: Data(contentsOf: viewStateURL)) as! [String: Any]
+        workspaceObject["schemaVersion"] = BoardWorkspaceState.currentSchemaVersion + 1
+        try JSONSerialization.data(withJSONObject: workspaceObject).write(to: viewStateURL)
+        let result = try #require(await repository.load(id))
+        #expect(result.workspaceStatus == .futureSchema(version: BoardWorkspaceState.currentSchemaVersion + 1))
+        #expect(result.snapshot.workspace == .default)
+    }
+
+    @Test("Reading positions usam IDs de item e payloads explícitos")
+    func readingPositionsValidatePayloads() {
+        let folderID = UUID()
+        let itemID = UUID()
+        let pdfID = UUID()
+        let board = Board(items: [
+            board(id: folderID, kind: .folder),
+            board(id: itemID, childOf: folderID, kind: .text),
+            board(id: pdfID, kind: .pdf),
+        ])
+        let state = BoardWorkspaceState(readingPositions: [
+            folderID: .collection(folderID: folderID, firstVisibleItemID: itemID, relativeOffset: 0.25, fallbackContentY: 40),
+            pdfID: .pdf(itemID: pdfID, pageIndex: 0, scale: 1.5, pointInPage: BoardPoint(x: 10, y: 20)),
+            UUID(): .item(itemID: folderID, visibleContentY: .infinity),
+        ])
+        let result = state.canonicalized(for: board)
+        #expect(result.state.readingPositions.count == 2)
+        #expect(
+            result.state.readingPositions[folderID]
+                == .collection(folderID: folderID, firstVisibleItemID: itemID, relativeOffset: 0.25, fallbackContentY: 40))
+        #expect(
+            result.state.readingPositions[pdfID] == .pdf(itemID: pdfID, pageIndex: 0, scale: 1.5, pointInPage: BoardPoint(x: 10, y: 20)))
+    }
+
+    private func assertNoTransactionArtifacts(in root: URL) throws {
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        #expect(names.allSatisfy { !$0.contains(".mural-staging-") && !$0.contains(".mural-backup-") })
     }
 }

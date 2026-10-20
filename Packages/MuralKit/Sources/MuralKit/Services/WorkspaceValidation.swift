@@ -64,9 +64,9 @@ extension BoardWorkspaceState {
             }
         }
 
-        var validPositions: [BoardID: ReadingPosition] = [:]
+        var validPositions: [UUID: ReadingPosition] = [:]
         for (key, position) in canonical.readingPositions {
-            guard key == position.targetID,
+            guard key == position.targetItemID,
                 isValid(position: position, board: board)
             else {
                 issues.append(.removedReadingPosition(key))
@@ -103,17 +103,28 @@ extension BoardWorkspaceState {
     }
 
     private func isValid(position: ReadingPosition, board: Board) -> Bool {
-        guard let item = board.item(id: position.targetID.rawValue) else { return false }
-        switch position.kind {
-        case .collection:
-            guard item.kind == .folder, item.parentID == nil else { return false }
-        case .item:
-            guard item.kind != .folder, item.kind != .pdf else { return false }
-        case .pdf:
-            guard item.kind == .pdf, let page = position.page, page > 0 else { return false }
+        switch position {
+        case .collection(let folderID, let firstVisibleItemID, let relativeOffset, let fallbackContentY):
+            guard let folder = board.item(id: folderID), folder.kind == .folder, folder.parentID == nil,
+                relativeOffset.isFinite, relativeOffset >= 0,
+                fallbackContentY.isFinite, fallbackContentY >= 0
+            else { return false }
+            if let firstVisibleItemID {
+                guard let item = board.item(id: firstVisibleItemID), item.kind != .folder,
+                    item.parentID == folderID
+                else { return false }
+            }
+        case .item(let itemID, let visibleContentY):
+            guard let item = board.item(id: itemID), item.kind != .folder,
+                visibleContentY.isFinite, visibleContentY >= 0
+            else { return false }
+        case .pdf(let itemID, let pageIndex, let scale, let pointInPage):
+            guard let item = board.item(id: itemID), item.kind == .pdf,
+                pageIndex >= 0, scale.isFinite, scale > 0,
+                pointInPage.x.isFinite, pointInPage.y.isFinite,
+                pointInPage.x >= 0, pointInPage.y >= 0
+            else { return false }
         }
-        if let page = position.page, page <= 0 { return false }
-        if let progress = position.progress, !(progress.isFinite && (0...1).contains(progress)) { return false }
         return true
     }
 }

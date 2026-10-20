@@ -4,9 +4,11 @@ import Foundation
 /// nenhum caminho global ou "mural atual" participa da leitura ou gravação.
 public actor BoardRepository {
     public let rootDirectory: URL
+    private var faultInjection: BoardRepositoryFaultInjection
 
-    public init(rootDirectory: URL) {
+    public init(rootDirectory: URL, faultInjection: BoardRepositoryFaultInjection = .none) {
         self.rootDirectory = rootDirectory
+        self.faultInjection = faultInjection
     }
 
     public func packageURL(for id: BoardID) -> URL {
@@ -25,6 +27,9 @@ public actor BoardRepository {
                 manifest = try decode(BoardManifest.self, from: Data(contentsOf: manifestURL))
             } catch {
                 throw BoardRepositoryError.corruptedManifest(String(describing: error))
+            }
+            guard manifest.schemaVersion <= BoardManifest.currentSchemaVersion else {
+                throw BoardRepositoryError.futureManifestSchema(manifest.schemaVersion)
             }
         } else {
             manifest = BoardManifest(id: id)
@@ -53,6 +58,16 @@ public actor BoardRepository {
 
         do {
             let loaded = try decode(BoardWorkspaceState.self, from: Data(contentsOf: viewStateURL))
+            guard loaded.schemaVersion <= BoardWorkspaceState.currentSchemaVersion else {
+                return BoardRepositoryLoadResult(
+                    snapshot: BoardRepositorySnapshot(
+                        manifest: manifest,
+                        board: board,
+                        workspace: BoardWorkspaceState(contentRevision: manifest.contentRevision)
+                    ),
+                    workspaceStatus: .futureSchema(version: loaded.schemaVersion)
+                )
+            }
             var validation = loaded.canonicalized(for: board)
             if validation.state.contentRevision != manifest.contentRevision {
                 var state = validation.state
@@ -95,33 +110,66 @@ public actor BoardRepository {
         try load(id)
     }
 
-    public func save(_ snapshot: BoardRepositorySnapshot) throws {
+    public func save(_ snapshot: BoardRepositorySnapshot) async throws {
         let id = snapshot.manifest.id
         let package = packageURL(for: id)
         let existingManifest = try existingManifest(at: package)
-        if let existingManifest,
-            snapshot.manifest.contentRevision < existingManifest.contentRevision
-                || snapshot.manifest.workspaceRevision < existingManifest.workspaceRevision
-        {
-            throw BoardRepositoryError.staleRevision(
-                currentContent: existingManifest.contentRevision,
-                incomingContent: snapshot.manifest.contentRevision,
-                currentWorkspace: existingManifest.workspaceRevision,
-                incomingWorkspace: snapshot.manifest.workspaceRevision
-            )
-        }
 
         var manifest = snapshot.manifest
+        guard manifest.schemaVersion <= BoardManifest.currentSchemaVersion else {
+            throw BoardRepositoryError.futureManifestSchema(manifest.schemaVersion)
+        }
+        guard snapshot.workspace.schemaVersion <= BoardWorkspaceState.currentSchemaVersion else {
+            throw BoardRepositoryError.futureWorkspaceSchema(snapshot.workspace.schemaVersion)
+        }
         manifest.updatedAt = max(manifest.updatedAt, manifest.createdAt)
         var workspace = snapshot.workspace.validated(for: snapshot.board)
         // A workspace acompanha a revisão do conteúdo no mesmo commit lógico;
         // não é permitido carregar uma combinação de gerações diferentes.
         workspace.contentRevision = manifest.contentRevision
+
+        if let existingManifest {
+            if manifest.contentRevision < existingManifest.contentRevision
+                || manifest.workspaceRevision < existingManifest.workspaceRevision
+            {
+                throw BoardRepositoryError.staleRevision(
+                    currentContent: existingManifest.contentRevision,
+                    incomingContent: manifest.contentRevision,
+                    currentWorkspace: existingManifest.workspaceRevision,
+                    incomingWorkspace: manifest.workspaceRevision
+                )
+            }
+            if manifest.contentRevision == existingManifest.contentRevision,
+                manifest.workspaceRevision == existingManifest.workspaceRevision
+            {
+                let currentBoard = try decode(Board.self, from: Data(contentsOf: package.appendingPathComponent("board.json")))
+                let currentWorkspace = try loadWorkspaceForComparison(at: package, board: currentBoard)
+                guard currentBoard == snapshot.board, currentWorkspace == workspace else {
+                    throw BoardRepositoryError.conflictingRevision(
+                        content: manifest.contentRevision,
+                        workspace: manifest.workspaceRevision
+                    )
+                }
+                return
+            }
+        }
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
 
         let staging = rootDirectory.appendingPathComponent(
             ".\(id.rawValue.uuidString).mural-staging-\(UUID().uuidString)", isDirectory: true)
         let backup = rootDirectory.appendingPathComponent(".\(id.rawValue.uuidString).mural-backup-\(UUID().uuidString)", isDirectory: true)
+        var hadExisting = false
+        var didSwap = false
+        defer {
+            if FileManager.default.fileExists(atPath: staging.path) { try? FileManager.default.removeItem(at: staging) }
+            if FileManager.default.fileExists(atPath: backup.path) {
+                if !FileManager.default.fileExists(atPath: package.path) {
+                    try? FileManager.default.moveItem(at: backup, to: package)
+                } else {
+                    try? FileManager.default.removeItem(at: backup)
+                }
+            }
+        }
         do {
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             let items = staging.appendingPathComponent("Items", isDirectory: true)
@@ -135,40 +183,68 @@ public actor BoardRepository {
             try encode(snapshot.board).write(to: staging.appendingPathComponent("board.json"), options: .atomic)
             try encode(workspace).write(to: staging.appendingPathComponent("view-state.json"), options: .atomic)
 
-            let hadExisting = FileManager.default.fileExists(atPath: package.path)
+            hadExisting = FileManager.default.fileExists(atPath: package.path)
+            try await inject(.beforeSwap)
             if hadExisting { try FileManager.default.moveItem(at: package, to: backup) }
-            do {
-                try FileManager.default.moveItem(at: staging, to: package)
-            } catch {
-                if hadExisting { try? FileManager.default.moveItem(at: backup, to: package) }
-                throw error
-            }
-            if FileManager.default.fileExists(atPath: backup.path) {
-                try FileManager.default.removeItem(at: backup)
-            }
+            try FileManager.default.moveItem(at: staging, to: package)
+            didSwap = true
+            try await inject(.afterSwap)
         } catch let error as BoardRepositoryError {
+            if didSwap { try? FileManager.default.removeItem(at: package) }
+            if hadExisting, FileManager.default.fileExists(atPath: backup.path) {
+                try? FileManager.default.moveItem(at: backup, to: package)
+            }
             throw error
         } catch {
+            if didSwap { try? FileManager.default.removeItem(at: package) }
+            if hadExisting, FileManager.default.fileExists(atPath: backup.path) {
+                try? FileManager.default.moveItem(at: backup, to: package)
+            }
             throw BoardRepositoryError.io(String(describing: error))
         }
-        if FileManager.default.fileExists(atPath: staging.path) { try? FileManager.default.removeItem(at: staging) }
-        if FileManager.default.fileExists(atPath: backup.path) { try? FileManager.default.removeItem(at: backup) }
     }
 
-    public func save(id: BoardID, board: Board, workspace: BoardWorkspaceState, manifest: BoardManifest? = nil) throws {
+    public func save(id: BoardID, board: Board, workspace: BoardWorkspaceState, manifest: BoardManifest? = nil) async throws {
         var resolved = manifest ?? BoardManifest(id: id)
         guard resolved.id == id else {
             throw BoardRepositoryError.identityMismatch(expected: id, actual: resolved.id)
         }
         resolved.id = id
-        try save(BoardRepositorySnapshot(manifest: resolved, board: board, workspace: workspace))
+        try await save(BoardRepositorySnapshot(manifest: resolved, board: board, workspace: workspace))
     }
 
     private func existingManifest(at package: URL) throws -> BoardManifest? {
         let url = package.appendingPathComponent("manifest.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        do { return try decode(BoardManifest.self, from: Data(contentsOf: url)) } catch {
+        do {
+            let manifest = try decode(BoardManifest.self, from: Data(contentsOf: url))
+            guard manifest.schemaVersion <= BoardManifest.currentSchemaVersion else {
+                throw BoardRepositoryError.futureManifestSchema(manifest.schemaVersion)
+            }
+            return manifest
+        } catch let error as BoardRepositoryError {
+            throw error
+        } catch {
             throw BoardRepositoryError.corruptedManifest(String(describing: error))
+        }
+    }
+
+    private func loadWorkspaceForComparison(at package: URL, board: Board) throws -> BoardWorkspaceState {
+        let url = package.appendingPathComponent("view-state.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return BoardWorkspaceState(contentRevision: 0).validated(for: board)
+        }
+        let workspace = try decode(BoardWorkspaceState.self, from: Data(contentsOf: url))
+        guard workspace.schemaVersion <= BoardWorkspaceState.currentSchemaVersion else {
+            throw BoardRepositoryError.io("workspace schema futuro")
+        }
+        return workspace.validated(for: board)
+    }
+
+    private func inject(_ point: BoardRepositoryFaultPoint) async throws {
+        if faultInjection.consume(point) {
+            await faultInjection.gate?.waitForRelease()
+            throw BoardRepositoryError.injectedFailure(point)
         }
     }
 

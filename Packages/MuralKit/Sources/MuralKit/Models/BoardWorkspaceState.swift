@@ -9,7 +9,7 @@ public struct BoardWorkspaceState: Codable, Equatable, Sendable {
     public var canvas: CanvasWorkspaceState
     public var path: [WorkspaceDestination]
     public var filter: WorkspaceFilter?
-    public var readingPositions: [BoardID: ReadingPosition]
+    public var readingPositions: [UUID: ReadingPosition]
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -17,7 +17,7 @@ public struct BoardWorkspaceState: Codable, Equatable, Sendable {
         canvas: CanvasWorkspaceState = CanvasWorkspaceState(),
         path: [WorkspaceDestination] = [],
         filter: WorkspaceFilter? = nil,
-        readingPositions: [BoardID: ReadingPosition] = [:]
+        readingPositions: [UUID: ReadingPosition] = [:]
     ) {
         self.schemaVersion = schemaVersion
         self.contentRevision = contentRevision

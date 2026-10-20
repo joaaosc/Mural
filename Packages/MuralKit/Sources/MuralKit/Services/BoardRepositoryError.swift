@@ -5,7 +5,11 @@ public enum BoardRepositoryError: Error, Equatable, Sendable {
     case boardNotFound(BoardID)
     case corruptedManifest(String)
     case corruptedBoard(String)
+    case futureManifestSchema(Int)
+    case futureWorkspaceSchema(Int)
     case staleRevision(currentContent: Int, incomingContent: Int, currentWorkspace: Int, incomingWorkspace: Int)
+    case conflictingRevision(content: Int, workspace: Int)
     case identityMismatch(expected: BoardID, actual: BoardID)
+    case injectedFailure(BoardRepositoryFaultPoint)
     case io(String)
 }
