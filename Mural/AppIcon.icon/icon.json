@@ -1,0 +1,94 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.95686,0.94902,0.93333,1.00000",
+      "display-p3:0.81961,0.82353,0.83922,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "layers" : [
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Sticky.svg",
+          "name" : "Sticky",
+          "opacity" : 1
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Post-it",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.45
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.15
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "layers" : [
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "Lines.svg",
+          "name" : "Lines",
+          "opacity" : 0.55
+        },
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Paper.svg",
+          "name" : "Paper",
+          "opacity" : 1
+        }
+      ],
+      "lighting" : "combined",
+      "name" : "Nota",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.4
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.1
+      }
+    },
+    {
+      "blend-mode" : "normal",
+      "layers" : [
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.93333,0.43137,0.32157,1.00000",
+              "display-p3:0.55686,0.20784,0.14902,1.00000"
+            ]
+          },
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "Photo.svg",
+          "name" : "Photo",
+          "opacity" : 1
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Foto",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.35
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}
