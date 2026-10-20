@@ -2,7 +2,7 @@ import MuralKit
 import SwiftUI
 
 /// Cartão clicável do mural, da prévia de pasta e de dentro da pasta: abre o item,
-/// participa da transição de "crescer do cartão" e oferece Abrir e Apagar… no menu de
+/// participa da transição de "crescer do cartão" e oferece Abrir, Mover e Apagar… no menu de
 /// contexto, com confirmação antes de apagar.
 struct CardButton: View {
     let item: BoardItem
@@ -22,6 +22,7 @@ struct CardButton: View {
             .accessibilityLabel(item.title)
             .contextMenu {
                 Button("Abrir", action: onOpen)
+                moveMenu
                 Divider()
                 Button("Apagar…", role: .destructive) { isConfirmingDelete = true }
             }
@@ -31,6 +32,28 @@ struct CardButton: View {
                 }
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: model.children(of: item.id).count))
+            }
+        }
+    }
+
+    /// Alternativa ao arrasto: guardar um cartão solto numa pasta ou devolver ao mural um cartão
+    /// de dentro da pasta.
+    @ViewBuilder
+    private var moveMenu: some View {
+        if item.parentID != nil {
+            Button("Mover para o mural") {
+                withAnimation(reduceMotion ? nil : .smooth) { model.moveToBoard(item.id) }
+            }
+        } else if item.kind != .folder {
+            let folders = model.rootItems.filter { $0.kind == .folder }
+            if !folders.isEmpty {
+                Menu("Mover para a pasta") {
+                    ForEach(folders) { folder in
+                        Button(folder.title) {
+                            withAnimation(reduceMotion ? nil : .smooth) { model.moveIntoFolder(item.id, folderID: folder.id) }
+                        }
+                    }
+                }
             }
         }
     }

@@ -3,7 +3,7 @@ import Testing
 
 @testable import Mural
 
-/// O que esmaece e o que fica por cima no mural: pasta em foco, cartão arrastado e filtro.
+/// O que esmaece e o que fica por cima no mural: pasta em foco, cartão arrastado, pasta de destino e filtro.
 @MainActor
 struct BoardFocusTests {
     private func card(_ kind: ItemKind) -> BoardItem {
@@ -39,7 +39,7 @@ struct BoardFocusTests {
 
         let focus = BoardFocus(dragged: sticky.id, filter: .folders)
         #expect(focus.emphasis(for: sticky) == 1)
-        #expect(focus.layer(for: sticky) == 3)
+        #expect(focus.layer(for: sticky) == 4)
         #expect(focus.emphasis(for: note) == 0.25, "o resto do mural continua sob o filtro")
         #expect(focus.layer(for: note) == 0)
     }
@@ -50,8 +50,27 @@ struct BoardFocusTests {
         let note = card(.text)
         let focus = BoardFocus(hoveredFolder: folder.id, dragged: folder.id)
         #expect(focus.emphasis(for: folder) == 1)
-        #expect(focus.layer(for: folder) == 3)
+        #expect(focus.layer(for: folder) == 4)
         #expect(focus.emphasis(for: note) == 0.3)
+        #expect(focus.layer(for: note) == 0)
+    }
+
+    @Test("Pasta de destino nunca esmaece e fica abaixo do arrastado e acima da pasta em foco")
+    func dropTargetStaysSolidBetweenDraggedAndFocusedFolder() {
+        let sticky = card(.sticky)
+        let target = card(.folder)
+        let focused = card(.folder)
+        let note = card(.text)
+        // Controles: sem ser destino, a pasta esmaece sob outra pasta em foco e fora do filtro.
+        #expect(BoardFocus(hoveredFolder: focused.id).emphasis(for: target) == 0.3)
+        #expect(BoardFocus(filter: .tasks).emphasis(for: target) == 0.25)
+
+        let focus = BoardFocus(hoveredFolder: focused.id, dragged: sticky.id, dropTarget: target.id, filter: .tasks)
+        #expect(focus.emphasis(for: target) == 1, "o destino nunca esmaece")
+        #expect(focus.layer(for: sticky) == 4)
+        #expect(focus.layer(for: target) == 3)
+        #expect(focus.layer(for: focused) == 2)
+        #expect(focus.emphasis(for: note) == 0.3, "o resto do mural continua esmaecido")
         #expect(focus.layer(for: note) == 0)
     }
 

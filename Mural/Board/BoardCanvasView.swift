@@ -15,6 +15,8 @@ struct BoardCanvasView: View {
     @State private var pointerFolder: UUID?
     /// Cartão arrastado e quanto andou, em pontos do mural (sem zoom).
     @State private var drag: CardDrag?
+    /// Cartão encolhendo em direção à pasta onde está sendo guardado; sai do mural no fim.
+    @State private var storing: UUID?
     /// Volta sozinho a falso, inclusive quando o gesto é cancelado sem `onEnded`.
     @GestureState private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -24,9 +26,9 @@ struct BoardCanvasView: View {
     /// Nome do espaço de coordenadas em que os arrastos são medidos.
     private static let space = "mural"
 
-    /// O que está em destaque agora: pasta em foco, cartão arrastado e filtro.
+    /// O que está em destaque agora: pasta em foco, cartão arrastado, pasta de destino e filtro.
     private var focus: BoardFocus {
-        BoardFocus(hoveredFolder: hoveredFolder, dragged: drag?.id, filter: filter)
+        BoardFocus(hoveredFolder: hoveredFolder, dragged: drag?.id, dropTarget: drag?.tracker?.target, filter: filter)
     }
 
     var body: some View {
@@ -47,6 +49,9 @@ struct BoardCanvasView: View {
                 ForEach(items) { item in
                     cardGroup(for: item)
                         .cardEmphasis(focus.emphasis(for: item))
+                        // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
+                        .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item))
+                        .opacity(storing == item.id ? 0 : 1)
                         .offset(offset(for: item))
                         .zIndex(focus.layer(for: item))
                 }
@@ -71,7 +76,8 @@ struct BoardCanvasView: View {
         .onChange(of: isDragging) { _, active in
             guard !active else { return }
             Task { @MainActor in
-                guard drag != nil else { return }
+                // Um cartão sendo guardado ainda precisa do arrasto até o fim da animação.
+                guard drag != nil, storing == nil else { return }
                 drag = nil
                 hoveredFolder = pointerFolder
             }
@@ -100,6 +106,7 @@ struct BoardCanvasView: View {
             HStack(alignment: .top, spacing: 28) {
                 cardButton(item, open: [.collection(item.id)])
                     .frame(width: size.width, height: size.height)
+                    .dropTargetHighlight(focus.dropTarget == item.id)
                     .highPriorityGesture(moveGesture(for: item))
                 // Nunca junto com a pasta aberta: os dois desenhariam os mesmos cartões
                 // com o mesmo id de transição, e o SwiftUI não saberia qual é a origem.
@@ -137,6 +144,19 @@ struct BoardCanvasView: View {
         return CGSize(width: item.position.x + moved.width, height: item.position.y + moved.height)
     }
 
+    /// Ponto para onde o cartão encolhe ao ser guardado: o centro da pasta de destino, medido no
+    /// quadro do próprio cartão (por isso pode cair fora de 0...1).
+    private func storeAnchor(for item: BoardItem) -> UnitPoint {
+        guard let drag, drag.id == item.id, let target = drag.tracker?.target, let folder = model.item(id: target)
+        else { return .center }
+        let size = BoardLayout.cardSize(for: item.kind)
+        let folderSize = BoardLayout.cardSize(for: .folder)
+        let origin = offset(for: item)
+        return UnitPoint(
+            x: (folder.position.x + folderSize.width / 2 - origin.width) / size.width,
+            y: (folder.position.y + folderSize.height / 2 - origin.height) / size.height)
+    }
+
     /// Abre um nível e desliga o destaque de pasta: a prévia sai na mesma animação em que
     /// a pasta entra, e os cartões dela viajam da prévia para a grade.
     private func open(_ destinations: [Destination]) {
@@ -155,11 +175,35 @@ struct BoardCanvasView: View {
 
     /// Arrasto de um cartão solto. O clique simples continua abrindo: o gesto só começa depois
     /// de 4 pontos de movimento e, por ter prioridade sobre o botão, impede que o arrasto abra o cartão.
+    /// Soltar sobre uma pasta guarda o cartão nela (pastas não entram em pastas).
     private func moveGesture(for item: BoardItem) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDragging) { _, isDragging, _ in isDragging = true }
-            .onChanged { value in drag = CardDrag(id: item.id, translation: value.translation) }
+            .onChanged { value in
+                // Outro cartão ainda está entrando numa pasta: espera a animação terminar.
+                guard storing == nil else { return }
+                // No começo do arrasto, anota a pasta que já estava sob o ponteiro.
+                var current =
+                    drag.flatMap { $0.id == item.id ? $0 : nil }
+                    ?? CardDrag(
+                        id: item.id, translation: .zero,
+                        tracker: item.kind == .folder
+                            ? nil : FolderDropTracker(startFolder: folderID(at: value.startLocation, excluding: item.id)))
+                current.translation = value.translation
+                current.tracker?.update(folderUnderPointer: folderID(at: value.location, excluding: item.id))
+                drag = current
+            }
             .onEnded { value in
+                guard storing == nil, var final = drag, final.id == item.id else { return }
+                // Decide pelo ponto em que o botão foi solto: num arrasto rápido ele pode não ter
+                // chegado num `onChanged`, e o destino anotado estaria atrasado.
+                final.translation = value.translation
+                final.tracker?.update(folderUnderPointer: folderID(at: value.location, excluding: item.id))
+                if let folderID = final.tracker?.target {
+                    drag = final
+                    store(item, in: folderID)
+                    return
+                }
                 let target = BoardPoint(
                     x: item.position.x + value.translation.width, y: item.position.y + value.translation.height)
                 // Sem animação: o cartão já está onde o ponteiro o deixou.
@@ -173,6 +217,39 @@ struct BoardCanvasView: View {
             }
     }
 
+    /// Guarda o cartão arrastado na pasta: ele encolhe em direção a ela e, quando some, sai do
+    /// mural e entra na pasta. Com Reduzir Movimento, entra direto.
+    private func store(_ item: BoardItem, in folderID: UUID) {
+        guard !reduceMotion else {
+            finishStoring(item, in: folderID)
+            return
+        }
+        withAnimation(.smooth(duration: 0.25)) {
+            storing = item.id
+        } completion: {
+            finishStoring(item, in: folderID)
+        }
+    }
+
+    private func finishStoring(_ item: BoardItem, in folderID: UUID) {
+        // Sem animação: o cartão já sumiu, só falta trocá-lo de lugar nos dados.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            model.moveIntoFolder(item.id, folderID: folderID)
+            drag = nil
+            storing = nil
+        }
+        // Só agora: a prévia da pasta mostraria o mesmo cartão (mesmo id de transição)
+        // enquanto o do mural ainda estava encolhendo.
+        hoveredFolder = pointerFolder
+    }
+
+    /// Pasta solta sob um ponto do mural, sem contar o cartão arrastado.
+    private func folderID(at point: CGPoint, excluding id: UUID) -> UUID? {
+        BoardLayout.folderID(at: BoardPoint(x: point.x, y: point.y), among: model.rootItems, excluding: id)
+    }
+
     /// Atualiza a pasta sob o ponteiro; fora de um arrasto, ela vira o foco na hora.
     private func pointerMoved(over folderID: UUID, inside: Bool) {
         pointerFolder = inside ? folderID : (pointerFolder == folderID ? nil : pointerFolder)
@@ -184,4 +261,6 @@ struct BoardCanvasView: View {
 private struct CardDrag: Equatable {
     var id: UUID
     var translation: CGSize
+    /// Pasta que receberia o cartão; `nil` quando o cartão é uma pasta, que não pode ser guardada.
+    var tracker: FolderDropTracker?
 }

@@ -13,6 +13,9 @@ final class MuralUITests: XCTestCase {
         app.launchArguments = [argument]
         app.launch()
         app.activate()
+        // O ponteiro herdado do teste anterior pode passar por uma pasta a caminho do próximo
+        // clique e abrir a prévia por cima dos cartões vizinhos: começa sempre embaixo, no vazio.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)).hover()
         return app
     }
 
@@ -148,6 +151,78 @@ final class MuralUITests: XCTestCase {
         let after = card.frame
         XCTAssertEqual(after.minX - before.minX, 0, accuracy: 5)
         XCTAssertEqual(after.minY - before.minY, 150, accuracy: 5)
+    }
+
+    /// Soltar um cartão sobre uma pasta o guarda nela: some do mural, aparece dentro e continua lá após reabrir.
+    @MainActor
+    func testDroppingCardOnFolderStoresIt() throws {
+        let app = launch()
+        let card = app.buttons["Today"].firstMatch
+        let folder = app.buttons["44th Street"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+
+        let start = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.click(forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+
+        // Afasta o ponteiro das pastas, para nenhuma prévia mostrar o cartão guardado.
+        app.buttons["Alpha"].firstMatch.hover()
+        XCTAssertTrue(app.buttons["Today"].waitForNonExistence(timeout: 3), "o cartão guardado sai do mural")
+
+        folder.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Today"].waitForExistence(timeout: 5), "o cartão aparece dentro da pasta")
+
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        let alpha = reopened.buttons["Alpha"].firstMatch
+        XCTAssertTrue(alpha.waitForExistence(timeout: 10))
+        alpha.hover()
+        XCTAssertTrue(reopened.buttons["Today"].waitForNonExistence(timeout: 3), "o cartão não volta ao mural")
+        reopened.buttons["44th Street"].firstMatch.click()
+        XCTAssertTrue(reopened.buttons["Voltar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(reopened.buttons["Today"].waitForExistence(timeout: 5), "o cartão continua dentro da pasta após reabrir")
+    }
+
+    /// "Mover para o mural" tira o cartão de dentro da pasta e o devolve ao mural.
+    @MainActor
+    func testMovingCardOutOfFolderReturnsItToBoard() throws {
+        let app = launch()
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.click()
+        let back = app.buttons["Voltar"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+
+        let thoughts = app.buttons["Thoughts"].firstMatch
+        XCTAssertTrue(thoughts.waitForExistence(timeout: 5))
+        thoughts.rightClick()
+        app.menuItems["Mover para o mural"].click()
+        XCTAssertTrue(thoughts.waitForNonExistence(timeout: 5), "o cartão sai da pasta")
+
+        back.click()
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5))
+        app.buttons["Alpha"].firstMatch.hover()
+        XCTAssertTrue(app.buttons["Thoughts"].firstMatch.waitForExistence(timeout: 5), "o cartão aparece no mural")
+    }
+
+    /// O menu de contexto "Mover para a pasta" guarda um cartão solto na pasta escolhida, sem arrastar.
+    @MainActor
+    func testContextMenuStoresCardInFolder() throws {
+        let app = launch()
+        let alpha = app.buttons["Alpha"].firstMatch
+        XCTAssertTrue(alpha.waitForExistence(timeout: 10))
+        alpha.rightClick()
+        app.menuItems["Mover para a pasta"].hover()
+        app.menuItems["ACME Premises"].click()
+
+        // Afasta o ponteiro das pastas, para nenhuma prévia mostrar o cartão guardado.
+        app.buttons["Today"].firstMatch.hover()
+        XCTAssertTrue(app.buttons["Alpha"].waitForNonExistence(timeout: 3), "o cartão guardado sai do mural")
+
+        app.buttons["ACME Premises"].firstMatch.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Alpha"].waitForExistence(timeout: 5), "o cartão aparece dentro da pasta")
     }
 
     @MainActor
