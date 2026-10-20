@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cor RGB em 0...1, sem depender de SwiftUI.
-public struct RGBColor: Codable, Hashable, Sendable {
+public struct PaletteColor: Codable, Hashable, Sendable {
     public var red: Double
     public var green: Double
     public var blue: Double
@@ -20,9 +20,9 @@ public struct ImageMetadata: Codable, Hashable, Sendable {
     public var fileSizeBytes: Int
     public var colorProfile: String?
     /// Cores dominantes, da mais clara para a mais escura.
-    public var palette: [RGBColor]
+    public var palette: [PaletteColor]
 
-    public init(pixelWidth: Int, pixelHeight: Int, fileSizeBytes: Int, colorProfile: String?, palette: [RGBColor]) {
+    public init(pixelWidth: Int, pixelHeight: Int, fileSizeBytes: Int, colorProfile: String?, palette: [PaletteColor]) {
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
         self.fileSizeBytes = fileSizeBytes

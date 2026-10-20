@@ -20,7 +20,7 @@ public enum ImageInspector {
 
     /// Paleta por amostragem: reduz a imagem a uma grade pequena, agrupa cores
     /// parecidas e devolve as mais frequentes, ordenadas da mais clara para a mais escura.
-    static func palette(from source: CGImageSource, count: Int) -> [RGBColor] {
+    static func palette(from source: CGImageSource, count: Int) -> [PaletteColor] {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: 48,
@@ -30,7 +30,7 @@ public enum ImageInspector {
         return palette(from: thumb, count: count)
     }
 
-    public static func palette(from image: CGImage, count: Int) -> [RGBColor] {
+    public static func palette(from image: CGImage, count: Int) -> [PaletteColor] {
         let width = image.width, height = image.height
         guard width > 0, height > 0 else { return [] }
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -51,12 +51,12 @@ public enum ImageInspector {
         }
         let top = buckets.values.sorted { $0.n > $1.n }.prefix(count)
         let colors = top.map { e in
-            RGBColor(red: e.sum.0 / Double(e.n) / 255, green: e.sum.1 / Double(e.n) / 255, blue: e.sum.2 / Double(e.n) / 255)
+            PaletteColor(red: e.sum.0 / Double(e.n) / 255, green: e.sum.1 / Double(e.n) / 255, blue: e.sum.2 / Double(e.n) / 255)
         }
         return colors.sorted { luminance($0) > luminance($1) }
     }
 
-    static func luminance(_ c: RGBColor) -> Double {
+    static func luminance(_ c: PaletteColor) -> Double {
         0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue
     }
 }
