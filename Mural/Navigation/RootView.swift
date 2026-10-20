@@ -10,6 +10,7 @@ struct RootView: View {
 
     @State private var path: [Destination] = []
     @State private var filter: BoardFilter?
+    @State private var isFolderInfoPresented = false
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -74,6 +75,10 @@ struct RootView: View {
         .focused($isCanvasFocused)
         .onAppear { isCanvasFocused = true }
         .onKeyPress(.escape) {
+            if isFolderInfoPresented {
+                isFolderInfoPresented = false
+                return .handled
+            }
             guard !path.isEmpty else { return .ignored }
             goBack()
             return .handled
@@ -112,7 +117,8 @@ struct RootView: View {
         switch destination {
         case .collection(let id):
             if let folder = model.item(id: id) {
-                CollectionView(folder: folder, model: model, hero: hero, filter: filter) { childID in
+                CollectionView(folder: folder, model: model, hero: hero, filter: filter, isInfoPresented: $isFolderInfoPresented) {
+                    childID in
                     open([.item(childID)])
                 }
             }
@@ -135,6 +141,7 @@ struct RootView: View {
             path.append(contentsOf: newLevels)
             filter = nil
         }
+        isFolderInfoPresented = false
         isCanvasFocused = true
     }
 
@@ -144,6 +151,7 @@ struct RootView: View {
             _ = path.removeLast()
             filter = nil
         }
+        isFolderInfoPresented = false
         isCanvasFocused = true
     }
 }

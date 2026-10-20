@@ -8,6 +8,7 @@ struct CollectionView: View {
     let model: BoardModel
     let hero: HeroContext
     let filter: BoardFilter?
+    @Binding var isInfoPresented: Bool
     var onOpenItem: (UUID) -> Void
 
     private var children: [BoardItem] { model.children(of: folder.id) }
@@ -33,7 +34,7 @@ struct CollectionView: View {
         }
         .discreetScrollIndicators()
         .overlay(alignment: .topTrailing) {
-            FolderInfoButton(folder: folder, children: children)
+            FolderInfoButton(folder: folder, children: children, isPresented: $isInfoPresented)
                 .padding(12)
                 .containerCornerOffset(.top)
         }

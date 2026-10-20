@@ -29,6 +29,7 @@ struct FloatingToolbar: View {
                         .buttonStyle(.glass)
                         .buttonBorderShape(.roundedRectangle(radius: 14))
                         .glassEffectID("back", in: glass)
+                        .accessibilityLabel("Voltar")
                         .keyboardShortcut("[", modifiers: .command)
                         .help("Voltar (⌘[ ou Esc)")
                 }
@@ -54,6 +55,8 @@ struct FloatingToolbar: View {
                 .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 .background(isSelected ? AnyShapeStyle(.tint.opacity(0.16)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 10))
                 .help(isSelected ? "Mostrar tudo" : "Destacar \(option.title.lowercased())")
+                // Sem legenda (barra horizontal), o nome precisa vir explícito para a acessibilidade.
+                .accessibilityLabel(option.title)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }

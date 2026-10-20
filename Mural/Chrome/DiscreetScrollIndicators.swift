@@ -10,11 +10,17 @@ extension View {
     }
 }
 
+/// Cada indicador é uma barrinha presa à sua borda, e não uma camada do tamanho da
+/// rolagem: uma camada assim, mesmo transparente e sem cliques, encobria o conteúdo para
+/// a acessibilidade (leitura de tela, Controle por Voz e testes de interface).
 private struct DiscreetScrollIndicators: ViewModifier {
     let axes: Axis.Set
 
     @State private var metrics = ScrollMetrics()
     @State private var isScrolling = false
+
+    private let thickness: CGFloat = 5
+    private let inset: CGFloat = 3
 
     func body(content: Content) -> some View {
         content
@@ -25,13 +31,28 @@ private struct DiscreetScrollIndicators: ViewModifier {
                 metrics = new
             }
             .onScrollPhaseChange { _, phase in isScrolling = phase.isScrolling }
-            .overlay {
-                ScrollIndicatorBars(metrics: metrics, axes: axes)
-                    .opacity(isScrolling ? 1 : 0)
-                    .animation(isScrolling ? .easeOut(duration: 0.12) : .easeOut(duration: 0.5).delay(0.6), value: isScrolling)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+            .overlay(alignment: .topTrailing) {
+                if let thumb = metrics.verticalThumb(axes: axes, inset: inset, reserve: thickness + inset) {
+                    indicator(width: thickness, height: thumb.length)
+                        .offset(x: -inset, y: inset + thumb.position)
+                }
             }
+            .overlay(alignment: .bottomLeading) {
+                if let thumb = metrics.horizontalThumb(axes: axes, inset: inset, reserve: thickness + inset) {
+                    indicator(width: thumb.length, height: thickness)
+                        .offset(x: inset + thumb.position, y: -inset)
+                }
+            }
+    }
+
+    private func indicator(width: CGFloat, height: CGFloat) -> some View {
+        Capsule()
+            .fill(.primary.opacity(0.35))
+            .frame(width: width, height: height)
+            .opacity(isScrolling ? 1 : 0)
+            .animation(isScrolling ? .easeOut(duration: 0.12) : .easeOut(duration: 0.5).delay(0.6), value: isScrolling)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -40,48 +61,26 @@ private struct ScrollMetrics: Equatable {
     var offset = CGPoint.zero
     var content = CGSize.zero
     var container = CGSize.zero
-}
 
-private struct ScrollIndicatorBars: View {
-    let metrics: ScrollMetrics
-    let axes: Axis.Set
+    private static let minimumLength: CGFloat = 32
 
-    private let thickness: CGFloat = 5
-    private let inset: CGFloat = 3
-    private let minimumLength: CGFloat = 32
+    private var scrollsVertically: Bool { content.height > container.height + 1 }
+    private var scrollsHorizontally: Bool { content.width > container.width + 1 }
 
-    private var showsVertical: Bool {
-        axes.contains(.vertical) && metrics.content.height > metrics.container.height + 1
+    func verticalThumb(axes: Axis.Set, inset: CGFloat, reserve: CGFloat) -> (length: CGFloat, position: CGFloat)? {
+        guard axes.contains(.vertical), scrollsVertically else { return nil }
+        let track = container.height - inset * 2 - (axes.contains(.horizontal) && scrollsHorizontally ? reserve : 0)
+        return Self.thumb(track: track, visible: container.height, total: content.height, offset: offset.y)
     }
 
-    private var showsHorizontal: Bool {
-        axes.contains(.horizontal) && metrics.content.width > metrics.container.width + 1
-    }
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            if showsVertical {
-                let track = metrics.container.height - inset * 2 - (showsHorizontal ? thickness + inset : 0)
-                let thumb = thumb(track: track, visible: metrics.container.height, total: metrics.content.height, offset: metrics.offset.y)
-                Capsule()
-                    .fill(.primary.opacity(0.35))
-                    .frame(width: thickness, height: thumb.length)
-                    .offset(x: metrics.container.width - thickness - inset, y: inset + thumb.position)
-            }
-            if showsHorizontal {
-                let track = metrics.container.width - inset * 2 - (showsVertical ? thickness + inset : 0)
-                let thumb = thumb(track: track, visible: metrics.container.width, total: metrics.content.width, offset: metrics.offset.x)
-                Capsule()
-                    .fill(.primary.opacity(0.35))
-                    .frame(width: thumb.length, height: thickness)
-                    .offset(x: inset + thumb.position, y: metrics.container.height - thickness - inset)
-            }
-        }
-        .frame(width: metrics.container.width, height: metrics.container.height, alignment: .topLeading)
+    func horizontalThumb(axes: Axis.Set, inset: CGFloat, reserve: CGFloat) -> (length: CGFloat, position: CGFloat)? {
+        guard axes.contains(.horizontal), scrollsHorizontally else { return nil }
+        let track = container.width - inset * 2 - (axes.contains(.vertical) && scrollsVertically ? reserve : 0)
+        return Self.thumb(track: track, visible: container.width, total: content.width, offset: offset.x)
     }
 
     /// Comprimento proporcional à parte visível e posição proporcional à rolagem.
-    private func thumb(track: CGFloat, visible: CGFloat, total: CGFloat, offset: CGFloat) -> (length: CGFloat, position: CGFloat) {
+    private static func thumb(track: CGFloat, visible: CGFloat, total: CGFloat, offset: CGFloat) -> (length: CGFloat, position: CGFloat) {
         let length = min(max(track * visible / total, minimumLength), track)
         let progress = min(max(offset / max(total - visible, 1), 0), 1)
         return (length, (track - length) * progress)

@@ -5,8 +5,8 @@ import SwiftUI
 struct FolderInfoButton: View {
     let folder: BoardItem
     let children: [BoardItem]
-
-    @State private var isPresented = false
+    /// Fica na tela raiz: com o popover aberto, Esc fecha o popover em vez de sair da pasta.
+    @Binding var isPresented: Bool
 
     var body: some View {
         Button {

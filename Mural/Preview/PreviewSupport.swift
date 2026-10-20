@@ -57,7 +57,10 @@ enum PreviewImages {
     @Previewable @Namespace var namespace
     let model = BoardModel.preview()
     let folder = model.rootItems.first { $0.kind == .folder && $0.title == "The Cottage" }!
-    CollectionView(folder: folder, model: model, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil) {
+    CollectionView(
+        folder: folder, model: model, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil,
+        isInfoPresented: .constant(false)
+    ) {
         _ in
     }
     .background(Theme.canvas)
