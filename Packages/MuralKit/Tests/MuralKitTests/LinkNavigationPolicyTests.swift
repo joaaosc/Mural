@@ -62,18 +62,32 @@ struct LinkNavigationPolicyTests {
     // MARK: Fora da web
 
     @Test(
-        "Esquema de fora da web no quadro principal vai para o sistema",
+        "Depois de um clique, e-mail, ligação, mensagem e FaceTime no quadro principal vão para o sistema",
         arguments: [
             "mailto:contato@example.com", "tel:+5521999999999", "sms:+5521999999999", "facetime://contato@example.com",
-            "itms-apps://apps.apple.com/app/id1", "zoommtg://zoom.us/join?confno=1", "slack://channel?team=T1&id=C1",
+            "facetime-audio://contato@example.com",
         ])
-    func appSchemesInMainFrameOpenExternally(address: String) throws {
+    func allowedSchemesInMainFrameOpenExternally(address: String) throws {
         let url = try #require(URL(string: address))
         #expect(decide(url) == .openExternally(url))
     }
 
-    @Test("Esquema de fora da web em janela nova também vai para o sistema")
-    func appSchemesInNewWindowOpenExternally() {
+    @Test(
+        "Qualquer outro esquema de fora da web é descartado, mesmo depois de um clique: a pessoa usa Abrir no navegador",
+        arguments: [
+            "itms-apps://apps.apple.com/app/id1", "zoommtg://zoom.us/join?confno=1", "slack://channel?team=T1&id=C1",
+            "x-apple.systempreferences:com.apple.preference.security", "vnc://192.168.0.2", "ssh://root@example.com",
+            "smb://servidor/pasta", "ftp://example.com/arquivo", "mailtox:a@example.com", "facetime-video://contato@example.com",
+        ])
+    func otherSchemesAreCancelled(address: String) throws {
+        let url = try #require(URL(string: address))
+        #expect(decide(url) == .cancel)
+        #expect(decide(url, mainFrame: false, newWindow: true) == .cancel)
+        #expect(decide(url, userInitiated: false) == .cancel)
+    }
+
+    @Test("Esquema permitido em janela nova também vai para o sistema")
+    func allowedSchemesInNewWindowOpenExternally() {
         #expect(decide(mail, mainFrame: false, newWindow: true) == .openExternally(mail))
     }
 
@@ -143,10 +157,11 @@ struct LinkNavigationPolicyTests {
         #expect(decide(page, download: true, userInitiated: false) == .cancel)
     }
 
-    @Test("A página não abre outro app por conta própria")
+    @Test("A página não abre outro app por conta própria, nem os esquemas que um clique poderia abrir")
     func scriptedAppSchemeIsCancelled() {
         #expect(decide(mail, userInitiated: false) == .cancel)
         #expect(decide(mail, mainFrame: false, newWindow: true, userInitiated: false) == .cancel)
+        #expect(decide(URL(string: "tel:+5521999999999")!, userInitiated: false) == .cancel)
     }
 
     @Test("Redirecionamento da própria página para outra página da web continua no app")
@@ -167,21 +182,72 @@ struct LinkNavigationPolicyTests {
 
     // MARK: Resposta
 
-    @Test("Resposta que o WebKit sabe mostrar continua na página")
+    @Test("Resposta que o WebKit sabe mostrar continua na página, tenha a pessoa pedido ou não")
     func showableResponseIsAllowed() {
-        #expect(LinkNavigationPolicy.decide(canShowMimeType: true, url: page) == .allow)
-        #expect(LinkNavigationPolicy.decide(canShowMimeType: true, url: nil) == .allow)
+        for userInitiated in [true, false] {
+            #expect(LinkNavigationPolicy.decide(canShowMimeType: true, url: page, isUserInitiated: userInitiated) == .allow)
+            #expect(LinkNavigationPolicy.decide(canShowMimeType: true, url: nil, isUserInitiated: userInitiated) == .allow)
+        }
     }
 
-    @Test("Resposta que o WebKit não sabe mostrar vai para o navegador")
-    func unshowableResponseOpensInBrowser() {
-        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: page) == .openExternally(page))
+    @Test("Resposta que o WebKit não sabe mostrar vai para o navegador quando foi a pessoa que pediu a navegação")
+    func unshowableResponseToAUserRequestOpensInBrowser() {
+        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: page, isUserInitiated: true) == .openExternally(page))
+        #expect(
+            LinkNavigationPolicy.decide(canShowMimeType: false, url: insecurePage, isUserInitiated: true) == .openExternally(insecurePage))
     }
 
-    @Test("Resposta que não dá para mostrar nem entregar ao navegador é descartada")
+    @Test("Resposta que o WebKit não sabe mostrar e que a página pediu sozinha, sem clique, é descartada")
+    func unshowableResponseWithoutAUserRequestIsCancelled() {
+        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: page, isUserInitiated: false) == .cancel)
+        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: insecurePage, isUserInitiated: false) == .cancel)
+    }
+
+    @Test("Resposta que não dá para mostrar nem entregar ao navegador é descartada, mesmo a pedido da pessoa")
     func unshowableResponseWithoutWebAddressIsCancelled() {
-        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: nil) == .cancel)
-        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: URL(string: "blob:https://example.com/1")!) == .cancel)
-        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: URL(string: "file:///tmp/a.zip")!) == .cancel)
+        #expect(LinkNavigationPolicy.decide(canShowMimeType: false, url: nil, isUserInitiated: true) == .cancel)
+        #expect(
+            LinkNavigationPolicy.decide(canShowMimeType: false, url: URL(string: "blob:https://example.com/1")!, isUserInitiated: true)
+                == .cancel)
+        #expect(
+            LinkNavigationPolicy.decide(canShowMimeType: false, url: URL(string: "file:///tmp/a.zip")!, isUserInitiated: true) == .cancel)
+    }
+
+    // MARK: Mesma página
+
+    @Test("O mesmo endereço, ou o mesmo com #fragmento, barra final, www., http no lugar de https e rastreamento, é a mesma página")
+    func samePageIgnoresIncidentalDifferences() {
+        let base = URL(string: "https://example.com/baixar?id=7")!
+        for other in [
+            "https://example.com/baixar?id=7", "https://example.com/baixar?id=7#topo", "http://example.com/baixar?id=7",
+            "https://www.example.com/baixar?id=7", "https://EXAMPLE.com/baixar?id=7&utm_source=boletim",
+        ] {
+            #expect(LinkNavigationPolicy.isSamePage(base, URL(string: other)!), "\(other)")
+        }
+        let slash = URL(string: "https://example.com/pasta/")!
+        #expect(LinkNavigationPolicy.isSamePage(slash, URL(string: "https://example.com/pasta")!))
+    }
+
+    @Test("Outro caminho, outro parâmetro ou outro host não é a mesma página")
+    func samePageDistinguishesDifferentAddresses() {
+        let base = URL(string: "https://example.com/baixar?id=7")!
+        for other in [
+            "https://example.com/baixar?id=8", "https://example.com/baixar", "https://example.com/outro?id=7",
+            "https://example.org/baixar?id=7", "https://example.com:8443/baixar?id=7", "https://cdn.example.com/baixar?id=7",
+        ] {
+            #expect(!LinkNavigationPolicy.isSamePage(base, URL(string: other)!), "\(other)")
+        }
+    }
+
+    @Test("Endereço ausente ou que não é da web nunca é a mesma página, nem igual a si mesmo")
+    func samePageNeedsTwoWebAddresses() {
+        let blob = URL(string: "blob:https://example.com/1")!
+        let file = URL(string: "file:///tmp/a.zip")!
+        #expect(!LinkNavigationPolicy.isSamePage(nil, nil))
+        #expect(!LinkNavigationPolicy.isSamePage(page, nil))
+        #expect(!LinkNavigationPolicy.isSamePage(nil, page))
+        #expect(!LinkNavigationPolicy.isSamePage(blob, blob))
+        #expect(!LinkNavigationPolicy.isSamePage(file, file))
+        #expect(!LinkNavigationPolicy.isSamePage(mail, mail))
     }
 }

@@ -52,6 +52,9 @@ final class LinkPageController {
     /// Tamanho da área da página. O recorte da prévia sai dele. Muda a cada ajuste da janela, então a tela não o observa.
     @ObservationIgnored var viewportSize = CGSize.zero
 
+    /// Decide as navegações da página e lembra a que a pessoa pediu por último.
+    private let navigationDecider = LinkNavigationDecider()
+
     @ObservationIgnored private var entryURL: URL?
     @ObservationIgnored private var source = Source.web
     @ObservationIgnored private var lastRequestedURL: URL?
@@ -74,7 +77,7 @@ final class LinkPageController {
         var configuration = WebPage.Configuration()
         // Nada fica gravado em disco (cookies, cache): a página é para uma consulta rápida, não um perfil de navegação.
         configuration.websiteDataStore = .nonPersistent()
-        let page = WebPage(configuration: configuration, navigationDecider: LinkNavigationDecider())
+        let page = WebPage(configuration: configuration, navigationDecider: navigationDecider)
         self.page = page
         observeNavigations(of: page)
         load()
@@ -98,6 +101,7 @@ final class LinkPageController {
         switch source {
         case .web:
             lastRequestedURL = entryURL
+            navigationDecider.noteUserRequest(for: entryURL)
             page.load(URLRequest(url: entryURL))
         case .html(let html):
             page.load(html: html, baseURL: entryURL)
@@ -111,6 +115,7 @@ final class LinkPageController {
         case .web:
             guard let url = failure?.url ?? entryURL else { return }
             lastRequestedURL = url
+            navigationDecider.noteUserRequest(for: url)
             page.load(URLRequest(url: url))
         case .html:
             load()
