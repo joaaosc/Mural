@@ -91,7 +91,7 @@ public struct ItemImporter: Sendable {
     }
 
     /// Título `#` a `######` na primeira linha e o resto do texto, sem as linhas em branco do começo.
-    static func leadingHeading(of text: String) -> (title: String, body: String)? {
+    public static func leadingHeading(of text: String) -> (title: String, body: String)? {
         let lines = text.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         let first = lines[0].trimmingCharacters(in: .whitespaces)
         let level = first.prefix { $0 == "#" }.count

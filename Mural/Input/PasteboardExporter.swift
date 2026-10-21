@@ -2,7 +2,7 @@ import AppKit
 import MuralKit
 
 /// Copia um cartão para a área de transferência: o arquivo guardado ou, para notas e
-/// listas, o texto (listas no formato que o próprio mural reconhece ao colar).
+/// listas, o texto (no formato que o próprio mural reconhece ao colar).
 enum PasteboardExporter {
     static func copy(_ item: BoardItem, from model: BoardModel, to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
@@ -10,8 +10,17 @@ enum PasteboardExporter {
             pasteboard.writeObjects([url as NSURL])
         } else if let checklist = item.checklist {
             pasteboard.setString(ChecklistParser.format(checklist), forType: .string)
+        } else if item.kind == .text {
+            pasteboard.setString(markdown(of: item), forType: .string)
         } else {
             pasteboard.setString(item.displayText, forType: .string)
         }
+    }
+
+    /// Nota em Markdown com o título como `#`, no formato que o colar lê de volta.
+    static func markdown(of item: BoardItem) -> String {
+        let body = item.text ?? ""
+        guard !item.title.isEmpty, ItemImporter.leadingHeading(of: body) == nil, !body.hasPrefix(item.title) else { return body }
+        return body.isEmpty ? "# \(item.title)" : "# \(item.title)\n\n\(body)"
     }
 }

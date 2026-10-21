@@ -22,7 +22,7 @@ enum PasteboardImporter {
         case nothing
     }
 
-    /// Lê na ordem: arquivos, PNG, PDF, outra imagem, texto.
+    /// Lê na ordem: arquivos, PNG, PDF, outra imagem, texto. Texto só com espaços não conta.
     static func read(from pasteboard: NSPasteboard = .general) -> Content {
         let fileOptions: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: fileOptions) as? [URL], !urls.isEmpty {
@@ -41,7 +41,7 @@ enum PasteboardImporter {
         if let png = pngFromAnyImage(on: pasteboard) {
             return .data(png, fileExtension: "png", kind: .image, title: "Imagem colada")
         }
-        if let text = pasteboard.string(forType: .string) {
+        if let text = pasteboard.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return .text(text)
         }
         return .nothing

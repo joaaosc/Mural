@@ -293,12 +293,43 @@ final class MuralUITests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("Comprar tinta azul", forType: .string)
         app.typeKey("v", modifierFlags: .command)
-        XCTAssertTrue(app.buttons["Comprar tinta azul"].waitForExistence(timeout: 5), "⌘V com texto curto deveria criar um post-it")
+        // Texto solto pergunta o tipo; texto curto já vem com Sticker sugerido (Return).
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), "⌘V com texto deveria abrir o popup")
+        XCTAssertTrue(sheet.buttons["Sticker"].exists)
+        XCTAssertTrue(sheet.buttons["Card de texto"].exists)
+        XCTAssertFalse(sheet.buttons["Lista"].exists, "texto sem marcadores não oferece lista")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(app.buttons["Comprar tinta azul"].waitForExistence(timeout: 5), "Return no popup deveria criar o post-it")
 
         app.terminate()
         let reopened = launch("-uiTestingKeep")
         XCTAssertTrue(
             reopened.buttons["Comprar tinta azul"].waitForExistence(timeout: 10), "o post-it colado deveria continuar após reabrir")
+    }
+
+    /// Colar como card de texto, abrir a nota e abrir um parágrafo dobrado no lugar.
+    @MainActor
+    func testPastedTextAsCardFoldsParagraphs() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("# Visita\n\nA visita é na segunda. Medir a parede norte.", forType: .string)
+        app.typeKey("v", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        sheet.buttons["Card de texto"].click()
+
+        let card = app.buttons["Visita"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "o card de texto aparece no mural com o título do `#`")
+        card.click()
+        let paragraph = app.buttons["stretch-0"].firstMatch
+        XCTAssertTrue(paragraph.waitForExistence(timeout: 5), "o parágrafo de duas frases aparece dobrado")
+        XCTAssertEqual(paragraph.value as? String, "Só a frase principal")
+        paragraph.click()
+        XCTAssertEqual(paragraph.value as? String, "Parágrafo inteiro")
     }
 
     @MainActor

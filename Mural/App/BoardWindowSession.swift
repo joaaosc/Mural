@@ -579,6 +579,15 @@ final class BoardWindowSession {
         return item.id
     }
 
+    /// Texto colado, no tipo escolhido no popup.
+    func importPastedText(_ paste: PendingPaste, as kind: ItemKind) {
+        guard let model else { return }
+        if model.importText(paste.text, as: kind, into: paste.folderID) == nil {
+            model.lastError = "O texto colado não pôde virar um cartão."
+        }
+        captureBoardIfNeeded()
+    }
+
     func beginEditing(_ itemID: UUID) {
         guard let item = model?.item(id: itemID), item.kind == .text || item.kind == .sticky else { return }
         if let editingItemID, editingItemID != itemID {

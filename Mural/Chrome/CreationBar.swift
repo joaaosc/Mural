@@ -1,3 +1,4 @@
+import MuralKit
 import SwiftUI
 
 /// Barra de criação no centro inferior: card de texto, sticker e arquivos, as
@@ -12,9 +13,9 @@ struct CreationBar: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            Button("Card de texto", systemImage: "text.document", action: onNewNote)
+            Button(ItemKind.text.creationTitle, systemImage: ItemKind.text.creationSymbol, action: onNewNote)
                 .help("Novo card de texto (⇧⌘N)")
-            Button("Sticker", systemImage: "square.text.square", action: onNewSticky)
+            Button(ItemKind.sticky.creationTitle, systemImage: ItemKind.sticky.creationSymbol, action: onNewSticky)
                 .help("Novo sticker (⌥⌘N)")
             Button("Arquivos…", systemImage: "paperclip", action: onAddFiles)
                 .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")

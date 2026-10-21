@@ -30,6 +30,8 @@ private struct LoadedRootView: View {
     @State private var isRenamePresented = false
     @State private var boardNameDraft = ""
     @State private var importError: String?
+    /// Texto solto colado, esperando a escolha do tipo no popup.
+    @State private var pendingPaste: PendingPaste?
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -181,8 +183,16 @@ private struct LoadedRootView: View {
             // Lê agora (o conteúdo pode mudar); copia e grava fora do Main Actor.
             let content = PasteboardImporter.read()
             let folder = currentFolderID
+            // Texto solto espera a escolha do tipo no popup; nada vira cartão antes disso.
+            if case .text(let text) = content {
+                pendingPaste = PendingPaste(text: text, folderID: folder)
+                return
+            }
             let animation = importAnimation
             Task { await session.importPasted(content, into: folder, animation: animation) }
+        }
+        .sheet(item: $pendingPaste) { paste in
+            PasteChoiceSheet(paste: paste, onChoose: { kind in importPaste(paste, as: kind) }, onCancel: cancelPaste)
         }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
@@ -414,6 +424,19 @@ private struct LoadedRootView: View {
             session.setNavigation(path: session.path + newLevels, filter: nil)
         }
         isFolderInfoPresented = false
+        isCanvasFocused = true
+    }
+
+    private func importPaste(_ paste: PendingPaste, as kind: ItemKind) {
+        pendingPaste = nil
+        withAnimation(importAnimation) {
+            session.importPastedText(paste, as: kind)
+        }
+        isCanvasFocused = true
+    }
+
+    private func cancelPaste() {
+        pendingPaste = nil
         isCanvasFocused = true
     }
 
