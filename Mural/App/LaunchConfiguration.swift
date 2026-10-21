@@ -3,6 +3,11 @@ import MuralKit
 
 /// Onde o mural é gravado. Os testes de interface usam uma pasta própria.
 enum LaunchConfiguration {
+    static var isUITesting: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep")
+    }
+
     /// `-uiTesting`: começa do mural de exemplo, apagando a pasta de testes.
     /// `-uiTestingKeep`: reabre a pasta de testes sem apagar (teste de persistência).
     static func store(arguments: [String] = ProcessInfo.processInfo.arguments) -> BoardStore {

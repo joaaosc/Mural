@@ -17,6 +17,7 @@ struct MuralApp: App {
             BoardWindowHost(route: route ?? .library, registry: registry)
                 .frame(minWidth: 760, minHeight: 500)
         }
+        .restorationBehavior(LaunchConfiguration.isUITesting ? .disabled : .automatic)
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1240, height: 800)
         .commands { MuralCommands() }

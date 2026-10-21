@@ -24,7 +24,8 @@ final class MuralUITests: XCTestCase {
     @MainActor
     private func openExampleBoardIfNeeded(in app: XCUIApplication) {
         let exampleCard = app.buttons["The Cottage"].firstMatch
-        if exampleCard.waitForExistence(timeout: 2) { return }
+        let back = app.buttons["Voltar"].firstMatch
+        if exampleCard.waitForExistence(timeout: 2) || back.exists { return }
 
         let libraryTab = app.tabs["Murais"].firstMatch
         if libraryTab.waitForExistence(timeout: 2) {
@@ -43,7 +44,13 @@ final class MuralUITests: XCTestCase {
         let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
         XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "o rascunho de exemplo deveria aparecer na biblioteca")
         draftEntry.doubleClick()
-        XCTAssertTrue(exampleCard.waitForExistence(timeout: 10), "o rascunho de exemplo deveria abrir no mural")
+        let openedBoard = NSPredicate { _, _ in exampleCard.exists || back.exists }
+        let expectation = XCTNSPredicateExpectation(predicate: openedBoard, object: nil)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 10),
+            .completed,
+            "o rascunho de exemplo deveria abrir no mural"
+        )
     }
 
     @MainActor
@@ -202,13 +209,16 @@ final class MuralUITests: XCTestCase {
 
         app.terminate()
         let reopened = launch("-uiTestingKeep")
+        let restoredBack = reopened.buttons["Voltar"].firstMatch
+        XCTAssertTrue(restoredBack.waitForExistence(timeout: 10), "a pasta aberta deveria ser restaurada")
+        XCTAssertTrue(reopened.buttons["Today"].waitForExistence(timeout: 5), "o cartão continua dentro da pasta após reabrir")
+
+        restoredBack.click()
+        XCTAssertTrue(restoredBack.waitForNonExistence(timeout: 5))
         let alpha = reopened.buttons["Alpha"].firstMatch
         XCTAssertTrue(alpha.waitForExistence(timeout: 10))
         alpha.hover()
         XCTAssertTrue(reopened.buttons["Today"].waitForNonExistence(timeout: 3), "o cartão não volta ao mural")
-        reopened.buttons["44th Street"].firstMatch.click()
-        XCTAssertTrue(reopened.buttons["Voltar"].waitForExistence(timeout: 5))
-        XCTAssertTrue(reopened.buttons["Today"].waitForExistence(timeout: 5), "o cartão continua dentro da pasta após reabrir")
     }
 
     /// "Mover para o mural" tira o cartão de dentro da pasta e o devolve ao mural.
