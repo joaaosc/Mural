@@ -17,6 +17,7 @@ struct CollectionView: View {
     @State private var scrollMetrics = CollectionScrollMetrics()
     @State private var pendingRestore: ReadingPosition?
     @State private var restoring = false
+    @State private var presentationToken: ReadingPresentationToken?
 
     private var children: [BoardItem] { model.children(of: folder.id) }
 
@@ -33,7 +34,13 @@ struct CollectionView: View {
                                 .onGeometryChange(for: CGRect.self) { proxy in
                                     proxy.frame(in: .named("collection-content"))
                                 } action: { _, frame in
-                                    itemFrames[item.id] = frame
+                                    if frame.width > 0, frame.height > 0, frame.origin.x.isFinite,
+                                        frame.origin.y.isFinite
+                                    {
+                                        itemFrames[item.id] = frame
+                                    } else {
+                                        itemFrames.removeValue(forKey: item.id)
+                                    }
                                     confirmRestoreIfPossible()
                                 }
                                 .galleryLane(item.kind.storesFile ? .media : .notes)
@@ -45,9 +52,10 @@ struct CollectionView: View {
             .padding(.trailing, 64)
             .padding(.top, 70)
             .padding(.bottom, 90)
+            // O espaço de coordenadas pertence ao conteúdo, não ao viewport.
+            .coordinateSpace(name: "collection-content")
             .scrollTargetLayout()
         }
-        .coordinateSpace(name: "collection-content")
         .scrollPosition($scrollPosition)
         .discreetScrollIndicators()
         .onScrollGeometryChange(for: CollectionScrollMetrics.self) { geometry in
@@ -66,6 +74,11 @@ struct CollectionView: View {
                 .containerCornerOffset(.top)
         }
         .task(id: folder.id) { beginRestore() }
+        .onChange(of: children.map(\.id), initial: true) { _, ids in
+            let liveIDs = Set(ids)
+            itemFrames = itemFrames.filter { liveIDs.contains($0.key) }
+            confirmRestoreIfPossible()
+        }
         .allowsHitTesting(!restoring)
         .accessibilityHidden(restoring)
     }
@@ -95,14 +108,12 @@ struct CollectionView: View {
 
     private func beginRestore() {
         guard let session else { return }
-        pendingRestore = session.beginReadingRestore(
-            for: folder.id,
-            boardID: session.boardID,
-            generation: session.generation,
-            navigationGeneration: session.navigationGeneration)
+        let token = session.readingPresentationToken(for: folder.id)
+        presentationToken = token
+        pendingRestore = session.beginReadingRestore(token: token)
         guard case .collection(_, let firstID, _, let fallbackY) = pendingRestore else {
             restoring = false
-            session.finishReadingRestore(for: folder.id)
+            _ = session.finishReadingRestore(token: token)
             return
         }
         restoring = true
@@ -115,7 +126,8 @@ struct CollectionView: View {
     }
 
     private func confirmRestoreIfPossible() {
-        guard restoring, let session,
+        guard restoring, let session, let token = presentationToken,
+            session.acceptsReadingPresentation(token),
             case .collection = pendingRestore
         else { return }
         guard scrollMetrics.containerSize != .zero, scrollMetrics.contentSize != .zero else { return }
@@ -135,24 +147,20 @@ struct CollectionView: View {
             return
         }
         restoring = false
-        session.finishReadingRestore(for: folder.id)
+        _ = session.finishReadingRestore(token: token)
     }
 
     private func captureReadingPosition() {
-        guard !restoring, let session,
-            session.restorationPhase == .ready,
-            session.acceptsPersistence(for: session.boardID, generation: session.generation)
+        guard !restoring, let session, let token = presentationToken,
+            session.acceptsReadingPresentation(token),
+            session.restorationPhase == .ready
         else { return }
         let frames = itemFrames.map { (id: $0.key, frame: $0.value) }.sorted { $0.frame.minY < $1.frame.minY }
         let position = ReadingPosition.collectionSnapshot(
             folderID: folder.id,
             visibleRect: scrollMetrics.visibleRect,
             itemFrames: frames)
-        session.recordReadingPosition(
-            position,
-            boardID: session.boardID,
-            generation: session.generation,
-            navigationGeneration: session.navigationGeneration)
+        session.recordReadingPosition(position, token: token)
     }
 }
 

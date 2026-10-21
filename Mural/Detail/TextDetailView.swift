@@ -10,6 +10,7 @@ struct TextDetailView: View {
     @State private var metrics = DetailScrollMetrics()
     @State private var savedPosition: ReadingPosition?
     @State private var restoring = false
+    @State private var presentationToken: ReadingPresentationToken?
 
     var body: some View {
         if item.kind == .sticky {
@@ -57,14 +58,12 @@ struct TextDetailView: View {
 
     private func beginRestore() {
         guard let session else { return }
-        savedPosition = session.beginReadingRestore(
-            for: item.id,
-            boardID: session.boardID,
-            generation: session.generation,
-            navigationGeneration: session.navigationGeneration)
+        let token = session.readingPresentationToken(for: item.id)
+        presentationToken = token
+        savedPosition = session.beginReadingRestore(token: token)
         guard case .item = savedPosition else {
             restoring = false
-            session.finishReadingRestore(for: item.id)
+            _ = session.finishReadingRestore(token: token)
             return
         }
         restoring = true
@@ -72,7 +71,8 @@ struct TextDetailView: View {
     }
 
     private func confirmRestoreIfPossible() {
-        guard restoring, let session, let savedPosition,
+        guard restoring, let session, let token = presentationToken,
+            session.acceptsReadingPresentation(token), let savedPosition,
             metrics.containerSize != .zero, metrics.contentSize != .zero,
             let targetY = ReadingPosition.itemTargetY(
                 savedPosition,
@@ -86,19 +86,15 @@ struct TextDetailView: View {
             return
         }
         restoring = false
-        session.finishReadingRestore(for: item.id)
+        _ = session.finishReadingRestore(token: token)
     }
 
     private func capturePosition() {
-        guard !restoring, let session,
-            session.restorationPhase == .ready,
-            session.acceptsPersistence(for: session.boardID, generation: session.generation)
+        guard !restoring, let session, let token = presentationToken,
+            session.acceptsReadingPresentation(token),
+            session.restorationPhase == .ready
         else { return }
         let position = ReadingPosition.item(itemID: item.id, visibleContentY: max(0, metrics.visibleRect.minY))
-        session.recordReadingPosition(
-            position,
-            boardID: session.boardID,
-            generation: session.generation,
-            navigationGeneration: session.navigationGeneration)
+        session.recordReadingPosition(position, token: token)
     }
 }

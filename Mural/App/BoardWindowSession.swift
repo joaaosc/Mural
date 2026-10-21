@@ -18,6 +18,16 @@ struct DetailScrollMetrics: Equatable {
     }
 }
 
+/// Identidade da apresentação que está autorizada a restaurar/capturar uma
+/// posição.  A navegação pode trocar de item sem recriar imediatamente a
+/// árvore SwiftUI; por isso o item sozinho não identifica um callback válido.
+struct ReadingPresentationToken: Hashable, Sendable {
+    let boardID: BoardID
+    let generation: UInt64
+    let navigationGeneration: UInt64
+    let itemID: UUID
+}
+
 /// Adaptador MainActor de uma sessão de domínio para uma janela SwiftUI.
 /// Cada instância pertence a exatamente um `BoardID`; não há estado de mural atual.
 @MainActor
@@ -55,7 +65,7 @@ final class BoardWindowSession {
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
     @ObservationIgnored private var restoreTarget: CGPoint?
     @ObservationIgnored private var autosaveFailed = false
-    @ObservationIgnored private var restoringReadingItems: Set<UUID> = []
+    @ObservationIgnored private var restoringReadingItems: [UUID: ReadingPresentationToken] = [:]
 
     init(route: BoardRoute, registry: BoardSessionRegistry) {
         self.route = route
@@ -206,6 +216,9 @@ final class BoardWindowSession {
         self.path = Self.destinations(from: newPath, board: model.board)
         self.filter = Self.filter(from: newFilter, path: self.path, board: model.board)
         navigationGeneration &+= 1
+        restoringReadingItems = restoringReadingItems.filter {
+            $0.value.navigationGeneration == navigationGeneration
+        }
         updateWorkspace { workspace in
             workspace.path = newPath
             workspace.filter = newFilter
@@ -236,6 +249,46 @@ final class BoardWindowSession {
         readingPositions[itemID]
     }
 
+    func readingPresentationToken(for itemID: UUID) -> ReadingPresentationToken {
+        ReadingPresentationToken(
+            boardID: boardID,
+            generation: generation,
+            navigationGeneration: navigationGeneration,
+            itemID: itemID)
+    }
+
+    func acceptsReadingPresentation(_ token: ReadingPresentationToken) -> Bool {
+        token.boardID == boardID && token.generation == generation
+            && token.navigationGeneration == navigationGeneration
+    }
+
+    @discardableResult
+    func beginReadingRestore(token: ReadingPresentationToken) -> ReadingPosition? {
+        guard acceptsReadingPresentation(token) else { return nil }
+        restoringReadingItems[token.itemID] = token
+        return readingPositions[token.itemID]
+    }
+
+    @discardableResult
+    func finishReadingRestore(token: ReadingPresentationToken) -> Bool {
+        guard acceptsReadingPresentation(token), restoringReadingItems[token.itemID] == token else {
+            return false
+        }
+        restoringReadingItems.removeValue(forKey: token.itemID)
+        return true
+    }
+
+    func recordReadingPosition(_ position: ReadingPosition, token: ReadingPresentationToken) {
+        guard acceptsReadingPresentation(token), token.itemID == position.targetItemID,
+            restoringReadingItems[token.itemID] != token
+        else { return }
+        recordReadingPosition(
+            position,
+            boardID: token.boardID,
+            generation: token.generation,
+            navigationGeneration: token.navigationGeneration)
+    }
+
     /// Marca a barreira local da tela que está restaurando uma posição. O
     /// callback inicial do ScrollView/PDFView é ignorado até `finish...`.
     @discardableResult
@@ -245,16 +298,16 @@ final class BoardWindowSession {
         generation callbackGeneration: UInt64? = nil,
         navigationGeneration callbackNavigationGeneration: UInt64? = nil
     ) -> ReadingPosition? {
-        guard callbackBoardID.map({ $0 == boardID }) ?? true,
-            callbackGeneration.map({ $0 == generation }) ?? true,
-            callbackNavigationGeneration.map({ $0 == navigationGeneration }) ?? true
-        else { return nil }
-        restoringReadingItems.insert(itemID)
-        return readingPositions[itemID]
+        let token = ReadingPresentationToken(
+            boardID: callbackBoardID ?? boardID,
+            generation: callbackGeneration ?? generation,
+            navigationGeneration: callbackNavigationGeneration ?? navigationGeneration,
+            itemID: itemID)
+        return beginReadingRestore(token: token)
     }
 
     func finishReadingRestore(for itemID: UUID) {
-        restoringReadingItems.remove(itemID)
+        restoringReadingItems.removeValue(forKey: itemID)
     }
 
     func recordReadingPosition(
@@ -265,7 +318,7 @@ final class BoardWindowSession {
     ) {
         guard acceptsPersistence(for: callbackBoardID, generation: callbackGeneration),
             callbackNavigationGeneration.map({ $0 == navigationGeneration }) ?? true,
-            !restoringReadingItems.contains(position.targetItemID)
+            restoringReadingItems[position.targetItemID] == nil
         else { return }
         updateWorkspace { workspace in
             workspace.readingPositions[position.targetItemID] = position
@@ -325,7 +378,7 @@ final class BoardWindowSession {
         model.delete(itemID)
         canonicalizeWorkspaceAfterContentMutation()
         captionDrafts.removeValue(forKey: itemID)
-        restoringReadingItems.remove(itemID)
+        restoringReadingItems.removeValue(forKey: itemID)
         captureBoardIfNeeded()
     }
 

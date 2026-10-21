@@ -300,6 +300,33 @@ struct BoardWindowSessionTests {
                 contentInsetsBottom: 30) == -20)
     }
 
+    @Test("Coleção usa fallback ao excluir âncora e mantém o offset ao redimensionar")
+    func collectionFallbackSurvivesAnchorRemovalAndResize() {
+        let folderID = UUID()
+        let anchorID = UUID()
+        let saved = ReadingPosition.collection(
+            folderID: folderID,
+            firstVisibleItemID: anchorID,
+            relativeOffset: 18,
+            fallbackContentY: 640)
+        let withAnchor = ReadingPosition.collectionTargetY(
+            saved,
+            itemFrame: CGRect(x: 0, y: 500, width: 300, height: 200),
+            contentHeight: 2_000,
+            viewportHeight: 700,
+            contentInsetsTop: 70,
+            contentInsetsBottom: 90)
+        #expect(withAnchor == 518)
+        let afterDeletion = ReadingPosition.collectionTargetY(
+            saved,
+            itemFrame: nil,
+            contentHeight: 2_000,
+            viewportHeight: 900,
+            contentInsetsTop: 70,
+            contentInsetsBottom: 90)
+        #expect(afterDeletion == 640)
+    }
+
     @Test("PDF position clamps page, scale e ponto")
     func pdfPositionClampContract() {
         let itemID = UUID()
@@ -344,6 +371,29 @@ struct BoardWindowSessionTests {
         #expect(session.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 400))
     }
 
+    @Test("Callback de apresentação antiga não termina nem grava na apresentação nova")
+    func staleReadingPresentationTokenIsIgnored() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Tokens")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("item"))
+        let oldToken = session.readingPresentationToken(for: item.id)
+        _ = session.beginReadingRestore(token: oldToken)
+        #expect(session.finishReadingRestore(token: oldToken))
+        session.recordReadingPosition(.item(itemID: item.id, visibleContentY: 120), token: oldToken)
+        session.setNavigation(path: [.item(item.id)], filter: nil)
+        let newToken = session.readingPresentationToken(for: item.id)
+        #expect(oldToken != newToken)
+        session.recordReadingPosition(.item(itemID: item.id, visibleContentY: 999), token: oldToken)
+        #expect(session.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 120))
+        _ = session.beginReadingRestore(token: newToken)
+        #expect(!session.finishReadingRestore(token: oldToken))
+        #expect(session.finishReadingRestore(token: newToken))
+    }
+
     @Test("Caption draft é gravado imediatamente no leave e reabre")
     func captionDraftCommitsWithoutDebounce() async throws {
         let directory = try root()
@@ -360,6 +410,35 @@ struct BoardWindowSessionTests {
             registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
         await reloaded.load()
         #expect(reloaded.model?.item(id: item.id)?.text == "última tecla")
+    }
+
+    @Test("Draft de imagem falha sem perder texto e o retry persiste")
+    func imageDraftSurvivesFlushFailureAndRetry() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let initialLibrary = BoardLibrary(rootDirectory: directory)
+        let route = try await initialLibrary.createNamedBoard("Imagem")
+        let initial = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: initialLibrary))
+        try await makeReady(initial)
+        let item = try #require(
+            initial.model?.importData(
+                Data([1, 2, 3]), fileExtension: "png", kind: .image, title: "imagem"))
+        initial.captureBoardIfNeeded()
+        await initial.flushAndPrepareToLeave()
+
+        let failing = BoardLibrary(
+            rootDirectory: directory,
+            repositoryFaultInjection: BoardRepositoryFaultInjection(points: [.beforeSwap]))
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: failing))
+        try await makeReady(session)
+        session.setCaptionDraft("texto final", for: item.id)
+        await session.flushAndPrepareToLeave()
+        #expect(session.isDirty)
+        #expect(session.captionDraft(for: item.id) == "texto final")
+        await session.flushAndPrepareToLeave()
+        #expect(!session.isDirty)
+        let reloaded = try #require(await failing.open(route))
+        #expect(reloaded.board.item(id: item.id)?.text == "texto final")
     }
 
     @Test("Reading position sobrevive A/B/A e novo registry")
