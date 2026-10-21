@@ -275,6 +275,10 @@ private struct LoadedRootView: View {
         .onChange(of: model.board) { _, _ in
             session.captureBoardIfNeeded()
         }
+        // O editor que tinha o foco sai de cena: o foco volta para o mural, onde ⌘V e Esc agem.
+        .onChange(of: session.editingItemID) { _, editingItemID in
+            if editingItemID == nil { isCanvasFocused = true }
+        }
     }
 
     @ViewBuilder

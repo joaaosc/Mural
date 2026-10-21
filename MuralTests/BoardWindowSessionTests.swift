@@ -851,6 +851,24 @@ struct BoardWindowSessionTests {
         #expect(session.model?.children(of: folder.id).contains { $0.id == note } == true)
     }
 
+    @Test("Sem o modelo ligado, nenhuma fila é criada e a nota dobra pela primeira frase")
+    func sessionWithoutModel() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Sem modelo")
+        let session = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: library), usesOnDeviceModel: false)
+        try await makeReady(session)
+        #expect(session.keySentences == nil)
+        let note = try #require(session.model?.importText("Primeira frase. Segunda frase.", as: .text))
+        session.prioritizeKeySentences(for: note.id)
+        let saved = try #require(session.model?.item(id: note.id))
+        let result = try #require(NoteFolding.fold(for: saved))
+        #expect(result.document.stretchIDs.count == 1)
+        #expect(NoteFolding.notice(for: result) == nil)
+    }
+
     @Test("Exclusão remove path e reading position canônicos")
     func deletionPrunesWorkspaceState() async throws {
         let directory = try root()

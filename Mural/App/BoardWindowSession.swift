@@ -454,8 +454,9 @@ final class BoardWindowSession {
         }
     }
 
-    /// A nota aberta na tela passa à frente da fila.
+    /// A nota aberta na tela passa à frente da fila, se ainda faltam as frases dela.
     func prioritizeKeySentences(for itemID: UUID) {
+        guard let item = model?.item(id: itemID), NoteFolding.needsChoices(item) else { return }
         keySentences?.enqueue(itemID, first: true)
     }
 
