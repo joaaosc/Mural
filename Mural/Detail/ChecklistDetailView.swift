@@ -20,10 +20,7 @@ struct ChecklistDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(document.title)
                         .font(.system(size: 40, weight: .bold))
-                    if !document.intro.isEmpty {
-                        Text(document.intro)
-                            .font(.body.weight(.medium))
-                    }
+                    ChecklistIntroView(item: item, session: session)
                     let progress = document.progress
                     Text("\(progress.done) de \(progress.total) marcados")
                         .font(.callout)

@@ -84,6 +84,34 @@ enum PreviewImages {
         .background(Theme.page)
 }
 
+/// Nota de exemplo em Markdown: título, parágrafos que dobram, lista, citação e código.
+enum PreviewText {
+    static let note = """
+        # Visita à obra
+
+        A visita é na segunda de manhã. Medir a parede norte antes do meio-dia. Levar as amostras de **tecido** e o leque de cores.
+
+        ## Pendências
+
+        - [x] Pedir as luminárias pendentes
+        - [ ] Revisar a planta com o cliente
+          - Conferir a altura do balcão
+
+        > O cliente quer luz quente em todos os cômodos. Nada de branco frio na sala.
+
+        O orçamento fecha na sexta. Depois disso, qualquer mudança entra como aditivo.
+
+        Uma frase só fica como está.
+        """
+}
+
+#Preview("Nota em Markdown", traits: .fixedLayout(width: 1100, height: 720)) {
+    let model = BoardModel.preview()
+    let note = model.importText(PreviewText.note, as: .text)!
+    ItemDetailView(item: note, model: model, session: nil, onClose: {})
+        .background(Theme.page)
+}
+
 #Preview("Lista", traits: .fixedLayout(width: 1100, height: 720)) {
     let model = BoardModel.preview()
     let list = model.rootItems.first { $0.kind == .checklist }!

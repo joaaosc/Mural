@@ -9,7 +9,7 @@ struct CardView: View {
     var body: some View {
         switch item.kind {
         case .text:
-            PaperCard(title: item.title, text: item.text ?? "")
+            PaperCard(title: item.title, summary: NoteFolding.fold(for: item))
         case .sticky:
             StickyCard(text: item.displayText, color: item.stickyColor)
         case .checklist:

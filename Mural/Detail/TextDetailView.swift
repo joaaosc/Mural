@@ -1,7 +1,7 @@
 import MuralKit
 import SwiftUI
 
-/// Nota de texto em página de leitura, ou post-it ampliado.
+/// Nota em página de leitura (Markdown com parágrafos dobráveis), ou post-it ampliado.
 struct TextDetailView: View {
     let item: BoardItem
     let session: BoardWindowSession?
@@ -25,18 +25,11 @@ struct TextDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text(item.title)
-                        .font(.system(size: 40, weight: .bold))
-                    Text(item.text ?? "")
-                        .font(.system(.title3, design: .serif))
-                        .lineSpacing(5)
-                }
-                .textSelection(.enabled)
-                .frame(maxWidth: 600, alignment: .leading)
-                .padding(.top, 110)
-                .padding(.bottom, 110)
-                .frame(maxWidth: .infinity)
+                NotePageContent(item: item, session: session)
+                    .frame(maxWidth: 600, alignment: .leading)
+                    .padding(.top, 110)
+                    .padding(.bottom, 110)
+                    .frame(maxWidth: .infinity)
             }
             .scrollPosition($scrollPosition)
             .discreetScrollIndicators()
