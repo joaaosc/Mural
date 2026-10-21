@@ -9,5 +9,6 @@ public enum WorkspaceValidationIssue: Equatable, Sendable {
     case nonFiniteCanvasCenter
     case invalidFilter
     case removedReadingPosition(UUID)
+    case removedOpenStretches(UUID)
     case contentRevisionAdjusted
 }

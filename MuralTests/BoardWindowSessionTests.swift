@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 import MuralKit
 import PDFKit
+import StretchText
 import SwiftUI
 import Testing
 
@@ -702,6 +703,32 @@ struct BoardWindowSessionTests {
             registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
         try await makeReady(reloaded)
         #expect(reloaded.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 321))
+    }
+
+    @Test("Parágrafos abertos voltam ao reabrir; texto editado volta tudo dobrado")
+    func openStretchesRoundTrip() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Abertos")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let body = "Primeira frase. Segunda frase.\n\nOutro bloco. Com duas frases."
+        let note = try #require(session.model?.importText(body, as: .text))
+        let second = try #require(StretchID(path: [1]))
+        session.recordOpenStretches([second], for: note.id, source: body)
+        #expect(session.openStretchIDs(for: note.id, source: body) == [second])
+        #expect(session.openStretchIDs(for: note.id, source: body + " Outra.").isEmpty)
+        session.captureBoardIfNeeded()
+        await session.flushAndPrepareToLeave()
+
+        let reloaded = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        #expect(reloaded.openStretchIDs(for: note.id, source: body) == [second])
+
+        reloaded.recordOpenStretches([], for: note.id, source: body)
+        #expect(reloaded.workspace.openStretches[note.id] == nil)
     }
 
     @Test("Exclusão remove path e reading position canônicos")

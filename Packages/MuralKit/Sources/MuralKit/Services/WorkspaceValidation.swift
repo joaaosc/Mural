@@ -75,6 +75,13 @@ extension BoardWorkspaceState {
             validPositions[key] = position
         }
         canonical.readingPositions = validPositions
+
+        // Memória de parágrafos abertos só vale para nota com o mesmo texto.
+        for (itemID, memory) in canonical.openStretches.sorted(by: { $0.key.uuidString < $1.key.uuidString })
+        where !isValid(memory: memory, itemID: itemID, board: board) {
+            canonical.openStretches.removeValue(forKey: itemID)
+            issues.append(.removedOpenStretches(itemID))
+        }
         return WorkspaceValidationResult(state: canonical, issues: issues)
     }
 
@@ -100,6 +107,13 @@ extension BoardWorkspaceState {
         default:
             return false
         }
+    }
+
+    private func isValid(memory: OpenStretchMemory, itemID: UUID, board: Board) -> Bool {
+        guard !memory.openIDs.isEmpty, let item = board.item(id: itemID), let source = NoteFolding.source(of: item) else {
+            return false
+        }
+        return memory.matches(source)
     }
 
     private func isValid(position: ReadingPosition, board: Board) -> Bool {

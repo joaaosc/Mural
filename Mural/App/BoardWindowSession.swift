@@ -1,5 +1,6 @@
 import MuralKit
 import Observation
+import StretchText
 import SwiftUI
 import os
 
@@ -797,6 +798,25 @@ final class BoardWindowSession {
         guard readingPositions[itemID] != nil else { return }
         updateWorkspace { $0.readingPositions.removeValue(forKey: itemID) }
         readingPositions.removeValue(forKey: itemID)
+    }
+
+    // MARK: Parágrafos abertos
+
+    /// Parágrafos que estavam abertos na nota, se ainda valem para `source`.
+    func openStretchIDs(for itemID: UUID, source: String) -> [StretchID] {
+        guard let memory = workspace.openStretches[itemID], memory.matches(source) else { return [] }
+        return memory.openIDs
+    }
+
+    /// Guarda os parágrafos abertos agora; nenhum aberto apaga a memória da nota.
+    func recordOpenStretches(_ ids: Set<StretchID>, for itemID: UUID, source: String) {
+        updateWorkspace { workspace in
+            if ids.isEmpty {
+                workspace.openStretches.removeValue(forKey: itemID)
+            } else {
+                workspace.openStretches[itemID] = OpenStretchMemory(source: source, openIDs: ids)
+            }
+        }
     }
 
     func captionDraft(for itemID: UUID) -> String {
