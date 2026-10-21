@@ -12,6 +12,7 @@ public actor BoardLibrary {
     private let savedRepository: BoardRepository
     private let draftRepository: BoardRepository
     private var faultInjection: BoardLibraryFaultInjection
+    private var bootstrapTask: Task<LibraryState, Error>?
 
     public init(
         rootDirectory: URL = BoardStore.defaultDirectory(),
@@ -32,6 +33,7 @@ public actor BoardLibrary {
             packageName: "Welcome.mural",
             faultInjection: repositoryFaultInjection)
         self.faultInjection = faultInjection
+        self.bootstrapTask = nil
     }
 
     public static func defaultRootDirectory() -> URL {
@@ -39,6 +41,19 @@ public actor BoardLibrary {
     }
 
     public func bootstrap() async throws -> LibraryState {
+        if let bootstrapTask {
+            return try await bootstrapTask.value
+        }
+
+        let bootstrapTask = Task { [self] in
+            defer { self.bootstrapTask = nil }
+            return try await performBootstrap()
+        }
+        self.bootstrapTask = bootstrapTask
+        return try await bootstrapTask.value
+    }
+
+    private func performBootstrap() async throws -> LibraryState {
         try makeDirectories()
         var state = try loadState() ?? LibraryState()
         guard state.schemaVersion <= LibraryState.currentSchemaVersion else {

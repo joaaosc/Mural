@@ -3,6 +3,11 @@ import Testing
 
 @testable import MuralKit
 
+private enum BoardLibraryConcurrentResult: Sendable {
+    case bootstrap(LibraryState)
+    case list([BoardLibraryEntry])
+}
+
 @Suite("Biblioteca de murais")
 struct BoardLibraryTests {
     private func root() throws -> URL {
@@ -64,6 +69,66 @@ struct BoardLibraryTests {
         #expect(firstState.lifecycle == .draft)
         #expect(secondState.stableWelcomeID == firstState.stableWelcomeID)
         #expect(try await second.open(.welcomeDraft(secondState.stableWelcomeID)) != nil)
+    }
+
+    @Test("Bootstrap e list concorrentes publicam Welcome uma única vez")
+    func concurrentBootstrapAndListAreSingleFlight() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+
+        let results = try await withThrowingTaskGroup(of: BoardLibraryConcurrentResult.self) { group in
+            for index in 0..<32 {
+                if index.isMultiple(of: 2) {
+                    group.addTask { .bootstrap(try await library.bootstrap()) }
+                } else {
+                    group.addTask { .list(try await library.list()) }
+                }
+            }
+
+            var results: [BoardLibraryConcurrentResult] = []
+            for try await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        let states = results.compactMap { result -> LibraryState? in
+            guard case .bootstrap(let state) = result else { return nil }
+            return state
+        }
+        let firstState = try #require(states.first)
+        #expect(states.count == 16)
+        #expect(states.allSatisfy { $0.lifecycle == .draft })
+        #expect(states.allSatisfy { $0.stableWelcomeID == firstState.stableWelcomeID })
+
+        let lists = results.compactMap { result -> [BoardLibraryEntry]? in
+            guard case .list(let entries) = result else { return nil }
+            return entries
+        }
+        #expect(lists.count == 16)
+        #expect(
+            lists.allSatisfy { entries in
+                entries.count == 1
+                    && entries.first?.route == .welcomeDraft(firstState.stableWelcomeID)
+            })
+
+        let state = try #require(await library.lifecycleState())
+        #expect(state.lifecycle == .draft)
+        #expect(state.stableWelcomeID == firstState.stableWelcomeID)
+
+        let package = (await library.draftsDirectory).appendingPathComponent("Welcome.mural", isDirectory: true)
+        #expect(FileManager.default.fileExists(atPath: package.appendingPathComponent("manifest.json").path))
+        #expect(FileManager.default.fileExists(atPath: package.appendingPathComponent("board.json").path))
+        #expect(FileManager.default.fileExists(atPath: package.appendingPathComponent("view-state.json").path))
+        #expect(FileManager.default.fileExists(atPath: package.appendingPathComponent("Items", isDirectory: true).path))
+
+        let draftPackages = try FileManager.default.contentsOfDirectory(
+            at: await library.draftsDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "mural" }
+        #expect(draftPackages.map(\.standardizedFileURL) == [package.standardizedFileURL])
     }
 
     @Test("Migração copia board e assets e preserva legado")
