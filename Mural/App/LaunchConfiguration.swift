@@ -21,4 +21,16 @@ enum LaunchConfiguration {
         }
         return BoardStore(directory: testDirectory)
     }
+
+    /// O modelo do aparelho escolhe as frases curtas, menos nos testes: lá a frase
+    /// precisa ser a primeira, sem mudar sozinha no meio de uma verificação.
+    /// `-disableOnDeviceModel` desliga também numa execução comum.
+    static func usesOnDeviceModel(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        let testArguments = ["-uiTesting", "-uiTestingKeep", "-disableOnDeviceModel"]
+        guard !arguments.contains(where: testArguments.contains) else { return false }
+        return environment["XCTestConfigurationFilePath"] == nil
+    }
 }

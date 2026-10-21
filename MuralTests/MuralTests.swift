@@ -15,6 +15,15 @@ struct MuralTests {
         #expect(real.directory != testing.directory)
     }
 
+    @Test("O modelo do aparelho fica desligado nos testes e quando pedido")
+    func onDeviceModelSwitch() {
+        #expect(LaunchConfiguration.usesOnDeviceModel(arguments: [], environment: [:]))
+        #expect(!LaunchConfiguration.usesOnDeviceModel(arguments: ["-uiTesting"], environment: [:]))
+        #expect(!LaunchConfiguration.usesOnDeviceModel(arguments: ["-disableOnDeviceModel"], environment: [:]))
+        #expect(!LaunchConfiguration.usesOnDeviceModel(arguments: [], environment: ["XCTestConfigurationFilePath": "/x"]))
+        #expect(!LaunchConfiguration.usesOnDeviceModel(), "esta execução é de teste")
+    }
+
     @Test("Dentro da pasta não há filtro de pastas; num item, não há filtros")
     func filtersPerLevel() {
         #expect(Mural.BoardFilter.available(at: .board) == Mural.BoardFilter.allCases)

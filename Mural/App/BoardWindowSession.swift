@@ -89,6 +89,8 @@ final class BoardWindowSession {
     var isExporterPresented = false
     var successMessage: String?
     var warningMessage: String?
+    /// Escolha das frases curtas pelo modelo do aparelho; `nil` quando desligada.
+    private(set) var keySentences: KeySentenceCoordinator?
 
     var path: [Destination] = []
     var filter: BoardFilter?
@@ -123,16 +125,19 @@ final class BoardWindowSession {
     @ObservationIgnored private var restorationSignpost: OSSignpostIntervalState?
     /// Janelas abertas que o término do app espera gravar.
     @ObservationIgnored private let openSessions: OpenBoardSessions
+    @ObservationIgnored private let usesOnDeviceModel: Bool
 
     init(
         route: BoardRoute,
         registry: BoardSessionRegistry,
         cleanupTransfer: (@Sendable (URL) async throws -> Void)? = nil,
-        openSessions: OpenBoardSessions = .shared
+        openSessions: OpenBoardSessions = .shared,
+        usesOnDeviceModel: Bool = LaunchConfiguration.usesOnDeviceModel()
     ) {
         self.route = route
         self.registry = registry
         self.openSessions = openSessions
+        self.usesOnDeviceModel = usesOnDeviceModel
         self.cleanupTransferOperation =
             cleanupTransfer ?? { url in
                 try await registry.library.cleanupTransfer(url)
@@ -205,6 +210,10 @@ final class BoardWindowSession {
             restorationPhase = restoration.phase
             zoom.configure(workspace: loadedWorkspace.canvas)
             error = nil
+            if usesOnDeviceModel {
+                keySentences = makeKeySentenceCoordinator()
+                scheduleKeySentences()
+            }
         } catch let loadError {
             error = loadError.localizedDescription
             restorationPhase = .loading
@@ -403,6 +412,40 @@ final class BoardWindowSession {
         pendingBoard = model.board
         pendingBoardSequence = mutationSequence
         scheduleAutosave()
+        scheduleKeySentences()
+    }
+
+    // MARK: Frases curtas
+
+    private func makeKeySentenceCoordinator() -> KeySentenceCoordinator {
+        KeySentenceCoordinator(
+            source: { [weak self] itemID in
+                self?.model?.item(id: itemID).flatMap(NoteFolding.source(of:))
+            },
+            apply: { [weak self] itemID, record in
+                guard let self, self.model?.setKeySentences(record, for: itemID) == true else { return }
+                self.captureBoardIfNeeded()
+            })
+    }
+
+    /// Põe na fila os cartões com texto dobrável sem escolhas válidas. Cada texto
+    /// é tentado uma vez por sessão, então chamar a cada mudança não repete nada.
+    func scheduleKeySentences() {
+        guard let keySentences, let model else { return }
+        for item in model.board.items where NoteFolding.needsChoices(item) {
+            keySentences.enqueue(item.id)
+        }
+    }
+
+    /// A nota aberta na tela passa à frente da fila.
+    func prioritizeKeySentences(for itemID: UUID) {
+        keySentences?.enqueue(itemID, first: true)
+    }
+
+    /// Janela fechando: interrompe o modelo e grava o que falta.
+    func prepareToClose() async {
+        keySentences?.cancelAll()
+        await flushAndPrepareToLeave()
     }
 
     // MARK: Importação e exportação
@@ -843,7 +886,7 @@ final class BoardWindowSession {
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.flushAndPrepareToLeave()
+            await self.prepareToClose()
             self.markClosed()
             await self.releaseRegistryReference()
         }
