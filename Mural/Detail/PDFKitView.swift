@@ -19,8 +19,8 @@ struct PDFKitView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
-        context.coordinator.update(url: url, in: view)
-        if view.document?.documentURL != url {
+        let urlChanged = context.coordinator.update(url: url, in: view)
+        if urlChanged || view.document?.documentURL != url {
             view.document = PDFDocument(url: url)
             context.coordinator.restore(in: view)
         }
@@ -50,6 +50,8 @@ struct PDFKitView: NSViewRepresentable {
         private var expectedScale: CGFloat?
         private var expectedPoint: CGPoint?
         private var hasFrameObserver = false
+        private var didFinalizePresentation = false
+        private(set) var restoreCallbackCount = 0
         weak var observedClipView: NSClipView?
 
         init(itemID: UUID, url: URL, session: BoardWindowSession?) {
@@ -65,6 +67,9 @@ struct PDFKitView: NSViewRepresentable {
                 let token = session.readingPresentationToken(for: itemID)
                 presentationToken = token
                 savedPosition = session.beginReadingRestore(token: token)
+                session.registerReadingFinalizer(for: token) { [weak self] in
+                    self?.finalizeBeforeNavigation()
+                }
             } else {
                 isRestoring = false
             }
@@ -86,11 +91,19 @@ struct PDFKitView: NSViewRepresentable {
             restore(in: view)
         }
 
-        func update(url: URL, in view: PDFView) {
-            guard self.url != url else { return }
+        @discardableResult
+        func update(url: URL, in view: PDFView) -> Bool {
+            guard self.url != url else { return false }
             publishFinalCapture(in: view)
+            pendingCapture?.cancel()
+            pendingCapture = nil
+            if let presentationToken {
+                _ = session?.finishReadingRestore(token: presentationToken)
+                session?.unregisterReadingFinalizer(for: presentationToken)
+            }
             self.url = url
-            isRestoring = true
+            didFinalizePresentation = false
+            isRestoring = session != nil
             restoreApplied = false
             expectedPageIndex = nil
             expectedScale = nil
@@ -99,13 +112,20 @@ struct PDFKitView: NSViewRepresentable {
                 let token = session.readingPresentationToken(for: itemID)
                 presentationToken = token
                 savedPosition = session.beginReadingRestore(token: token)
+                session.registerReadingFinalizer(for: token) { [weak self] in
+                    self?.finalizeBeforeNavigation()
+                }
+            } else {
+                presentationToken = nil
+                savedPosition = nil
             }
-            restore(in: view)
+            return true
         }
 
         func restore(in view: PDFView) {
             installLayoutObservers(on: view)
             guard let document = view.document, document.pageCount > 0 else {
+                finishUnavailableRestore(in: view)
                 return
             }
             guard view.bounds.width > 0, view.bounds.height > 0,
@@ -120,7 +140,10 @@ struct PDFKitView: NSViewRepresentable {
                 confirmRestore(in: view)
                 return
             }
-            let page = document.page(at: min(max(0, pageIndex), document.pageCount - 1))!
+            guard let page = document.page(at: min(max(0, pageIndex), document.pageCount - 1)) else {
+                finishUnavailableRestore(in: view)
+                return
+            }
             let bounds = page.bounds(for: .mediaBox)
             let boundedScale = min(max(scale.isFinite ? scale : view.scaleFactorForSizeToFit, view.minScaleFactor), view.maxScaleFactor)
             view.autoScales = false
@@ -137,6 +160,7 @@ struct PDFKitView: NSViewRepresentable {
         }
 
         func restoreDidChange(in view: PDFView) {
+            restoreCallbackCount += 1
             guard isRestoring else {
                 scheduleCapture(in: view)
                 return
@@ -157,6 +181,19 @@ struct PDFKitView: NSViewRepresentable {
                     abs(destination.point.y - expectedPoint.y) <= 1
                 else { return }
             }
+            isRestoring = false
+            if let presentationToken {
+                _ = session?.finishReadingRestore(token: presentationToken)
+            }
+        }
+
+        private func finishUnavailableRestore(in view: PDFView) {
+            guard isRestoring else { return }
+            expectedPageIndex = nil
+            expectedScale = nil
+            expectedPoint = nil
+            restoreApplied = false
+            view.autoScales = true
             isRestoring = false
             if let presentationToken {
                 _ = session?.finishReadingRestore(token: presentationToken)
@@ -255,14 +292,30 @@ struct PDFKitView: NSViewRepresentable {
             session.recordReadingPosition(position, token: token)
         }
 
+        /// Chamado pela sessão antes de avançar a geração de navegação. O
+        /// token ainda é válido neste ponto; a desmontagem posterior não deve
+        /// depender da ordem dos callbacks de SwiftUI.
+        private func finalizeBeforeNavigation() {
+            guard !didFinalizePresentation else { return }
+            didFinalizePresentation = true
+            if let pdfView {
+                publishFinalCapture(in: pdfView)
+            }
+            if let presentationToken {
+                session?.unregisterReadingFinalizer(for: presentationToken)
+            }
+        }
+
         func invalidate() {
-            if let pdfView { publishFinalCapture(in: pdfView) }
+            finalizeBeforeNavigation()
             pendingCapture?.cancel()
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             if let presentationToken {
                 _ = session?.finishReadingRestore(token: presentationToken)
+                session?.unregisterReadingFinalizer(for: presentationToken)
             }
+            presentationToken = nil
         }
 
     }

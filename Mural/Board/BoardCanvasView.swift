@@ -25,6 +25,10 @@ struct BoardCanvasView: View {
     @State private var drag: CardDrag?
     /// Cartão encolhendo em direção à pasta onde está sendo guardado; sai do mural no fim.
     @State private var storing: UUID?
+    /// O binding bidirecional do scroll pertence à identidade desta view. Mantê-lo
+    /// fora do controlador observável impede um ciclo AttributeGraph → setter →
+    /// nova avaliação durante restaurações programáticas.
+    @State private var scrollPosition = ScrollPosition()
     /// Volta sozinho a falso, inclusive quando o gesto é cancelado sem `onEnded`.
     @GestureState private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -72,7 +76,7 @@ struct BoardCanvasView: View {
             // Escala visual da pinça, ancorada no ponto entre os dedos.
             .scaleEffect(zoom.liveScale, anchor: unitPoint(zoom.liveAnchor, in: layoutSize))
         }
-        .scrollPosition($zoom.scrollPosition)
+        .scrollPosition($scrollPosition)
         .discreetScrollIndicators([.horizontal, .vertical])
         .background(Theme.canvas)
         .onScrollGeometryChange(for: CanvasScrollMetrics.self) { geometry in
@@ -90,6 +94,14 @@ struct BoardCanvasView: View {
         }
         .onChange(of: CGSize(width: extent.width, height: extent.height), initial: true) { zoom.contentExtent = $1 }
         .onChange(of: reduceMotion, initial: true) { zoom.reduceMotion = $1 }
+        .onChange(of: zoom.scrollRequest, initial: true) { _, request in
+            guard let request else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                scrollPosition.scrollTo(point: request.point)
+            }
+        }
         // Gesto cancelado sem `onEnded`: desfaz o arrasto. Fica para a volta seguinte do laço
         // principal, para não atropelar o `onEnded` quando ele vier.
         .onChange(of: isDragging) { _, active in

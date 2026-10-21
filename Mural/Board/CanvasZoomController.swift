@@ -1,6 +1,14 @@
 import MuralKit
 import SwiftUI
 
+/// Pedido unidirecional de rolagem. O `ScrollPosition` que recebe o pedido fica
+/// como `@State` da view, evitando transformar cada atualização interna do
+/// `ScrollView` numa mutação observável do controlador de zoom.
+struct CanvasScrollRequest: Equatable {
+    let id: UInt64
+    let point: CGPoint
+}
+
 /// Estado do zoom do mural, compartilhado entre a tela, os controles do canto e o
 /// menu Visualizar (via `focusedSceneValue`).
 ///
@@ -18,7 +26,7 @@ final class CanvasZoomController {
     private(set) var liveScale: CGFloat = 1
     /// Ponto que fica parado durante a escala visual, em coordenadas do conteúdo ampliado.
     private(set) var liveAnchor: CGPoint = .zero
-    var scrollPosition = ScrollPosition()
+    private(set) var scrollRequest: CanvasScrollRequest?
     /// Tamanho visível do mural.
     var viewport: CGSize = .zero
     /// Área ocupada pelos cartões, sem zoom.
@@ -35,6 +43,7 @@ final class CanvasZoomController {
     @ObservationIgnored private var settleGeneration = 0
     @ObservationIgnored private var pendingTargetZoom: CGFloat?
     @ObservationIgnored private var configuredAtOrigin = false
+    @ObservationIgnored private var scrollRequestID: UInt64 = 0
     @ObservationIgnored private let runSettleAnimation: AnimationRunner
     @ObservationIgnored var onWorkspaceChange: ((CanvasWorkspaceState) -> Void)?
 
@@ -64,7 +73,7 @@ final class CanvasZoomController {
             liveAnchor = CGPoint(x: center.x, y: center.y)
         } else {
             liveAnchor = .zero
-            scrollPosition.scrollTo(point: .zero)
+            requestScroll(to: .zero)
         }
     }
 
@@ -140,7 +149,7 @@ final class CanvasZoomController {
             liveScale = 1
             scrollOffset = .zero
             visibleRect = CGRect(origin: .zero, size: viewport)
-            scrollPosition.scrollTo(point: .zero)
+            requestScroll(to: .zero)
         }
         onWorkspaceChange?(confirmedWorkspace())
     }
@@ -191,9 +200,14 @@ final class CanvasZoomController {
             pendingTargetZoom = nil
             scrollOffset = offset
             visibleRect = CGRect(origin: offset, size: viewport)
-            scrollPosition.scrollTo(point: offset)
+            requestScroll(to: offset)
         }
         onWorkspaceChange?(confirmedWorkspace())
+    }
+
+    func requestScroll(to point: CGPoint) {
+        scrollRequestID &+= 1
+        scrollRequest = CanvasScrollRequest(id: scrollRequestID, point: point)
     }
 
     private func invalidatePendingSettle() {

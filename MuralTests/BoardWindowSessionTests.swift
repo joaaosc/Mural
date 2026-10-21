@@ -1,6 +1,8 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import MuralKit
+import PDFKit
 import SwiftUI
 import Testing
 
@@ -81,8 +83,8 @@ struct BoardWindowSessionTests {
 
         // The registry is the single owner for an ID, so repeated opens share a
         // domain session while each window adapter remains independent.
-        let first = try #require(await registry.open(routeA))
-        let second = try #require(await registry.open(routeA))
+        let first = try await registry.open(routeA)
+        let second = try await registry.open(routeA)
         #expect(first === second)
 
         let reloadedLibrary = BoardLibrary(rootDirectory: directory)
@@ -145,6 +147,58 @@ struct BoardWindowSessionTests {
         #expect(abs(center!.y - 980) <= 1)
     }
 
+    @Test("Restauração não reenvia o mesmo alvo enquanto aguarda a geometria")
+    func canvasRestoreDoesNotReissueStableTarget() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Canvas não zero")
+        let initial = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: library))
+        try await makeReady(initial)
+
+        let expected = CanvasWorkspaceState(
+            confirmedZoom: 1.75,
+            logicalCenter: BoardPoint(x: 470, y: 440))
+        let viewport = CGSize(width: 900, height: 700)
+        let contentSize = CGSize(width: 3_400, height: 2_800)
+        initial.zoom.configure(workspace: expected)
+        initial.zoom.viewport = viewport
+        initial.zoom.scrollOffset = CanvasWorkspaceMath.targetOffset(
+            logicalCenter: CGPoint(x: 470, y: 440),
+            zoom: 1.75,
+            viewport: viewport,
+            contentSize: contentSize)
+        initial.zoom.visibleRect = CGRect(origin: initial.zoom.scrollOffset, size: viewport)
+        initial.recordCanvas(initial.zoom.confirmedWorkspace())
+        await initial.flushAndPrepareToLeave()
+
+        let restored = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        await restored.load()
+        let notYetReached = CanvasScrollMetrics(
+            contentOffset: .zero,
+            containerSize: viewport,
+            contentSize: contentSize)
+
+        restored.restoreCanvas(
+            boardID: restored.boardID,
+            generation: restored.generation,
+            metrics: notYetReached)
+        let firstRequest = try #require(restored.zoom.scrollRequest)
+        #expect(restored.restorationPhase == .applyingPosition)
+
+        restored.restoreCanvas(
+            boardID: restored.boardID,
+            generation: restored.generation,
+            metrics: notYetReached)
+
+        #expect(restored.zoom.scrollRequest == firstRequest)
+        #expect(restored.restorationPhase == .applyingPosition)
+    }
+
     @Test("Falha de flush mantém dirty e assets até o retry")
     func failedAutosaveRetriesWithoutDeletingAsset() async throws {
         let directory = try root()
@@ -200,7 +254,7 @@ struct BoardWindowSessionTests {
             route: route,
             registry: BoardSessionRegistry(library: failingLibrary))
         try await makeReady(session)
-        try #require(session.model?.item(id: item.id))
+        _ = try #require(session.model?.item(id: item.id))
         session.model?.delete(item.id)
         session.captureBoardIfNeeded()
         await session.flushAndPrepareToLeave()
@@ -392,6 +446,185 @@ struct BoardWindowSessionTests {
         _ = session.beginReadingRestore(token: newToken)
         #expect(!session.finishReadingRestore(token: oldToken))
         #expect(session.finishReadingRestore(token: newToken))
+    }
+
+    @Test("Finalizador captura antes de invalidar o token e persiste no flush")
+    func finalizerRunsBeforeNavigationGenerationChanges() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Finalizador")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("PDF"))
+        let token = session.readingPresentationToken(for: item.id)
+        var didCaptureBeforeNavigation = false
+        session.registerReadingFinalizer(for: token) {
+            #expect(session.acceptsReadingPresentation(token))
+            session.recordReadingPosition(
+                .item(itemID: item.id, visibleContentY: 777), token: token)
+            didCaptureBeforeNavigation = true
+        }
+        session.setNavigation(path: [], filter: nil)
+        #expect(didCaptureBeforeNavigation)
+        #expect(!session.acceptsReadingPresentation(token))
+        await session.flushAndPrepareToLeave()
+
+        let reloaded = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        #expect(reloaded.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 777))
+    }
+
+    @Test("PDF frame zero aguarda layout e saída imediata cancela o debounce")
+    func pdfCoordinatorWaitsForLayoutAndPublishesBeforeInvalidate() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("PDF")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("PDF"))
+        let token = session.readingPresentationToken(for: item.id)
+        session.recordReadingPosition(
+            .pdf(
+                itemID: item.id,
+                pageIndex: 0,
+                scale: 1,
+                pointInPage: BoardPoint(x: 36, y: 36)),
+            token: token)
+        let pdfData = try makeOnePagePDF()
+        let document = try #require(PDFDocument(data: pdfData))
+        let view = PDFView(frame: .zero)
+        view.document = document
+        let coordinator = PDFKitView.Coordinator(
+            itemID: item.id,
+            url: URL(fileURLWithPath: "/tmp/mural-test.pdf"),
+            session: session)
+        coordinator.install(on: view)
+        // Frame zero is intentionally not enough to release the local barrier.
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 1), token: token)
+        #expect(session.readingPosition(for: item.id) != .item(itemID: item.id, visibleContentY: 1))
+
+        view.frame = CGRect(x: 0, y: 0, width: 640, height: 480)
+        view.layoutSubtreeIfNeeded()
+        coordinator.restoreDidChange(in: view)
+        coordinator.restoreDidChange(in: view)
+        let pageBeforeScroll = view.currentDestination?.page
+        let scaleBeforeScroll = view.scaleFactor
+        if let clipView = firstClipView(in: view) {
+            clipView.setBoundsOrigin(CGPoint(x: 12, y: 14))
+            coordinator.restoreDidChange(in: view)
+            #expect(view.currentDestination?.page === pageBeforeScroll)
+            #expect(abs(view.scaleFactor - scaleBeforeScroll) <= 0.01)
+        }
+        view.go(to: PDFDestination(page: try #require(document.page(at: 0)), at: CGPoint(x: 72, y: 72)))
+        coordinator.restoreDidChange(in: view)
+        coordinator.invalidate()
+        #expect(coordinator.restoreCallbackCount >= 2)
+        #expect(coordinator.observedClipView != nil)
+        #expect(session.readingPosition(for: item.id) != nil)
+        session.setNavigation(path: [], filter: nil)
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 2), token: token)
+        #expect(session.readingPosition(for: item.id) != .item(itemID: item.id, visibleContentY: 2))
+    }
+
+    @Test("PDF indisponível libera a barreira sem acessar uma página inexistente")
+    func unavailablePDFCompletesRestoreSafely() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("PDF indisponível")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("PDF"))
+        let token = session.readingPresentationToken(for: item.id)
+        let view = PDFView(frame: CGRect(x: 0, y: 0, width: 640, height: 480))
+        let coordinator = PDFKitView.Coordinator(
+            itemID: item.id,
+            url: URL(fileURLWithPath: "/tmp/mural-pdf-indisponivel.pdf"),
+            session: session)
+
+        coordinator.install(on: view)
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 321), token: token)
+
+        #expect(session.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 321))
+        coordinator.invalidate()
+        coordinator.invalidate()
+    }
+
+    @Test("Troca de URL encerra a apresentação anterior e registra a nova")
+    func pdfCoordinatorRebindsPresentationWhenURLChanges() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Troca de PDF")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("PDF"))
+        let document = PDFDocument(data: try makeOnePagePDF())
+        let view = PDFView(frame: CGRect(x: 0, y: 0, width: 640, height: 480))
+        view.document = document
+        let firstURL = URL(fileURLWithPath: "/tmp/mural-primeiro.pdf")
+        let secondURL = URL(fileURLWithPath: "/tmp/mural-segundo.pdf")
+        let coordinator = PDFKitView.Coordinator(itemID: item.id, url: firstURL, session: session)
+        coordinator.install(on: view)
+        coordinator.restoreDidChange(in: view)
+
+        #expect(coordinator.update(url: secondURL, in: view))
+        view.document = PDFDocument(data: try makeOnePagePDF())
+        coordinator.restore(in: view)
+        coordinator.restoreDidChange(in: view)
+        coordinator.invalidate()
+        coordinator.invalidate()
+        let token = session.readingPresentationToken(for: item.id)
+        session.recordReadingPosition(
+            .item(itemID: item.id, visibleContentY: 654), token: token)
+
+        #expect(session.readingPosition(for: item.id) == .item(itemID: item.id, visibleContentY: 654))
+    }
+
+    @Test("Pedidos simultâneos de saída compartilham a mesma barreira de flush")
+    func concurrentLeaveFlushesAreDeduplicated() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Flush único")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        _ = try #require(session.model?.importText("conteúdo"))
+        session.captureBoardIfNeeded()
+
+        async let first: Void = session.flushAndPrepareToLeave()
+        async let second: Void = session.flushAndPrepareToLeave()
+        _ = await (first, second)
+
+        #expect(!session.isDirty)
+        #expect(session.error == nil)
+    }
+
+    private func makeOnePagePDF() throws -> Data {
+        let data = NSMutableData()
+        var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+        guard let consumer = CGDataConsumer(data: data as CFMutableData),
+            let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil)
+        else { throw CocoaError(.fileWriteUnknown) }
+        context.beginPDFPage(nil)
+        context.endPDFPage()
+        context.closePDF()
+        return data as Data
+    }
+
+    private func firstClipView(in view: NSView) -> NSClipView? {
+        if let clipView = view as? NSClipView { return clipView }
+        for child in view.subviews {
+            if let clipView = firstClipView(in: child) { return clipView }
+        }
+        return nil
     }
 
     @Test("Caption draft é gravado imediatamente no leave e reabre")

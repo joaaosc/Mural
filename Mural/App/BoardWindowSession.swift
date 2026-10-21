@@ -28,6 +28,8 @@ struct ReadingPresentationToken: Hashable, Sendable {
     let itemID: UUID
 }
 
+typealias ReadingPresentationFinalizer = @MainActor () -> Void
+
 /// Adaptador MainActor de uma sessão de domínio para uma janela SwiftUI.
 /// Cada instância pertence a exatamente um `BoardID`; não há estado de mural atual.
 @MainActor
@@ -63,9 +65,11 @@ final class BoardWindowSession {
     @ObservationIgnored private var mutationSequence: UInt64 = 0
     @ObservationIgnored private var pendingAutosaveDebounce: Task<Void, Never>?
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
+    @ObservationIgnored private var leaveFlushTask: Task<Void, Never>?
     @ObservationIgnored private var restoreTarget: CGPoint?
     @ObservationIgnored private var autosaveFailed = false
     @ObservationIgnored private var restoringReadingItems: [UUID: ReadingPresentationToken] = [:]
+    @ObservationIgnored private var readingFinalizers: [ReadingPresentationToken: ReadingPresentationFinalizer] = [:]
 
     init(route: BoardRoute, registry: BoardSessionRegistry) {
         self.route = route
@@ -184,15 +188,13 @@ final class BoardWindowSession {
             return
         }
         if restorationPhase == .applyingPosition {
-            if restoreTarget != target {
+            if restoreTarget.map({ !Self.isApproximatelyEqual($0, target) }) ?? true {
                 restoreTarget = target
                 scroll(to: target)
             } else if abs(metrics.contentOffset.x - target.x) <= 1,
                 abs(metrics.contentOffset.y - target.y) <= 1
             {
                 confirmReady()
-            } else {
-                scroll(to: target)
             }
         }
     }
@@ -201,8 +203,12 @@ final class BoardWindowSession {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            zoom.scrollPosition.scrollTo(point: point)
+            zoom.requestScroll(to: point)
         }
+    }
+
+    private static func isApproximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint) -> Bool {
+        abs(lhs.x - rhs.x) <= 1 && abs(lhs.y - rhs.y) <= 1
     }
 
     func acceptsPersistence(for boardID: BoardID, generation: UInt64) -> Bool {
@@ -215,6 +221,19 @@ final class BoardWindowSession {
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
         self.path = Self.destinations(from: newPath, board: model.board)
         self.filter = Self.filter(from: newFilter, path: self.path, board: model.board)
+        let retainedItemIDs = Set(
+            newPath.compactMap { destination -> UUID? in
+                guard case .item(let itemID) = destination else { return nil }
+                return itemID
+            })
+        let finalizers = readingFinalizers.filter { token, _ in
+            token.navigationGeneration == navigationGeneration
+                && !retainedItemIDs.contains(token.itemID)
+        }
+        for (token, finalizer) in finalizers {
+            finalizer()
+            readingFinalizers.removeValue(forKey: token)
+        }
         navigationGeneration &+= 1
         restoringReadingItems = restoringReadingItems.filter {
             $0.value.navigationGeneration == navigationGeneration
@@ -260,6 +279,18 @@ final class BoardWindowSession {
     func acceptsReadingPresentation(_ token: ReadingPresentationToken) -> Bool {
         token.boardID == boardID && token.generation == generation
             && token.navigationGeneration == navigationGeneration
+    }
+
+    func registerReadingFinalizer(
+        for token: ReadingPresentationToken,
+        _ finalizer: @escaping ReadingPresentationFinalizer
+    ) {
+        guard acceptsReadingPresentation(token) else { return }
+        readingFinalizers[token] = finalizer
+    }
+
+    func unregisterReadingFinalizer(for token: ReadingPresentationToken) {
+        readingFinalizers.removeValue(forKey: token)
     }
 
     @discardableResult
@@ -400,6 +431,20 @@ final class BoardWindowSession {
     }
 
     func flushAndPrepareToLeave() async {
+        if let leaveFlushTask {
+            await leaveFlushTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performFlushAndPrepareToLeave()
+        }
+        leaveFlushTask = task
+        await task.value
+        leaveFlushTask = nil
+    }
+
+    private func performFlushAndPrepareToLeave() async {
         guard let domainSession else { return }
         commitCaptionDrafts()
         captureBoardIfNeeded()
