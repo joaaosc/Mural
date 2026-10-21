@@ -14,7 +14,14 @@
           "hidden" : false,
           "image-name" : "Sticky.svg",
           "name" : "Sticky",
-          "opacity" : 1
+          "opacity" : 1,
+          "position" : {
+            "scale" : 1.2,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         }
       ],
       "lighting" : "individual",
@@ -32,18 +39,32 @@
       "blend-mode" : "normal",
       "layers" : [
         {
-          "glass" : false,
+          "glass" : true,
           "hidden" : false,
           "image-name" : "Lines.svg",
           "name" : "Lines",
-          "opacity" : 0.55
+          "opacity" : 0.55,
+          "position" : {
+            "scale" : 1.2,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         },
         {
           "glass" : true,
           "hidden" : false,
           "image-name" : "Paper.svg",
           "name" : "Paper",
-          "opacity" : 1
+          "opacity" : 1,
+          "position" : {
+            "scale" : 1.2,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
         }
       ],
       "lighting" : "combined",
@@ -71,7 +92,14 @@
           "hidden" : false,
           "image-name" : "Photo.svg",
           "name" : "Photo",
-          "opacity" : 1
+          "opacity" : 1,
+          "position" : {
+            "scale" : 1.25,
+            "translation-in-points" : [
+              -25.4406022130417,
+              62.14102674784908
+            ]
+          }
         }
       ],
       "lighting" : "individual",
