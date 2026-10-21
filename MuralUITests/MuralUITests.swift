@@ -363,6 +363,43 @@ final class MuralUITests: XCTestCase {
             "a prévia do cartão de link deveria ser buscada pelo buscador falso e mostrar o site Exemplo")
     }
 
+    /// Abrir o cartão de link mostra a página dentro do app. Nos testes de interface a página é um HTML local de
+    /// exemplo, sem rede; "Página anterior" é a pílula do histórico da página, e "Voltar" sai do detalhe.
+    @MainActor
+    func testLinkDetailShowsLivePage() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let entry = NSPasteboardItem()
+        entry.setString("https://example.com/mural-teste", forType: .URL)
+        entry.setString("Página de teste Mural", forType: NSPasteboard.PasteboardType("public.url-name"))
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([entry])
+        app.typeKey("v", modifierFlags: .command)
+        let card = app.buttons["Página de teste Mural"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "⌘V com um endereço deveria criar um cartão de link")
+
+        card.click()
+        let back = app.buttons["Voltar"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "abrir o cartão leva ao detalhe")
+        XCTAssertTrue(app.buttons["Página anterior"].waitForExistence(timeout: 5), "a pílula do link tem o histórico da página")
+        XCTAssertTrue(app.buttons["Abrir no navegador"].exists)
+
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 10), "a página deveria aparecer dentro do app")
+        let title = web.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "label CONTAINS %@ OR value CONTAINS %@ OR title CONTAINS %@", "Página de exemplo", "Página de exemplo",
+                "Página de exemplo")
+        ).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "o texto da página local de exemplo deveria estar no conteúdo web")
+
+        back.click()
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5), "Voltar sai do detalhe")
+        XCTAssertTrue(app.buttons["Página de teste Mural"].waitForExistence(timeout: 5), "o cartão continua no mural")
+    }
+
     @MainActor
     func testPastedImageFileOpensWithMetadata() throws {
         let app = launch()

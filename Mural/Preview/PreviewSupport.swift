@@ -194,4 +194,20 @@ private struct LinkCardsRow: View {
     LinkCardsRow(items: sample.items, files: sample.files)
         .preferredColorScheme(.dark)
 }
+
+/// O detalhe do link com a página local de exemplo no lugar da página real: sem rede.
+#Preview("Detalhe do link", traits: .fixedLayout(width: 1100, height: 720)) {
+    let model = BoardModel.preview()
+    let item = model.importLinks([
+        LinkDraft(
+            url: URL(string: "https://developer.apple.com/design/human-interface-guidelines")!, title: "Human Interface Guidelines",
+            summary: "Princípios, padrões e componentes para criar apps com aparência e comportamento naturais.")
+    ])[0]
+    let files = LinkPreviewFiles(
+        directory: FileManager.default.temporaryDirectory.appendingPathComponent(
+            "MuralPreviewLinkDetail-\(UUID().uuidString)", isDirectory: true))
+    LinkDetailView(item: item, model: model, source: .html(FixtureLinkPage.html), onRequestDelete: {})
+        .environment(\.linkPreviewFiles, files)
+        .background(Theme.page)
+}
 #endif

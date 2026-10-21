@@ -52,4 +52,10 @@ enum LaunchConfiguration {
         if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return FixtureLinkPreviewFetcher() }
         return SystemLinkPreviewFetcher()
     }
+
+    /// Se o detalhe de um link carrega a página de verdade: nos testes de interface, não; ele mostra uma página
+    /// local de exemplo (`FixtureLinkPage`), sem rede.
+    static func loadsLivePages(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        !(arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep"))
+    }
 }

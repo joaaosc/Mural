@@ -2,7 +2,7 @@ import AppKit
 import MuralKit
 import SwiftUI
 
-/// Nível 3: escolhe a tela de detalhe pelo tipo e mostra a pílula de ações.
+/// Nível 3: escolhe a tela de detalhe pelo tipo e mostra a pílula de ações (o link tem a própria).
 struct ItemDetailView: View {
     let item: BoardItem
     let model: BoardModel
@@ -15,8 +15,10 @@ struct ItemDetailView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .bottom) {
-                ActionPill(actions: actions)
-                    .padding(.bottom, 22)
+                if item.kind != .link {
+                    ActionPill(actions: actions)
+                        .padding(.bottom, 22)
+                }
             }
             .confirmationDialog("Apagar “\(item.title)”?", isPresented: $isConfirmingDelete) {
                 Button("Apagar", role: .destructive) {
@@ -40,19 +42,12 @@ struct ItemDetailView: View {
         case .text, .sticky:
             TextDetailView(item: item, session: session)
         case .link:
-            TextDetailView(item: linkShownAsText, session: session)
+            LinkDetailView(item: item, model: model) { isConfirmingDelete = true }
         case .checklist:
             ChecklistDetailView(item: item, model: model, session: session)
         case .folder:
             EmptyView()
         }
-    }
-
-    /// Provisório: até existir o detalhe de link, a tela de texto mostra o endereço como corpo.
-    private var linkShownAsText: BoardItem {
-        var shown = item
-        shown.text = item.link?.url.absoluteString
-        return shown
     }
 
     private var actions: [PillAction] {
