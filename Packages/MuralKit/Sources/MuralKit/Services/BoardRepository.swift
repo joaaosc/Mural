@@ -22,6 +22,38 @@ public actor BoardRepository {
             packageName ?? "\(id.rawValue.uuidString).mural", isDirectory: true)
     }
 
+    /// Materializes one coherent repository version without an actor suspension
+    /// between reading JSON and copying its assets.
+    func materializePackage(for id: BoardID, to destination: URL) throws {
+        guard let loaded = try load(id) else { throw BoardRepositoryError.boardNotFound(id) }
+        let package = destination.standardizedFileURL
+        guard !FileManager.default.fileExists(atPath: package.path) else {
+            throw BoardRepositoryError.io("materialization destination exists")
+        }
+        var completed = false
+        defer {
+            if !completed, FileManager.default.fileExists(atPath: package.path) {
+                try? FileManager.default.removeItem(at: package)
+            }
+        }
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let items = package.appendingPathComponent("Items", isDirectory: true)
+        try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
+        let sourceItems = packageURL(for: id).appendingPathComponent("Items", isDirectory: true)
+        if FileManager.default.fileExists(atPath: sourceItems.path) {
+            try FileManager.default.removeItem(at: items)
+            try FileManager.default.copyItem(at: sourceItems, to: items)
+        }
+        do {
+            try encode(loaded.snapshot.manifest).write(to: package.appendingPathComponent("manifest.json"), options: .atomic)
+            try encode(loaded.snapshot.board).write(to: package.appendingPathComponent("board.json"), options: .atomic)
+            try encode(loaded.snapshot.workspace).write(to: package.appendingPathComponent("view-state.json"), options: .atomic)
+        } catch {
+            throw BoardRepositoryError.io(String(describing: error))
+        }
+        completed = true
+    }
+
     public func load(_ id: BoardID) throws -> BoardRepositoryLoadResult? {
         let package = packageURL(for: id)
         let boardURL = package.appendingPathComponent("board.json")
@@ -122,6 +154,14 @@ public actor BoardRepository {
     }
 
     public func save(_ snapshot: BoardRepositorySnapshot, copyingItemsFrom sourceItems: URL?) async throws {
+        try await save(snapshot, copyingItemsFrom: sourceItems, preservingWorkspaceDiagnostic: nil)
+    }
+
+    func save(
+        _ snapshot: BoardRepositorySnapshot,
+        copyingItemsFrom sourceItems: URL?,
+        preservingWorkspaceDiagnostic diagnostic: Data?
+    ) async throws {
         let id = snapshot.manifest.id
         let package = packageURL(for: id)
         let existingManifest = try existingManifest(at: package)
@@ -191,6 +231,11 @@ public actor BoardRepository {
                 try FileManager.default.removeItem(at: items)
                 try FileManager.default.copyItem(at: itemsSource, to: items)
             }
+            try copyKnownDiagnostics(from: package, to: staging)
+            if let diagnostic {
+                let diagnosticURL = staging.appendingPathComponent(".view-state-corrupt-\(UUID().uuidString).json")
+                try diagnostic.write(to: diagnosticURL, options: .atomic)
+            }
             try encode(manifest).write(to: staging.appendingPathComponent("manifest.json"), options: .atomic)
             try encode(snapshot.board).write(to: staging.appendingPathComponent("board.json"), options: .atomic)
             try encode(workspace).write(to: staging.appendingPathComponent("view-state.json"), options: .atomic)
@@ -238,6 +283,21 @@ public actor BoardRepository {
             throw error
         } catch {
             throw BoardRepositoryError.corruptedManifest(String(describing: error))
+        }
+    }
+
+    private func copyKnownDiagnostics(from package: URL, to staging: URL) throws {
+        guard FileManager.default.fileExists(atPath: package.path) else { return }
+        let entries = try FileManager.default.contentsOfDirectory(at: package, includingPropertiesForKeys: nil, options: [])
+        for entry in entries
+        where entry.lastPathComponent.hasPrefix(".view-state-corrupt-")
+            || entry.lastPathComponent.hasPrefix("view-state-corrupt-")
+        {
+            let attributes = try FileManager.default.attributesOfItem(atPath: entry.path)
+            guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
+                throw BoardRepositoryError.io("invalid workspace diagnostic")
+            }
+            try FileManager.default.copyItem(at: entry, to: staging.appendingPathComponent(entry.lastPathComponent))
         }
     }
 

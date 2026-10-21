@@ -11,13 +11,16 @@ public actor BoardLibrary {
 
     private let savedRepository: BoardRepository
     private let draftRepository: BoardRepository
+    private let portablePackageService: BoardPortablePackageService
     private var faultInjection: BoardLibraryFaultInjection
     private var bootstrapTask: Task<LibraryState, Error>?
 
     public init(
         rootDirectory: URL = BoardStore.defaultDirectory(),
         faultInjection: BoardLibraryFaultInjection = .none,
-        repositoryFaultInjection: BoardRepositoryFaultInjection = .none
+        repositoryFaultInjection: BoardRepositoryFaultInjection = .none,
+        packageLimits: BoardPackageLimits = BoardPackageLimits(),
+        packageAvailableCapacity: @escaping @Sendable (URL) -> UInt64? = BoardPortablePackageService.defaultAvailableCapacity
     ) {
         self.rootDirectory = rootDirectory
         self.boardsDirectory = rootDirectory.appendingPathComponent("Boards", isDirectory: true)
@@ -32,6 +35,9 @@ public actor BoardLibrary {
             rootDirectory: rootDirectory.appendingPathComponent("Drafts", isDirectory: true),
             packageName: "Welcome.mural",
             faultInjection: repositoryFaultInjection)
+        self.portablePackageService = BoardPortablePackageService(
+            limits: packageLimits,
+            availableCapacity: packageAvailableCapacity)
         self.faultInjection = faultInjection
         self.bootstrapTask = nil
     }
@@ -289,6 +295,90 @@ public actor BoardLibrary {
             return draftRepository
         case .saved:
             return savedRepository
+        }
+    }
+
+    /// Exports a board as an isolated package under `Transfers`.
+    public func exportPackage(_ route: BoardRoute) async throws -> URL {
+        let repository = try repository(for: route)
+        let id: BoardID
+        switch route {
+        case .library:
+            throw BoardLibraryError.unavailableRoute(route)
+        case .welcomeDraft(let welcomeID):
+            guard let state = try loadState(), state.lifecycle == .draft, state.stableWelcomeID == welcomeID else {
+                throw BoardLibraryError.unavailableRoute(route)
+            }
+            id = welcomeID
+        case .saved(let savedID):
+            id = savedID
+        }
+        try makeDirectories()
+        let destination = transfersDirectory.appendingPathComponent("\(UUID().uuidString).mural", isDirectory: true)
+        let staging = transfersDirectory.appendingPathComponent(".\(destination.lastPathComponent)-materializing", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        do {
+            try await repository.materializePackage(for: id, to: staging)
+            return try await portablePackageService.finalize(package: staging, destination: destination, root: transfersDirectory)
+        } catch let error as BoardPortablePackageError {
+            throw BoardLibraryError.portable(error)
+        } catch let error as BoardRepositoryError {
+            throw error
+        } catch {
+            throw BoardLibraryError.io(String(describing: error))
+        }
+    }
+
+    /// Removes a package previously returned by `exportPackage`.
+    public func cleanupTransfer(_ package: URL) async throws {
+        do {
+            try await portablePackageService.cleanup(package, inside: transfersDirectory)
+        } catch let error as BoardPortablePackageError {
+            throw BoardLibraryError.portable(error)
+        } catch {
+            throw BoardLibraryError.io(String(describing: error))
+        }
+    }
+
+    /// Imports an external package by copying it into staging before decoding.
+    /// The source URL is never modified. A fresh board ID is always published.
+    public func importPackage(from source: URL) async throws -> BoardRoute {
+        try await importPackageWithReport(from: source).route
+    }
+
+    /// Imports a package and exposes workspace recovery status for diagnostics.
+    public func importPackageWithReport(from source: URL) async throws -> BoardImportResult {
+        try makeDirectories()
+        let staging = importStagingDirectory.appendingPathComponent("\(UUID().uuidString).mural", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        do {
+            let loaded = try await portablePackageService.copyAndRead(from: source, to: staging)
+            let newID = BoardID()
+            var manifest = loaded.snapshot.manifest
+            manifest.id = newID
+            let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: loaded.snapshot.workspace)
+            try await savedRepository.save(
+                snapshot,
+                copyingItemsFrom: staging.appendingPathComponent("Items", isDirectory: true),
+                preservingWorkspaceDiagnostic: loaded.workspaceDiagnostic
+            )
+            return BoardImportResult(boardID: newID, workspaceStatus: Self.portableWorkspaceStatus(loaded.workspaceStatus))
+        } catch let error as BoardPortablePackageError {
+            throw BoardLibraryError.portable(error)
+        } catch let error as BoardRepositoryError {
+            throw error
+        } catch {
+            throw BoardLibraryError.io(String(describing: error))
+        }
+    }
+
+    private static func portableWorkspaceStatus(_ status: BoardWorkspaceLoadStatus) -> BoardPortableWorkspaceStatus {
+        switch status {
+        case .loaded: return .loaded
+        case .missing: return .missing
+        case .futureSchema(let version): return .futureSchema(version)
+        case .quarantined(let filename): return .corrupted(filename)
+        case .quarantineFailed(let message): return .corrupted(message)
         }
     }
 

@@ -7,6 +7,7 @@ public enum BoardLibraryError: Error, Equatable, Sendable {
     case corruptedLibraryState(String)
     case migrationRequiredButUnavailable
     case injectedFailure(BoardLibraryFaultPoint)
+    case portable(BoardPortablePackageError)
     case io(String)
 }
 
