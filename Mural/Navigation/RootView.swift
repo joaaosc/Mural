@@ -127,6 +127,7 @@ private struct LoadedRootView: View {
                     .zIndex(Double(index * 2 + 2))
             }
         }
+        .environment(\.linkPreviewFiles, LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)))
         .ignoresSafeArea()
         .navigationTitle(session.title)
         .navigationSubtitle(breadcrumb)

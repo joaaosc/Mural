@@ -42,9 +42,11 @@ struct CardButton: View {
                 }
             }
             .accessibilityLabel(item.title)
+            .accessibilityValue(item.link?.displaySiteName ?? "", isEnabled: item.kind == .link)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .contextMenu {
                 Button("Abrir", action: onOpen)
+                linkMenu
                 moveMenu
                 Divider()
                 Button("Apagar…", role: .destructive) { isConfirmingDelete = true }
@@ -65,6 +67,15 @@ struct CardButton: View {
             selection.toggle(item.id)
         } else {
             onOpen()
+        }
+    }
+
+    /// Só para link: abrir a página no navegador e copiar o endereço.
+    @ViewBuilder
+    private var linkMenu: some View {
+        if let url = item.browserURL {
+            Button("Abrir no navegador") { NSWorkspace.shared.open(url) }
+            Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
         }
     }
 

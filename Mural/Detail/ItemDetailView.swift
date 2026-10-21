@@ -77,6 +77,9 @@ struct ItemDetailView: View {
                     NSWorkspace.shared.open(url)
                 })
         }
+        if let url = item.browserURL {
+            actions.append(PillAction(title: "Abrir no navegador", symbol: "safari") { NSWorkspace.shared.open(url) })
+        }
         actions.append(PillAction(title: "Apagar", symbol: "trash", role: .destructive) { isConfirmingDelete = true })
         return actions
     }

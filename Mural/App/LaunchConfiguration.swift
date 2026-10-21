@@ -11,15 +11,28 @@ enum LaunchConfiguration {
     /// `-uiTesting`: começa do mural de exemplo, apagando a pasta de testes.
     /// `-uiTestingKeep`: reabre a pasta de testes sem apagar (teste de persistência).
     static func store(arguments: [String] = ProcessInfo.processInfo.arguments) -> BoardStore {
-        let base = BoardStore.defaultDirectory()
-        guard arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") else {
-            return BoardStore(directory: base)
-        }
-        let testDirectory = base.deletingLastPathComponent().appendingPathComponent("MuralUITests", isDirectory: true)
+        let root = libraryRoot(arguments: arguments)
         if arguments.contains("-uiTesting") {
-            try? FileManager.default.removeItem(at: testDirectory)
+            try? FileManager.default.removeItem(at: root)
         }
-        return BoardStore(directory: testDirectory)
+        return BoardStore(directory: root)
+    }
+
+    /// Raiz da biblioteca: a pasta padrão do app ou, nos testes de interface, a pasta de testes.
+    /// Só calcula o endereço, sem criar nem apagar nada.
+    static func libraryRoot(arguments: [String] = ProcessInfo.processInfo.arguments) -> URL {
+        let base = BoardStore.defaultDirectory()
+        guard arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") else { return base }
+        return base.deletingLastPathComponent().appendingPathComponent("MuralUITests", isDirectory: true)
+    }
+
+    /// Pasta das imagens e dos ícones de prévia dos links de um mural: `<raiz>/LinkPreviews/<uuid do mural>`.
+    static func linkPreviewsDirectory(
+        for boardID: BoardID, arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> URL {
+        libraryRoot(arguments: arguments)
+            .appendingPathComponent("LinkPreviews", isDirectory: true)
+            .appendingPathComponent(boardID.rawValue.uuidString, isDirectory: true)
     }
 
     /// O modelo do aparelho escolhe as frases curtas, menos nos testes: lá a frase

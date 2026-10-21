@@ -6,6 +6,8 @@ struct CardView: View {
     let item: BoardItem
     let model: BoardModel
 
+    @Environment(\.linkPreviewFiles) private var linkPreviewFiles
+
     var body: some View {
         switch item.kind {
         case .text:
@@ -15,8 +17,7 @@ struct CardView: View {
         case .checklist:
             ChecklistCard(document: item.checklistDocument)
         case .link:
-            // Provisório: o cartão visual de link vem numa etapa seguinte.
-            PaperCard(title: item.title, summary: nil)
+            LinkCard(item: item)
         case .image, .video, .pdf:
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
         case .folder:
@@ -24,7 +25,11 @@ struct CardView: View {
             FolderCard(
                 folder: item,
                 itemCount: children.count,
-                peeks: FolderPeekItem.latest(children, fileURL: model.fileURL(for:))
+                peeks: FolderPeekItem.latest(
+                    children, fileURL: model.fileURL(for:),
+                    linkPreviewURL: { child in
+                        child.link?.previewImageFile.flatMap { name in linkPreviewFiles.map { $0.url(for: name) } }
+                    })
             )
         }
     }

@@ -49,7 +49,7 @@ struct CollectionView: View {
                                     }
                                     confirmRestoreIfPossible()
                                 }
-                                .galleryLane(item.kind.storesFile ? .media : .notes)
+                                .galleryLane(item.kind.storesFile || item.kind == .link ? .media : .notes)
                         }
                     }
                 }

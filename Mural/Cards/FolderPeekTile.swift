@@ -6,28 +6,33 @@ struct FolderPeekItem: Identifiable, Equatable {
     let id: UUID
     let kind: ItemKind
     let title: String
-    /// Arquivo da foto, do vídeo ou do PDF; `nil` para nota, lista e post-it.
+    /// Arquivo da foto, do vídeo ou do PDF, ou a imagem de prévia de um link; `nil` para nota, lista e post-it.
     let fileURL: URL?
     let stickyColor: StickyColor?
 
     /// Os `limit` cartões mais recentes da pasta, do mais antigo ao mais novo: o último fica na frente.
-    /// - Parameter children: cartões da pasta na ordem de criação (`BoardModel.children(of:)`).
+    /// - Parameters:
+    ///   - children: cartões da pasta na ordem de criação (`BoardModel.children(of:)`).
+    ///   - linkPreviewURL: a imagem de prévia de um link, se ela estiver guardada.
     static func latest(
-        _ children: [BoardItem], limit: Int = 3, fileURL: (BoardItem) -> URL?
+        _ children: [BoardItem], limit: Int = 3, fileURL: (BoardItem) -> URL?,
+        linkPreviewURL: (BoardItem) -> URL? = { _ in nil }
     ) -> [FolderPeekItem] {
         children.suffix(max(limit, 0)).map { child in
-            FolderPeekItem(
+            let url: URL? =
+                if child.kind == .link { linkPreviewURL(child) } else { child.kind.storesFile ? fileURL(child) : nil }
+            return FolderPeekItem(
                 id: child.id,
                 kind: child.kind,
                 title: child.title,
-                fileURL: child.kind.storesFile ? fileURL(child) : nil,
+                fileURL: url,
                 stickyColor: child.stickyColor)
         }
     }
 }
 
-/// Miniatura de um cartão que espia pela borda da pasta: foto, vídeo e PDF pela imagem; nota e
-/// lista como papelzinho com o título; post-it na própria cor.
+/// Miniatura de um cartão que espia pela borda da pasta: foto, vídeo e PDF pela imagem; link pela imagem
+/// de prévia; nota, lista e link sem imagem como papelzinho com o título; post-it na própria cor.
 struct FolderPeekTile: View {
     let item: FolderPeekItem
     let size: CGSize
@@ -52,7 +57,9 @@ struct FolderPeekTile: View {
         case .sticky:
             label(ink: Theme.stickyInk, design: .monospaced)
                 .background(Theme.sticky(item.stickyColor))
-        case .text, .checklist, .folder:
+        case .link where item.fileURL != nil:
+            ThumbnailView(url: item.fileURL, kind: .image, maxPixelSize: 240)
+        case .text, .checklist, .folder, .link:
             label(ink: .secondary, design: .default)
         }
     }

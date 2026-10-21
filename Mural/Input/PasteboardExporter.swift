@@ -1,12 +1,22 @@
 import AppKit
 import MuralKit
 
-/// Copia um cartão para a área de transferência: o arquivo guardado ou, para notas e
-/// listas, o texto (no formato que o próprio mural reconhece ao colar).
+/// Copia um cartão para a área de transferência: o arquivo guardado, o endereço de um link (com o
+/// título do cartão) ou, para notas e listas, o texto (no formato que o próprio mural reconhece ao colar).
 enum PasteboardExporter {
+    /// Nome da página que acompanha o endereço (`public.url`), como o Safari o grava ao copiar um link.
+    private static let urlNameType = NSPasteboard.PasteboardType("public.url-name")
+
     static func copy(_ item: BoardItem, from model: BoardModel, to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
-        if let url = model.fileURL(for: item) {
+        if item.kind == .link, let link = item.link {
+            let address = link.url.absoluteString
+            let entry = NSPasteboardItem()
+            entry.setString(address, forType: .URL)
+            entry.setString(item.title, forType: urlNameType)
+            entry.setString(address, forType: .string)
+            pasteboard.writeObjects([entry])
+        } else if let url = model.fileURL(for: item) {
             pasteboard.writeObjects([url as NSURL])
         } else if let checklist = item.checklist {
             pasteboard.setString(ChecklistParser.format(checklist), forType: .string)
