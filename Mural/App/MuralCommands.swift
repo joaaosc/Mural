@@ -1,14 +1,53 @@
+import MuralKit
 import SwiftUI
 
-/// Itens de menu do Mural: importar em Arquivo e zoom em Visualizar.
+/// Itens de menu do Mural. Todas as ações são encaminhadas à cena focada;
+/// nenhuma referência a uma janela ou a um mural fica global no aplicativo.
 struct MuralCommands: Commands {
     @FocusedValue(CanvasZoomController.self) private var zoom
     @FocusedValue(FocusedBoardActions.self) private var actions
+    @Environment(\.muralCommandCoordinator) private var coordinator
+    @Environment(\.openWindow) private var openWindow
+
+    private func requestOrOpenLibrary(
+        _ intent: MuralCommandIntent,
+        focusedAction: (FocusedBoardActions) -> Void
+    ) {
+        if let actions {
+            focusedAction(actions)
+        } else {
+            coordinator?.submit(intent)
+            openWindow(value: BoardRoute.library)
+        }
+    }
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Novo Mural…") {
+                requestOrOpenLibrary(.newBoard) { $0.newBoard() }
+            }
+            .keyboardShortcut("n", modifiers: .command)
+        }
         CommandGroup(replacing: .importExport) {
-            Button("Importar…", action: { actions?.addFiles() })
+            Button("Abrir Mural…") {
+                requestOrOpenLibrary(.openMural) { $0.openMural() }
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            Button("Adicionar Arquivos…", action: { actions?.addFiles() })
                 .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(!(actions?.canAddFiles ?? false))
+        }
+        CommandGroup(replacing: .saveItem) {
+            Button("Salvar Mural…", action: { actions?.saveDraft() })
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(!(actions?.canSaveDraft ?? false))
+            Button("Salvar uma Cópia…", action: { actions?.saveCopy() })
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!(actions?.canSaveCopy ?? false))
+            Button("Renomear Mural…", action: { actions?.rename() })
+                .disabled(!(actions?.canRename ?? false))
+            Button("Retomar Rascunho de Exemplo", action: { actions?.resumeDraft() })
+                .disabled(!(actions?.canResumeDraft ?? false))
         }
         CommandGroup(after: .toolbar) {
             Section {

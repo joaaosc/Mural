@@ -2,6 +2,23 @@ import MuralKit
 import Observation
 import SwiftUI
 
+struct BoardImportDestination: Equatable, Sendable {
+    let route: BoardRoute
+    let boardID: BoardID
+    /// Stable identity of the session/panel presentation.  Autosave and
+    /// revision generations are persistence details, not panel identity.
+    let presentationEpoch: UUID
+    let folderID: UUID?
+}
+
+struct MuralExportTransfer: Equatable, Sendable {
+    let operationID: UUID
+    let route: BoardRoute
+    let boardID: BoardID
+    let generation: UInt64
+    let packageURL: URL
+}
+
 struct DetailScrollMetrics: Equatable {
     var containerSize: CGSize = .zero
     var contentSize: CGSize = .zero
@@ -40,6 +57,9 @@ final class BoardWindowSession {
     let registry: BoardSessionRegistry
     let zoom: CanvasZoomController
     let actions: FocusedBoardActions
+    /// Changes only when this presentation is explicitly invalidated.  It is
+    /// deliberately independent of the board's autosave generation.
+    private(set) var presentationEpoch = UUID()
 
     private(set) var model: BoardModel?
     private(set) var domainSession: BoardSession?
@@ -52,6 +72,14 @@ final class BoardWindowSession {
     private(set) var navigationGeneration: UInt64 = 0
     private(set) var readingPositions: [UUID: ReadingPosition] = [:]
     private(set) var captionDrafts: [UUID: String] = [:]
+    private(set) var importDestination: BoardImportDestination?
+    private(set) var exportTransfer: MuralExportTransfer?
+    private(set) var exportDocument: MuralPackageDocument?
+    private(set) var isPreparingExport = false
+    private(set) var isFinishingExport = false
+    var isExporterPresented = false
+    var successMessage: String?
+    var warningMessage: String?
 
     var path: [Destination] = []
     var filter: BoardFilter?
@@ -66,14 +94,25 @@ final class BoardWindowSession {
     @ObservationIgnored private var pendingAutosaveDebounce: Task<Void, Never>?
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
     @ObservationIgnored private var leaveFlushTask: Task<Void, Never>?
+    @ObservationIgnored private var exportTask: Task<Void, Never>?
+    @ObservationIgnored private let cleanupTransferOperation: @Sendable (URL) async throws -> Void
+    @ObservationIgnored private var pendingSaveCopyResult: Result<URL, any Error>?
     @ObservationIgnored private var restoreTarget: CGPoint?
     @ObservationIgnored private var autosaveFailed = false
     @ObservationIgnored private var restoringReadingItems: [UUID: ReadingPresentationToken] = [:]
     @ObservationIgnored private var readingFinalizers: [ReadingPresentationToken: ReadingPresentationFinalizer] = [:]
 
-    init(route: BoardRoute, registry: BoardSessionRegistry) {
+    init(
+        route: BoardRoute,
+        registry: BoardSessionRegistry,
+        cleanupTransfer: (@Sendable (URL) async throws -> Void)? = nil
+    ) {
         self.route = route
         self.registry = registry
+        self.cleanupTransferOperation =
+            cleanupTransfer ?? { url in
+                try await registry.library.cleanupTransfer(url)
+            }
         switch route {
         case .library:
             self.boardID = BoardID(rawValue: UUID())
@@ -90,6 +129,13 @@ final class BoardWindowSession {
 
     var title: String {
         domainSession.map { _ in workspaceTitle } ?? "Mural"
+    }
+
+    var currentFolderID: UUID? {
+        for destination in path.reversed() {
+            if case .collection(let id) = destination { return id }
+        }
+        return nil
     }
 
     private var workspaceTitle: String {
@@ -118,6 +164,7 @@ final class BoardWindowSession {
             manifestName = manifest.name
             let store = BoardStore(directory: packageURL)
             model = BoardModel(board: board, store: store, persistence: .deferred)
+            await refreshDraftAvailability()
             path = Self.destinations(from: loadedWorkspace.path, board: board)
             filter = Self.filter(from: loadedWorkspace.filter, path: path, board: board)
 
@@ -130,6 +177,11 @@ final class BoardWindowSession {
             error = loadError.localizedDescription
             restorationPhase = .loading
         }
+    }
+
+    func refreshDraftAvailability() async {
+        actions.resumeDraftAvailable =
+            (try? await registry.library.lifecycleState())?.lifecycle == .draft
     }
 
     func beginApplyingZoom() {
@@ -260,6 +312,187 @@ final class BoardWindowSession {
         pendingBoard = model.board
         pendingBoardSequence = mutationSequence
         scheduleAutosave()
+    }
+
+    // MARK: Importação e exportação
+
+    /// Captures the destination before the system panel opens. Focus and
+    /// navigation are allowed to change while the panel is visible, but they
+    /// must not redirect the files to another folder or board.
+    func beginFileImport(folderID: UUID? = nil) {
+        importDestination = BoardImportDestination(
+            route: route,
+            boardID: boardID,
+            presentationEpoch: presentationEpoch,
+            folderID: folderID)
+        isImporterPresented = true
+    }
+
+    /// Invalidates callbacks belonging to a panel/session that is no longer
+    /// current without coupling that decision to autosave revisions.
+    func invalidatePresentation() {
+        presentationEpoch = UUID()
+    }
+
+    func importFiles(from urls: [URL]) async {
+        guard let destination = importDestination else { return }
+        importDestination = nil
+        isImporterPresented = false
+        guard destination.route == route,
+            destination.boardID == boardID,
+            destination.presentationEpoch == presentationEpoch,
+            let model
+        else {
+            error = "A importação foi descartada porque o mural mudou enquanto o painel estava aberto."
+            return
+        }
+
+        guard destination.folderID.map({ model.item(id: $0)?.kind == .folder }) ?? true else {
+            error = "A pasta selecionada não existe mais neste mural."
+            return
+        }
+
+        let imported = await SecurityScopedAccess.withAccess(
+            to: urls,
+            operation: { [weak self] in
+                guard let self,
+                    self.boardID == destination.boardID,
+                    self.presentationEpoch == destination.presentationEpoch,
+                    destination.folderID.map({ model.item(id: $0)?.kind == .folder }) ?? true
+                else { return false }
+                _ = model.importFiles(urls, into: destination.folderID)
+                self.captureBoardIfNeeded()
+                return true
+            })
+        if !imported {
+            error = "A importação foi descartada porque o mural mudou enquanto o painel estava aberto."
+        }
+    }
+
+    func beginSaveCopy() {
+        guard exportTask == nil, exportTransfer == nil, exportDocument == nil,
+            !isExporterPresented, !isFinishingExport, model != nil
+        else { return }
+        isPreparingExport = true
+        exportTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.prepareSaveCopy()
+            self.exportTask = nil
+            self.isPreparingExport = false
+        }
+    }
+
+    private func prepareSaveCopy() async {
+        let capturedRoute = route
+        let capturedBoardID = boardID
+        guard await flushAndPrepareToLeaveSuccessfully(),
+            !isDirty,
+            route == capturedRoute,
+            boardID == capturedBoardID
+        else {
+            error = "Não foi possível preparar o mural para exportação."
+            return
+        }
+        let capturedGeneration = generation
+        do {
+            let packageURL = try await registry.library.exportPackage(route)
+            guard boardID == capturedBoardID, generation == capturedGeneration else {
+                try? await registry.library.cleanupTransfer(packageURL)
+                error = "A exportação foi cancelada porque o mural mudou."
+                return
+            }
+            exportTransfer = MuralExportTransfer(
+                operationID: UUID(),
+                route: route,
+                boardID: capturedBoardID,
+                generation: capturedGeneration,
+                packageURL: packageURL)
+            exportDocument = MuralPackageDocument(stagingURL: packageURL)
+            isExporterPresented = true
+        } catch let exportError {
+            self.error = "Não foi possível preparar a cópia do mural: \(exportError.localizedDescription)"
+        }
+    }
+
+    func finishSaveCopy(
+        _ result: Result<URL, any Error>?,
+        operationID callbackOperationID: UUID
+    ) async {
+        let transfer = exportTransfer
+        guard let transfer else { return }
+        guard callbackOperationID == transfer.operationID, !isFinishingExport else { return }
+        if let result {
+            pendingSaveCopyResult = result
+        }
+        isFinishingExport = true
+        isExporterPresented = false
+        defer { isFinishingExport = false }
+        do {
+            try await cleanupTransferOperation(transfer.packageURL)
+        } catch let cleanupError {
+            self.error = "Não foi possível limpar o staging da exportação: \(cleanupError.localizedDescription)"
+            return
+        }
+        let completedResult = pendingSaveCopyResult
+        pendingSaveCopyResult = nil
+        exportTransfer = nil
+        exportDocument = nil
+        error = nil
+        if case .some(.failure) = completedResult {
+            error = "Não foi possível salvar a cópia do mural."
+        } else if completedResult != nil {
+            successMessage = "Cópia do mural salva."
+        }
+    }
+
+    func retrySaveCopyCleanup() async {
+        guard let operationID = exportTransfer?.operationID else { return }
+        await finishSaveCopy(nil, operationID: operationID)
+    }
+
+    func requestDraftPromotion() {
+        guard case .welcomeDraft = route else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.promoteDraft(named: self.title)
+        }
+    }
+
+    @discardableResult
+    func promoteDraft(named requestedName: String) async -> BoardRoute? {
+        guard case .welcomeDraft = route else { return nil }
+        let name = Self.normalizedName(requestedName)
+        guard await flushAndPrepareToLeaveSuccessfully() else { return nil }
+        do {
+            let promoted = try await registry.promoteWelcomeDraft(name: name)
+            actions.resumeDraftAvailable = false
+            successMessage = "Rascunho promovido para um mural salvo."
+            return promoted
+        } catch let promotionError {
+            self.error = "Não foi possível salvar o rascunho: \(promotionError.localizedDescription)"
+            return nil
+        }
+    }
+
+    func rename(to requestedName: String) async {
+        let name = Self.normalizedName(requestedName)
+        guard await flushAndPrepareToLeaveSuccessfully() else { return }
+        await registry.close(boardID)
+        do {
+            _ = try await registry.library.rename(route, to: name)
+            domainSession = try await registry.open(route)
+            generation = await domainSession?.generation ?? generation
+            manifestName = name
+            successMessage = "Mural renomeado."
+        } catch let renameError {
+            domainSession = try? await registry.open(route)
+            self.error = "Não foi possível renomear o mural: \(renameError.localizedDescription)"
+        }
+    }
+
+    private static func normalizedName(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Mural sem título" : trimmed
     }
 
     // MARK: Posições de leitura e drafts
@@ -444,6 +677,11 @@ final class BoardWindowSession {
         leaveFlushTask = nil
     }
 
+    func flushAndPrepareToLeaveSuccessfully() async -> Bool {
+        await flushAndPrepareToLeave()
+        return !isDirty
+    }
+
     private func performFlushAndPrepareToLeave() async {
         guard let domainSession else { return }
         commitCaptionDrafts()
@@ -474,7 +712,14 @@ final class BoardWindowSession {
     }
 
     func retryFlush() {
-        Task { await flushAndPrepareToLeave() }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if exportTransfer != nil, !isExporterPresented, !isFinishingExport {
+                await retrySaveCopyCleanup()
+            } else {
+                await flushAndPrepareToLeave()
+            }
+        }
     }
 
     private func updateWorkspace(_ update: (inout BoardWorkspaceState) -> Void) {
@@ -616,6 +861,10 @@ struct BoardWindowHost: View {
     let registry: BoardSessionRegistry
 
     @State private var session: BoardWindowSession
+    @State private var externalImportError: String?
+    @State private var externalImportNotice: String?
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.scenePhase) private var scenePhase
 
     init(route: BoardRoute, registry: BoardSessionRegistry) {
         self.route = route
@@ -644,7 +893,65 @@ struct BoardWindowHost: View {
             await session.load()
         }
         .onDisappear {
+            // SwiftUI also sends onDisappear when a tab or transient view is
+            // replaced. It is therefore safe to flush here, but not to close
+            // the registry entry. A real NSWindow-close lifecycle hook remains
+            // the pending integration point for calling registry.close(boardID).
             Task { await session.flushAndPrepareToLeave() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, route != .library else { return }
+            Task { await session.refreshDraftAvailability() }
+        }
+        .onOpenURL { source in
+            Task { await importExternalPackage(from: source) }
+        }
+        .alert(
+            "Não foi possível importar o mural",
+            isPresented: Binding(
+                get: { externalImportError != nil },
+                set: { if !$0 { externalImportError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(externalImportError ?? "")
+        }
+        .alert(
+            "Importação concluída",
+            isPresented: Binding(
+                get: { externalImportNotice != nil },
+                set: { if !$0 { externalImportNotice = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(externalImportNotice ?? "")
+        }
+    }
+
+    private func importExternalPackage(from source: URL) async {
+        guard source.pathExtension.lowercased() == "mural" else { return }
+        do {
+            let result = try await MuralPackageImport.importAsCopy(
+                from: source, using: registry.library)
+            openWindow(value: result.route)
+            externalImportNotice =
+                "O mural foi importado como uma cópia interna. O arquivo original não será alterado."
+                + Self.workspaceNotice(for: result.workspaceStatus)
+        } catch {
+            externalImportError = error.localizedDescription
+        }
+    }
+
+    private static func workspaceNotice(for status: BoardPortableWorkspaceStatus) -> String {
+        switch status {
+        case .loaded:
+            return ""
+        case .missing:
+            return " O estado visual estava ausente; a visualização padrão foi usada."
+        case .corrupted(let filename):
+            return " O estado visual estava corrompido (\(filename)); a visualização padrão foi usada."
+        case .futureSchema(let version):
+            return " O estado visual usa uma versão futura (\(version)); a visualização padrão foi usada."
         }
     }
 }
@@ -652,10 +959,16 @@ struct BoardWindowHost: View {
 private struct BoardLibraryView: View {
     let registry: BoardSessionRegistry
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.muralCommandCoordinator) private var commandCoordinator
     @State private var entries: [BoardLibraryEntry] = []
     @State private var name = ""
     @State private var isCreating = false
+    @State private var isPackageImporterPresented = false
     @State private var error: String?
+    @State private var successMessage: String?
+    @State private var warningMessage: String?
+    @State private var actions = FocusedBoardActions()
 
     var body: some View {
         NavigationStack {
@@ -693,7 +1006,15 @@ private struct BoardLibraryView: View {
                 Text(error ?? "")
             }
         }
+        .focusedSceneValue(actions)
         .task { await refresh() }
+        .task(id: commandCoordinator?.pending) {
+            consumePendingCommand()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await refresh() }
+        }
         .sheet(isPresented: $isCreating) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Novo mural").font(.headline)
@@ -709,10 +1030,94 @@ private struct BoardLibraryView: View {
             .padding(24)
             .frame(width: 360)
         }
+        .fileImporter(
+            isPresented: $isPackageImporterPresented,
+            allowedContentTypes: [.muralPackage],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let source = urls.first else { return }
+            importPackage(from: source)
+        }
+        .onChange(of: actions.request) { _, request in
+            guard let request else { return }
+            actions.request = nil
+            switch request {
+            case .newBoard:
+                name = ""
+                isCreating = true
+            case .openMural:
+                isPackageImporterPresented = true
+            case .resumeDraft:
+                Task { @MainActor in
+                    guard let state = try? await registry.library.lifecycleState(),
+                        state.lifecycle == .draft,
+                        let draft = entries.first(where: {
+                            guard case .welcomeDraft(let id) = $0.route else { return false }
+                            return id == state.stableWelcomeID
+                        })
+                    else {
+                        actions.resumeDraftAvailable = false
+                        return
+                    }
+                    actions.resumeDraftAvailable = true
+                    openWindow(value: draft.route)
+                }
+            case .rename, .promoteDraft:
+                break
+            }
+        }
+        .onChange(of: commandCoordinator?.pending) { _, _ in
+            consumePendingCommand()
+        }
+        .alert(
+            "Não foi possível abrir a biblioteca",
+            isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(error ?? "")
+        }
+        .alert(
+            "Importação concluída",
+            isPresented: Binding(get: { successMessage != nil }, set: { if !$0 { successMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(successMessage ?? "")
+        }
+        .alert(
+            "Aviso de importação",
+            isPresented: Binding(get: { warningMessage != nil }, set: { if !$0 { warningMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(warningMessage ?? "")
+        }
     }
 
     private func refresh() async {
-        do { entries = try await registry.library.list() } catch let loadError { self.error = loadError.localizedDescription }
+        do {
+            entries = try await registry.library.list()
+            actions.resumeDraftAvailable =
+                (try? await registry.library.lifecycleState())?.lifecycle == .draft
+        } catch let loadError {
+            self.error = loadError.localizedDescription
+            actions.resumeDraftAvailable = false
+        }
+    }
+
+    private func consumePendingCommand() {
+        guard let commandCoordinator,
+            let request = commandCoordinator.pending,
+            let intent = commandCoordinator.consume(token: request.token)
+        else { return }
+        switch intent {
+        case .newBoard:
+            name = ""
+            isCreating = true
+        case .openMural:
+            isPackageImporterPresented = true
+        }
     }
 
     private func createBoard() {
@@ -728,6 +1133,37 @@ private struct BoardLibraryView: View {
             openWindow(value: route)
         } catch let createError {
             error = createError.localizedDescription
+        }
+    }
+
+    private func importPackage(from source: URL) {
+        Task {
+            do {
+                let result = try await MuralPackageImport.importAsCopy(
+                    from: source, using: registry.library)
+                let importedName = try await registry.library.open(result.route)?.manifest.name ?? "Mural"
+                await refresh()
+                openWindow(value: result.route)
+                successMessage =
+                    "Mural ‘\(importedName)’ importado como uma cópia interna. "
+                    + "O arquivo original não será alterado."
+                switch result.workspaceStatus {
+                case .loaded:
+                    break
+                case .missing:
+                    warningMessage = "O estado visual do mural importado estava ausente; o conteúdo foi aberto com a visualização padrão."
+                case .corrupted(let filename):
+                    warningMessage =
+                        "O estado visual do mural importado estava corrompido (\(filename)); "
+                        + "o conteúdo foi aberto com a visualização padrão."
+                case .futureSchema(let version):
+                    warningMessage =
+                        "O estado visual do mural importado usa uma versão futura (\(version)); "
+                        + "o conteúdo foi aberto com a visualização padrão."
+                }
+            } catch let importError {
+                self.error = importError.localizedDescription
+            }
         }
     }
 }
