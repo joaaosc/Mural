@@ -10,13 +10,40 @@ final class MuralUITests: XCTestCase {
     @MainActor
     private func launch(_ argument: String = "-uiTesting") -> XCUIApplication {
         let app = XCUIApplication()
+        app.terminate()
         app.launchArguments = [argument]
         app.launch()
         app.activate()
+        openExampleBoardIfNeeded(in: app)
         // O ponteiro herdado do teste anterior pode passar por uma pasta a caminho do próximo
         // clique e abrir a prévia por cima dos cartões vizinhos: começa sempre embaixo, no vazio.
         app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)).hover()
         return app
+    }
+
+    @MainActor
+    private func openExampleBoardIfNeeded(in app: XCUIApplication) {
+        let exampleCard = app.buttons["The Cottage"].firstMatch
+        if exampleCard.waitForExistence(timeout: 2) { return }
+
+        let libraryTab = app.tabs["Murais"].firstMatch
+        if libraryTab.waitForExistence(timeout: 2) {
+            libraryTab.click()
+        } else {
+            let windowMenu = app.menuBars.menuBarItems["Window"].firstMatch
+            if windowMenu.waitForExistence(timeout: 2) {
+                windowMenu.click()
+                let libraryWindow = app.menuItems["Murais"].firstMatch
+                if libraryWindow.waitForExistence(timeout: 2) {
+                    libraryWindow.click()
+                }
+            }
+        }
+
+        let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
+        XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "o rascunho de exemplo deveria aparecer na biblioteca")
+        draftEntry.doubleClick()
+        XCTAssertTrue(exampleCard.waitForExistence(timeout: 10), "o rascunho de exemplo deveria abrir no mural")
     }
 
     @MainActor

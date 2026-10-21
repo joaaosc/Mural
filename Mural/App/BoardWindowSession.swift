@@ -666,6 +666,10 @@ private struct BoardLibraryView: View {
                     Label(entry.manifest.name, systemImage: entry.route.isDraft ? "doc.badge.clock" : "rectangle.on.rectangle")
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(
+                    entry.route.isDraft
+                        ? "welcome-draft-entry"
+                        : "saved-board-entry-\(entry.manifest.id.rawValue.uuidString)")
             }
             .navigationTitle("Murais")
             .toolbar {
