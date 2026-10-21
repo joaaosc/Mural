@@ -56,6 +56,7 @@ Os dados ficam em `~/Library/Containers/com.joaocosta.Mural/Data/Library/Applica
 ```sh
 scripts/verify.sh          # formatação, projeto, domínio, build e testes do app
 UI=1 scripts/verify.sh     # inclui os testes de interface (exigem o modo de automação)
+scripts/ui-tests.sh        # só os de interface; esperam o Mac ficar livre de outros testes
 swift test --package-path Packages/MuralKit
 MURAL_RUNTIME_TESTS=1 swift test --package-path Packages/MuralKit --filter KeySentenceRuntimeTests  # modelo real
 xcodebuild -project Mural.xcodeproj -scheme Mural -destination 'platform=macOS' build
