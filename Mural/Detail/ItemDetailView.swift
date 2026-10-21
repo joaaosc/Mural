@@ -47,9 +47,21 @@ struct ItemDetailView: View {
     }
 
     private var actions: [PillAction] {
-        var actions = [
-            PillAction(title: "Copiar", symbol: "square.on.square") { PasteboardExporter.copy(item, from: model) }
-        ]
+        var actions: [PillAction] = []
+        if let session, item.kind == .text || item.kind == .sticky {
+            if session.editingItemID == item.id {
+                actions.append(
+                    PillAction(title: "Concluir", symbol: "checkmark", shortcut: KeyboardShortcut(.return, modifiers: .command)) {
+                        session.finishEditing()
+                    })
+            } else {
+                actions.append(
+                    PillAction(title: "Editar", symbol: "pencil", shortcut: KeyboardShortcut("e", modifiers: .command)) {
+                        session.beginEditing(item.id)
+                    })
+            }
+        }
+        actions.append(PillAction(title: "Copiar", symbol: "square.on.square") { PasteboardExporter.copy(item, from: model) })
         if let url = model.fileURL(for: item) {
             actions.append(
                 PillAction(title: "Abrir no app padrão", symbol: "arrow.up.forward.app") {

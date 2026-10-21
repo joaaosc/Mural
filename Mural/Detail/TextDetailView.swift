@@ -1,7 +1,8 @@
 import MuralKit
 import SwiftUI
 
-/// Nota em página de leitura (Markdown com parágrafos dobráveis), ou post-it ampliado.
+/// Nota em página de leitura (Markdown com parágrafos dobráveis), ou post-it ampliado;
+/// no modo de edição, o editor de cada um.
 struct TextDetailView: View {
     let item: BoardItem
     let session: BoardWindowSession?
@@ -13,7 +14,18 @@ struct TextDetailView: View {
     @State private var presentationToken: ReadingPresentationToken?
 
     var body: some View {
-        if item.kind == .sticky {
+        if let session, session.editingItemID == item.id {
+            if item.kind == .sticky {
+                StickyEditorView(itemID: item.id, session: session)
+            } else {
+                NoteEditorView(itemID: item.id, session: session)
+                    .frame(maxWidth: 680, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, 100)
+                    .padding(.bottom, 90)
+                    .padding(.horizontal, 40)
+                    .frame(maxWidth: .infinity)
+            }
+        } else if item.kind == .sticky {
             Text(item.displayText)
                 .font(.system(.title2, design: .monospaced))
                 .foregroundStyle(Theme.stickyInk)

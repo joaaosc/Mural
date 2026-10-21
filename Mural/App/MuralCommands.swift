@@ -7,6 +7,7 @@ import SwiftUI
 struct MuralCommands: Commands {
     @FocusedValue(CanvasZoomController.self) private var zoom
     @FocusedValue(FocusedBoardActions.self) private var actions
+    @FocusedValue(\.markdownFormatting) private var formatting
     @Environment(\.muralCommandCoordinator) private var coordinator
     @Environment(\.openWindow) private var openWindow
 
@@ -70,6 +71,15 @@ struct MuralCommands: Commands {
             .disabled(zoom == nil)
             Button("Tentar novamente", action: { actions?.retryFlush() })
                 .disabled(actions == nil)
+        }
+        CommandMenu("Formatar") {
+            Section {
+                Button("Negrito") { formatting?.apply(.bold) }
+                    .keyboardShortcut("b", modifiers: .command)
+                Button("Itálico") { formatting?.apply(.italic) }
+                    .keyboardShortcut("i", modifiers: .command)
+            }
+            .disabled(formatting == nil)
         }
     }
 }

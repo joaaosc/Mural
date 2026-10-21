@@ -155,6 +155,10 @@ private struct LoadedRootView: View {
         .focused($isCanvasFocused)
         .onAppear { isCanvasFocused = true }
         .onKeyPress(.escape) {
+            if session.editingItemID != nil {
+                session.finishEditing()
+                return .handled
+            }
             if isFolderInfoPresented {
                 isFolderInfoPresented = false
                 return .handled

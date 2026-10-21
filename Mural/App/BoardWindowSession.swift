@@ -92,6 +92,9 @@ final class BoardWindowSession {
     var warningMessage: String?
     /// Escolha das frases curtas pelo modelo do aparelho; `nil` quando desligada.
     private(set) var keySentences: KeySentenceCoordinator?
+    /// Nota ou post-it aberto no modo de edição.
+    private(set) var editingItemID: UUID?
+    private(set) var noteDrafts: [UUID: NoteDraft] = [:]
 
     var path: [Destination] = []
     var filter: BoardFilter?
@@ -127,6 +130,8 @@ final class BoardWindowSession {
     /// Janelas abertas que o término do app espera gravar.
     @ObservationIgnored private let openSessions: OpenBoardSessions
     @ObservationIgnored private let usesOnDeviceModel: Bool
+    /// Cartões criados pelo botão nesta sessão: se ficarem vazios, são descartados.
+    @ObservationIgnored private var newItemIDs: Set<UUID> = []
 
     init(
         route: BoardRoute,
@@ -370,6 +375,10 @@ final class BoardWindowSession {
 
     func setNavigation(path: [Destination], filter: BoardFilter?) {
         guard restoration.acceptsPersistence, !isClosed, let model else { return }
+        // Sair da página de um cartão em edição grava o rascunho (e descarta o novo vazio).
+        if let editingItemID, !path.contains(.item(editingItemID)) {
+            finishEditing()
+        }
         let newPath = Self.workspaceDestinations(from: path, board: model.board)
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
         self.path = Self.destinations(from: newPath, board: model.board)
@@ -443,9 +452,10 @@ final class BoardWindowSession {
         keySentences?.enqueue(itemID, first: true)
     }
 
-    /// Janela fechando: interrompe o modelo e grava o que falta.
+    /// Janela fechando: interrompe o modelo, conclui a edição e grava o que falta.
     func prepareToClose() async {
         keySentences?.cancelAll()
+        finishEditing()
         await flushAndPrepareToLeave()
     }
 
@@ -538,6 +548,52 @@ final class BoardWindowSession {
         }
         withAnimation(animation) {
             _ = model.commit(prepared, into: folderID)
+        }
+        captureBoardIfNeeded()
+    }
+
+    // MARK: Edição de notas e post-its
+
+    func beginEditing(_ itemID: UUID) {
+        guard let item = model?.item(id: itemID), item.kind == .text || item.kind == .sticky else { return }
+        if let editingItemID, editingItemID != itemID {
+            finishEditing()
+        }
+        editingItemID = itemID
+    }
+
+    /// Rascunho em andamento ou, sem ele, o conteúdo gravado do cartão.
+    func noteDraft(for itemID: UUID) -> NoteDraft {
+        noteDrafts[itemID] ?? model?.item(id: itemID).map(NoteDraft.init(item:)) ?? NoteDraft()
+    }
+
+    func setNoteDraft(_ draft: NoteDraft, for itemID: UUID) {
+        noteDrafts[itemID] = draft
+    }
+
+    /// Grava o rascunho e sai da edição. Cartão criado pelo botão que ficou vazio é apagado.
+    func finishEditing() {
+        guard let itemID = editingItemID else { return }
+        editingItemID = nil
+        commitNoteDraft(for: itemID)
+        if newItemIDs.remove(itemID) != nil, model?.item(id: itemID)?.isBlank == true {
+            delete(itemID)
+        }
+    }
+
+    /// Publica todos os rascunhos no mural, sem sair da edição.
+    func commitNoteDrafts() {
+        for itemID in Array(noteDrafts.keys) {
+            commitNoteDraft(for: itemID)
+        }
+    }
+
+    private func commitNoteDraft(for itemID: UUID) {
+        guard let model, let draft = noteDrafts.removeValue(forKey: itemID), let item = model.item(id: itemID) else { return }
+        switch item.kind {
+        case .text: model.updateNote(itemID, title: draft.title, text: draft.text)
+        case .sticky: model.updateSticky(itemID, text: draft.text, color: draft.color)
+        default: return
         }
         captureBoardIfNeeded()
     }
@@ -845,6 +901,9 @@ final class BoardWindowSession {
         model.delete(itemID)
         canonicalizeWorkspaceAfterContentMutation()
         captionDrafts.removeValue(forKey: itemID)
+        noteDrafts.removeValue(forKey: itemID)
+        newItemIDs.remove(itemID)
+        if editingItemID == itemID { editingItemID = nil }
         restoringReadingItems.removeValue(forKey: itemID)
         captureBoardIfNeeded()
     }
@@ -933,6 +992,7 @@ final class BoardWindowSession {
     private func performFlushAndPrepareToLeave() async {
         guard let domainSession else { return }
         commitCaptionDrafts()
+        commitNoteDrafts()
         captureBoardIfNeeded()
         let canvas = zoom.prepareToLeave()
         recordCanvas(canvas)

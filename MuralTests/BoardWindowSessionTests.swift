@@ -731,6 +731,75 @@ struct BoardWindowSessionTests {
         #expect(reloaded.workspace.openStretches[note.id] == nil)
     }
 
+    @Test("Rascunho da nota vai para o mural ao concluir; sair da página também conclui")
+    func noteDraftCommitsOnFinishAndOnLeave() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Edição")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let note = try #require(session.model?.importText("Corpo antigo. Com duas frases.", as: .text))
+
+        session.beginEditing(note.id)
+        #expect(session.editingItemID == note.id)
+        session.setNoteDraft(NoteDraft(title: "Visita", text: "Corpo **novo**."), for: note.id)
+        #expect(session.model?.item(id: note.id)?.text == "Corpo antigo. Com duas frases.", "rascunho não grava antes")
+        session.finishEditing()
+        #expect(session.editingItemID == nil)
+        #expect(session.model?.item(id: note.id)?.title == "Visita")
+        #expect(session.model?.item(id: note.id)?.text == "Corpo **novo**.")
+
+        session.setNavigation(path: [.item(note.id)], filter: nil)
+        session.beginEditing(note.id)
+        session.setNoteDraft(NoteDraft(title: "Visita", text: "Saindo da página."), for: note.id)
+        session.setNavigation(path: [], filter: nil)
+        #expect(session.editingItemID == nil)
+        #expect(session.model?.item(id: note.id)?.text == "Saindo da página.")
+    }
+
+    @Test("Fechar a janela no meio da edição grava o rascunho")
+    func noteDraftSurvivesClose() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Fechar")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let sticky = try #require(session.model?.importText("Luz quente", as: .sticky))
+        session.beginEditing(sticky.id)
+        session.setNoteDraft(NoteDraft(text: "Luz quente em tudo", color: .green), for: sticky.id)
+        await session.prepareToClose()
+
+        let reloaded = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        let saved = try #require(reloaded.model?.item(id: sticky.id))
+        #expect(saved.text == "Luz quente em tudo")
+        #expect(saved.stickyColor == .green)
+    }
+
+    @Test("Só nota e post-it entram em edição; começar outra conclui a anterior")
+    func editingSwitchesItems() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Troca")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let first = try #require(session.model?.importText("Primeira nota. Com duas frases.", as: .text))
+        let second = try #require(session.model?.importText("Segunda nota. Com duas frases.", as: .text))
+        let list = try #require(session.model?.importText("Compras\n- pão\n- leite", as: .checklist))
+
+        session.beginEditing(list.id)
+        #expect(session.editingItemID == nil)
+        session.beginEditing(first.id)
+        session.setNoteDraft(NoteDraft(title: "Primeira", text: "Editada."), for: first.id)
+        session.beginEditing(second.id)
+        #expect(session.editingItemID == second.id)
+        #expect(session.model?.item(id: first.id)?.text == "Editada.")
+    }
+
     @Test("Exclusão remove path e reading position canônicos")
     func deletionPrunesWorkspaceState() async throws {
         let directory = try root()

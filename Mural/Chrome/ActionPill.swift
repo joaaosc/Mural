@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Pílula flutuante com as ações do item aberto (copiar, abrir, apagar).
+/// Pílula flutuante com as ações do item aberto (editar, copiar, abrir, apagar).
 ///
 /// Vidro estático por trás de botões sem borda; tamanho e área de clique ficam dentro
 /// do rótulo de cada botão, para o clique valer em todo o espaço visível.
@@ -18,6 +18,7 @@ struct ActionPill: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(action.role == .destructive ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                .keyboardShortcut(action.shortcut)
                 .help(action.title)
             }
         }
