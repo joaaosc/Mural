@@ -80,7 +80,6 @@ private struct LoadedRootView: View {
                 filter: filter,
                 zoom: session.zoom,
                 onOpen: open,
-                onAdd: { session.beginFileImport(folderID: currentFolderID) },
                 boardID: session.boardID,
                 // Identidade da apresentação, não a geração do autosave.
                 generation: session.presentationGeneration,
@@ -132,6 +131,17 @@ private struct LoadedRootView: View {
             .padding(12)
             .containerCornerOffset(.top)
             .disabled(session.restorationPhase != .ready)
+        }
+        .overlay(alignment: .bottom) {
+            if session.acceptsNewContent {
+                CreationBar(
+                    onNewNote: { createCard(.text) },
+                    onNewSticky: { createCard(.sticky) },
+                    onAddFiles: { session.beginFileImport(folderID: currentFolderID) }
+                )
+                .padding(.bottom, 18)
+                .transition(.opacity)
+            }
         }
         .overlay {
             if session.restorationPhase != .ready {
@@ -405,6 +415,14 @@ private struct LoadedRootView: View {
         }
         isFolderInfoPresented = false
         isCanvasFocused = true
+    }
+
+    /// Cria o cartão e abre a página dele já editando, crescendo a partir do cartão.
+    private func createCard(_ kind: ItemKind) {
+        withAnimation(navigationAnimation) {
+            _ = session.createCard(kind)
+        }
+        isFolderInfoPresented = false
     }
 
     private func goBack() {

@@ -95,6 +95,14 @@ final class FocusedBoardActions {
         request = .resumeDraft
     }
 
+    func newNote() {
+        session?.createCard(.text)
+    }
+
+    func newSticky() {
+        session?.createCard(.sticky)
+    }
+
     func retryFlush() {
         session?.retryFlush()
     }
@@ -122,6 +130,11 @@ final class FocusedBoardActions {
 
     var canAddFiles: Bool {
         session?.model != nil
+    }
+
+    /// Criar card ou sticker só no mural e dentro de pasta, não na página de um item.
+    var canCreateContent: Bool {
+        session?.acceptsNewContent ?? false
     }
 
     var canRename: Bool {

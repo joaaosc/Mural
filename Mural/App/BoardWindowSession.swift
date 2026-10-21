@@ -173,6 +173,13 @@ final class BoardWindowSession {
         return nil
     }
 
+    /// No mural e dentro de pasta dá para criar conteúdo; na página de um item, não.
+    var acceptsNewContent: Bool {
+        guard restorationPhase == .ready else { return false }
+        if case .item = path.last { return false }
+        return true
+    }
+
     private var workspaceTitle: String {
         // Manifest is loaded with the domain session; keeping the title in the
         // workspace adapter avoids a second source of truth in the view.
@@ -553,6 +560,24 @@ final class BoardWindowSession {
     }
 
     // MARK: Edição de notas e post-its
+
+    /// Cria um card de texto ou post-it vazio na pasta aberta (ou no mural) e abre a
+    /// página dele já editando. Se ficar vazio ao concluir, ele é descartado.
+    @discardableResult
+    func createCard(_ kind: ItemKind) -> UUID? {
+        guard restoration.acceptsPersistence, let model, kind == .text || kind == .sticky else { return nil }
+        let folderID = currentFolderID
+        let item = kind == .text ? model.createNote(into: folderID) : model.createSticky(into: folderID)
+        newItemIDs.insert(item.id)
+        captureBoardIfNeeded()
+        let folders = path.filter {
+            if case .collection = $0 { return true }
+            return false
+        }
+        setNavigation(path: folders + [.item(item.id)], filter: nil)
+        beginEditing(item.id)
+        return item.id
+    }
 
     func beginEditing(_ itemID: UUID) {
         guard let item = model?.item(id: itemID), item.kind == .text || item.kind == .sticky else { return }

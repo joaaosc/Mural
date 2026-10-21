@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Controles do canto inferior direito do mural: menu de visão (zoom) e adicionar.
-/// Os atalhos de zoom ficam no menu Visualizar.
+/// Controle do canto inferior direito do mural: o menu de visão (zoom). Criar conteúdo
+/// fica na barra do centro (`CreationBar`); os atalhos de zoom, no menu Visualizar.
 struct CanvasControls: View {
     let zoom: CanvasZoomController
-    var onAdd: () -> Void
 
     private var zoomPercent: Int { Int((zoom.displayedZoom * 100).rounded()) }
 
@@ -26,19 +25,13 @@ struct CanvasControls: View {
                 .buttonStyle(.glass)
                 .help("Visão do mural (\(zoomPercent)%)")
 
-                // Ação textual e sem ambiguidade: o "+" sozinho parecia "novo mural".
-                Button("Adicionar arquivos", systemImage: "plus", action: onAdd)
-                    .labelStyle(.titleAndIcon)
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.capsule)
-                    .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
             }
         }
     }
 }
 
 #Preview {
-    CanvasControls(zoom: CanvasZoomController(), onAdd: {})
+    CanvasControls(zoom: CanvasZoomController())
         .padding(40)
         .background(Theme.canvas)
 }

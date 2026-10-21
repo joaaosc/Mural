@@ -58,7 +58,6 @@ enum PreviewImages {
         filter: nil,
         zoom: CanvasZoomController(),
         onOpen: { _ in },
-        onAdd: {},
         boardID: BoardID(),
         generation: 0
     )

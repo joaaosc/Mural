@@ -8,7 +8,6 @@ struct BoardCanvasView: View {
     let filter: BoardFilter?
     @Bindable var zoom: CanvasZoomController
     var onOpen: ([Destination]) -> Void
-    var onAdd: () -> Void
     var boardID: BoardID
     var generation: UInt64
     var onCanvasGeometryReady: (BoardID, UInt64, CanvasScrollMetrics) -> Void = { _, _, _ in }
@@ -116,7 +115,7 @@ struct BoardCanvasView: View {
                 .onEnded { zoom.pinchEnded(magnification: $0.magnification) }
         )
         .overlay(alignment: .bottomTrailing) {
-            CanvasControls(zoom: zoom, onAdd: onAdd)
+            CanvasControls(zoom: zoom)
                 .padding(18)
         }
         // O menu Visualizar só age no mural quando ele está na frente.

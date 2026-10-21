@@ -32,6 +32,15 @@ struct MuralCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: .command)
         }
+        CommandGroup(after: .newItem) {
+            Section {
+                Button("Novo card de texto", action: { actions?.newNote() })
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("Novo sticker", action: { actions?.newSticky() })
+                    .keyboardShortcut("n", modifiers: [.command, .option])
+            }
+            .disabled(!(actions?.canCreateContent ?? false))
+        }
         CommandGroup(replacing: .importExport) {
             Button("Abrir Mural…") {
                 requestOrOpenLibrary(.openMural) { $0.openMural() }

@@ -800,6 +800,57 @@ struct BoardWindowSessionTests {
         #expect(session.model?.item(id: first.id)?.text == "Editada.")
     }
 
+    @Test("Card novo abre editando; vazio ao concluir é descartado, com conteúdo fica")
+    func createCardDiscardsBlank() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Novos")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+
+        let blank = try #require(session.createCard(.text))
+        #expect(session.path == [.item(blank)])
+        #expect(session.editingItemID == blank)
+        session.finishEditing()
+        #expect(session.model?.item(id: blank) == nil)
+        #expect(session.path.isEmpty)
+
+        let kept = try #require(session.createCard(.sticky))
+        session.setNoteDraft(NoteDraft(text: "Luz quente", color: .pink), for: kept)
+        session.setNavigation(path: [], filter: nil)
+        let saved = try #require(session.model?.item(id: kept))
+        #expect(saved.text == "Luz quente")
+        #expect(saved.stickyColor == .pink)
+        #expect(saved.parentID == nil)
+
+        // Cartão que já existia não é apagado só por ficar vazio.
+        session.beginEditing(kept)
+        session.setNoteDraft(NoteDraft(text: "", color: .pink), for: kept)
+        session.finishEditing()
+        #expect(session.model?.item(id: kept) != nil)
+    }
+
+    @Test("Dentro de uma pasta, o card novo entra na pasta e abre por cima dela")
+    func createCardInsideFolder() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let state = try await library.bootstrap()
+        let session = BoardWindowSession(
+            route: .welcomeDraft(state.stableWelcomeID), registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let folder = try #require(session.model?.rootItems.first { $0.kind == .folder })
+        session.setNavigation(path: [.collection(folder.id)], filter: nil)
+
+        let note = try #require(session.createCard(.text))
+        #expect(session.model?.item(id: note)?.parentID == folder.id)
+        #expect(session.path == [.collection(folder.id), .item(note)])
+        session.setNoteDraft(NoteDraft(title: "Na pasta", text: "Corpo."), for: note)
+        session.setNavigation(path: [.collection(folder.id)], filter: nil)
+        #expect(session.model?.children(of: folder.id).contains { $0.id == note } == true)
+    }
+
     @Test("Exclusão remove path e reading position canônicos")
     func deletionPrunesWorkspaceState() async throws {
         let directory = try root()
