@@ -14,6 +14,9 @@
     {
       "kind": "local",
       "path": "Packages/MuralKit",
+    }, {
+      "kind": "local",
+      "path": "../Workbench/StretchText",
     },
   ],
   "files": [
@@ -51,6 +54,14 @@
         {
           "package": "MuralKit",
           "product-name": "MuralKit",
+          "build-phase": { "build-phase": "frameworks" },
+        }, {
+          "package": "StretchText",
+          "product-name": "StretchText",
+          "build-phase": { "build-phase": "frameworks" },
+        }, {
+          "package": "StretchText",
+          "product-name": "StretchTextUI",
           "build-phase": { "build-phase": "frameworks" },
         },
       ],

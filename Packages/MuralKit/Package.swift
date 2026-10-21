@@ -8,9 +8,17 @@ let package = Package(
     products: [
         .library(name: "MuralKit", targets: ["MuralKit"])
     ],
+    dependencies: [
+        // Pacote irmão, desenvolvido junto: ~/Projects/Workbench/StretchText.
+        .package(path: "../../../Workbench/StretchText")
+    ],
     targets: [
         .target(
             name: "MuralKit",
+            dependencies: [
+                .product(name: "StretchText", package: "StretchText"),
+                .product(name: "StretchTextGeneration", package: "StretchText"),
+            ],
             swiftSettings: [.enableUpcomingFeature("ApproachableConcurrency")],
         ),
         .testTarget(
