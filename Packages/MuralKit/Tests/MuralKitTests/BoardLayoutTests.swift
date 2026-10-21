@@ -37,4 +37,14 @@ struct BoardLayoutTests {
         #expect(BoardLayout.aspectRatio(for: photo) == 1600.0 / 900.0)
         #expect(BoardLayout.aspectRatio(for: BoardItem(kind: .sticky, title: "p")) == 1.25)
     }
+
+    @Test("Link tem tamanho e proporção próprios")
+    func linkSizeAndAspectRatio() {
+        let size = BoardLayout.cardSize(for: .link)
+        #expect(size.width == 150 && size.height == 170)
+        #expect(BoardLayout.aspectRatio(for: BoardItem(kind: .link, title: "apple.com")) == 0.85)
+        let link = BoardItem(kind: .link, title: "apple.com", position: BoardPoint(x: 100, y: 50))
+        let extent = BoardLayout.extent(of: [link])
+        #expect(extent.width == 100 + size.width && extent.height == 50 + size.height)
+    }
 }

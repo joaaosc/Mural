@@ -13,7 +13,7 @@ public final class BoardModel {
         case deferred
     }
 
-    public private(set) var board: Board
+    public internal(set) var board: Board
     /// Última falha a mostrar ao usuário (importação, gravação, arquivo corrompido).
     public var lastError: String?
     /// Verdadeiro quando o mural salvo não pôde ser lido nem guardado à parte: nada é
@@ -425,7 +425,7 @@ public final class BoardModel {
     }
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.
-    private func insert(_ item: BoardItem) -> BoardItem {
+    func insert(_ item: BoardItem) -> BoardItem {
         var placed = item
         if placed.parentID == nil {
             placed.position = BoardLayout.freePosition(for: placed.kind, avoiding: board.rootItems)
@@ -434,7 +434,7 @@ public final class BoardModel {
         return placed
     }
 
-    private func persist() {
+    func persist() {
         guard persistence == .immediate, !isPersistenceSuspended else { return }
         do {
             try store.save(board)

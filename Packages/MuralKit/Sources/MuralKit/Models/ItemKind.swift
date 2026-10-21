@@ -12,6 +12,8 @@ public enum ItemKind: String, Codable, Sendable, CaseIterable {
     case checklist
     /// Post-it: texto curto sobre fundo colorido.
     case sticky
+    /// Endereço da web, com prévia buscada da própria página.
+    case link
     /// Pasta que agrupa outros cartões (uma coleção).
     case folder
 
@@ -19,7 +21,7 @@ public enum ItemKind: String, Codable, Sendable, CaseIterable {
     public var storesFile: Bool {
         switch self {
         case .image, .video, .pdf: true
-        case .text, .checklist, .sticky, .folder: false
+        case .text, .checklist, .sticky, .link, .folder: false
         }
     }
 }

@@ -11,6 +11,7 @@ extension ItemKind {
         case .text: ("nota", "notas")
         case .checklist: ("lista", "listas")
         case .sticky: ("post-it", "post-its")
+        case .link: ("link", "links")
         case .folder: ("pasta", "pastas")
         }
     }

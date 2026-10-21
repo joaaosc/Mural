@@ -11,6 +11,7 @@ extension ItemKind {
         case .video: "Vídeo"
         case .pdf: "PDF"
         case .folder: "Pasta"
+        case .link: "Link"
         }
     }
 
@@ -24,6 +25,7 @@ extension ItemKind {
         case .video: "film"
         case .pdf: "richtext.page"
         case .folder: "folder"
+        case .link: "link"
         }
     }
 }

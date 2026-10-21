@@ -14,6 +14,9 @@ struct CardView: View {
             StickyCard(text: item.displayText, color: item.stickyColor)
         case .checklist:
             ChecklistCard(document: item.checklistDocument)
+        case .link:
+            // Provisório: o cartão visual de link vem numa etapa seguinte.
+            PaperCard(title: item.title, summary: nil)
         case .image, .video, .pdf:
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
         case .folder:

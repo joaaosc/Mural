@@ -39,11 +39,20 @@ struct ItemDetailView: View {
             PDFDetailView(itemID: item.id, url: model.fileURL(for: item), session: session)
         case .text, .sticky:
             TextDetailView(item: item, session: session)
+        case .link:
+            TextDetailView(item: linkShownAsText, session: session)
         case .checklist:
             ChecklistDetailView(item: item, model: model, session: session)
         case .folder:
             EmptyView()
         }
+    }
+
+    /// Provisório: até existir o detalhe de link, a tela de texto mostra o endereço como corpo.
+    private var linkShownAsText: BoardItem {
+        var shown = item
+        shown.text = item.link?.url.absoluteString
+        return shown
     }
 
     private var actions: [PillAction] {

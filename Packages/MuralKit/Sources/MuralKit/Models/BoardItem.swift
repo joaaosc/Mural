@@ -23,6 +23,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var tag: String?
     /// Frases curtas escolhidas para o texto dobrável (corpo da nota ou abertura da lista).
     public var keySentences: KeySentenceRecord?
+    /// Endereço e prévia da página, quando `kind == .link`.
+    public var link: LinkInfo?
 
     public init(
         id: UUID = UUID(),
@@ -37,7 +39,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         stickyColor: StickyColor? = nil,
         imageMetadata: ImageMetadata? = nil,
         tag: String? = nil,
-        keySentences: KeySentenceRecord? = nil
+        keySentences: KeySentenceRecord? = nil,
+        link: LinkInfo? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -52,6 +55,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.imageMetadata = imageMetadata
         self.tag = tag
         self.keySentences = keySentences
+        self.link = link
     }
 }
 
