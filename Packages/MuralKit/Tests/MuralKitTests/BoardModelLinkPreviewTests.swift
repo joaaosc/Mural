@@ -40,11 +40,11 @@ struct BoardModelLinkPreviewTests {
 
     private func ready(
         _ id: UUID, title: String? = nil, site: String? = nil, summary: String? = nil, image: String? = nil, imageFile: String? = nil,
-        iconFile: String? = nil, at date: Date = noon
+        iconFile: String? = nil, replaces: Bool = false, at date: Date = noon
     ) -> LinkPreviewUpdate {
         LinkPreviewUpdate(
             itemID: id, pageTitle: title, siteName: site, summary: summary, remoteImageURL: image.flatMap { URL(string: $0) },
-            previewImageFile: imageFile, iconFile: iconFile, state: .ready(fetchedAt: date))
+            previewImageFile: imageFile, iconFile: iconFile, replacesContent: replaces, state: .ready(fetchedAt: date))
     }
 
     // MARK: Sucesso
@@ -183,6 +183,78 @@ struct BoardModelLinkPreviewTests {
 
         model.applyLinkPreviews([ready(card.id, imageFile: nil, iconFile: "icone-2.png")])
         #expect(try link(model, card.id).previewImageFile == "capa-2.jpg" && link(model, card.id).iconFile == "icone-2.png")
+    }
+
+    @Test("Numa atualização pedida pela pessoa, o resumo e a imagem remota novos trocam os que vieram do Safari")
+    func replacingUpdateOverwritesSummaryAndRemoteImage() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let card = try addLink(model, "https://apple.com/mac", summary: "Resumo do Safari", image: "https://safari.example/capa.jpg")
+
+        model.applyLinkPreviews([
+            ready(
+                card.id, title: "Mac", site: "Apple", summary: "  Resumo da página  ", image: "https://pagina.example/og.jpg",
+                imageFile: "nova.jpg", replaces: true)
+        ])
+
+        let info = try link(model, card.id)
+        #expect(info.summary == "Resumo da página")
+        #expect(info.remoteImageURL?.absoluteString == "https://pagina.example/og.jpg")
+        #expect(info.pageTitle == "Mac" && info.siteName == "Apple" && info.previewImageFile == "nova.jpg")
+    }
+
+    @Test("Mesmo substituindo, o que veio vazio ou inválido nunca apaga o que o cartão já tem")
+    func replacingUpdateNeverErasesWithEmptyValues() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let card = try addLink(model, "https://apple.com/mac", summary: "Resumo do Safari", image: "https://safari.example/capa.jpg")
+        model.applyLinkPreviews([ready(card.id, title: "Mac", site: "Apple", imageFile: "capa.jpg")])
+
+        model.applyLinkPreviews([ready(card.id, title: " ", site: "", summary: " \n ", image: nil, replaces: true)])
+        model.applyLinkPreviews([ready(card.id, image: "ftp://cdn.example.com/capa.png", replaces: true)])
+
+        let info = try link(model, card.id)
+        #expect(info.summary == "Resumo do Safari")
+        #expect(info.remoteImageURL?.absoluteString == "https://safari.example/capa.jpg")
+        #expect(info.pageTitle == "Mac" && info.siteName == "Apple" && info.previewImageFile == "capa.jpg")
+    }
+
+    @Test("Substituir o conteúdo não renomeia um cartão que a pessoa já renomeou, mas troca o título provisório")
+    func replacingUpdateKeepsTheCardTitleRules() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let renamed = try addLink(model, "https://apple.com/mac", title: "Meu nome")
+        let provisional = try addLink(model, "https://swift.org/blog")
+
+        model.applyLinkPreviews([
+            ready(renamed.id, title: "Título da página", replaces: true), ready(provisional.id, title: "Swift Blog", replaces: true),
+        ])
+
+        #expect(model.item(id: renamed.id)?.title == "Meu nome")
+        #expect(try link(model, renamed.id).pageTitle == "Título da página")
+        #expect(model.item(id: provisional.id)?.title == "Swift Blog")
+    }
+
+    @Test("Uma falha nunca substitui nada, mesmo marcada como atualização")
+    func failureNeverReplacesContent() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let card = try addLink(model, "https://apple.com/mac", summary: "Resumo do Safari", image: "https://safari.example/capa.jpg")
+        let before = try #require(model.item(id: card.id))
+
+        model.applyLinkPreviews([
+            LinkPreviewUpdate(
+                itemID: card.id, summary: "Outro", remoteImageURL: try url("https://x.example/i.png"), replacesContent: true,
+                state: .failed(at: Self.noon, attempts: 1))
+        ])
+
+        var expected = before
+        expected.link?.preview = .failed(at: Self.noon, attempts: 1)
+        #expect(model.item(id: card.id) == expected)
     }
 
     // MARK: Falha
@@ -400,6 +472,74 @@ struct BoardModelLinkPreviewTests {
 
         #expect(model.linkPreviewRequests(for: [card.id]).isEmpty)
         #expect(model.linkPreviewRequests(for: [card.id], force: true).isEmpty)
+    }
+
+    @Test("Prévia pronta cujo arquivo de imagem ou de ícone não existe mais volta a ser pedida, mesmo sem force")
+    func readyCardWithMissingFilesIsRequested() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let now = Self.noon
+        let missingImage = try addLink(model, "https://apple.com/mac", image: "https://safari.example/capa.jpg")
+        let missingIcon = try addLink(model, "https://swift.org")
+        let missingBoth = try addLink(model, "https://example.com")
+        let allPresent = try addLink(model, "https://example.org")
+        let withoutFiles = try addLink(model, "https://example.net")
+        for card in [missingImage, missingIcon, missingBoth, allPresent, withoutFiles] {
+            try setLink(model, card.id) { $0.preview = .ready(fetchedAt: now) }
+        }
+        try setLink(model, missingImage.id) { ($0.previewImageFile, $0.iconFile) = ("sumiu.jpg", "icone-a.png") }
+        try setLink(model, missingIcon.id) { ($0.previewImageFile, $0.iconFile) = ("capa-b.jpg", "sumiu.png") }
+        try setLink(model, missingBoth.id) { ($0.previewImageFile, $0.iconFile) = ("sumiu.jpg", "sumiu.png") }
+        try setLink(model, allPresent.id) { ($0.previewImageFile, $0.iconFile) = ("capa-d.jpg", "icone-d.png") }
+        let existing: Set<String> = ["icone-a.png", "capa-b.jpg", "capa-d.jpg", "icone-d.png"]
+        let ids = [missingImage, missingIcon, missingBoth, allPresent, withoutFiles].map(\.id)
+
+        let requests = model.linkPreviewRequests(for: ids, now: now, fileExists: { existing.contains($0) })
+
+        #expect(requests.map(\.itemID) == [missingImage.id, missingIcon.id, missingBoth.id])
+        #expect(requests.allSatisfy { !$0.isRefresh && $0.previousAttempts == 0 })
+        #expect(
+            requests.first?.remoteImageURL?.absoluteString == "https://safari.example/capa.jpg", "a imagem do Safari acompanha o pedido")
+        #expect(model.linkPreviewRequests(for: ids, now: now).isEmpty, "sem a conferência dos arquivos, prévia pronta nunca é pedida")
+        #expect(model.linkPreviewRequests(for: ids, now: now, fileExists: { _ in true }).isEmpty)
+    }
+
+    @Test("A conferência dos arquivos só vale para prévia pronta: pendente e falha seguem a política")
+    func missingFilesOnlyMatterForReadyCards() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let now = Self.noon.addingTimeInterval(86_400)
+        let pending = try addLink(model, "https://apple.com")
+        let recentFailure = try addLink(model, "https://recente.example")
+        let oldFailure = try addLink(model, "https://antiga.example")
+        try setLink(model, recentFailure.id) {
+            ($0.preview, $0.previewImageFile) = (.failed(at: now.addingTimeInterval(-600), attempts: 2), "sumiu.jpg")
+        }
+        try setLink(model, oldFailure.id) {
+            ($0.preview, $0.previewImageFile) = (.failed(at: now.addingTimeInterval(-3 * 3_600), attempts: 2), "sumiu.jpg")
+        }
+        let ids = [pending, recentFailure, oldFailure].map(\.id)
+
+        let requests = model.linkPreviewRequests(for: ids, now: now, fileExists: { _ in false })
+
+        #expect(requests.map(\.itemID) == [pending.id, oldFailure.id], "falha recente espera, mesmo com o arquivo faltando")
+        #expect(requests.map(\.previousAttempts) == [0, 2])
+    }
+
+    @Test("O pedido leva isRefresh só quando vem de force")
+    func requestsCarryTheRefreshFlag() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let pending = try addLink(model, "https://apple.com")
+        let done = try addLink(model, "https://swift.org")
+        try setLink(model, done.id) { $0.preview = .ready(fetchedAt: Self.noon) }
+        let ids = [pending.id, done.id]
+
+        #expect(model.linkPreviewRequests(for: ids, now: Self.noon).map(\.isRefresh) == [false])
+        #expect(model.linkPreviewRequests(for: ids, now: Self.noon, force: true).map(\.isRefresh) == [true, true])
     }
 
     // MARK: Arquivos em uso

@@ -10,12 +10,16 @@ public struct LinkPreviewRequest: Hashable, Sendable {
     public var remoteImageURL: URL?
     /// Quantas tentativas anteriores falharam; 0 na primeira busca.
     public var previousAttempts: Int
+    /// Pedido de "Atualizar prévia": o buscador ignora `remoteImageURL`, que é a imagem de antes, e procura
+    /// a imagem de novo na própria página.
+    public var isRefresh: Bool
 
-    public init(itemID: UUID, url: URL, remoteImageURL: URL? = nil, previousAttempts: Int = 0) {
+    public init(itemID: UUID, url: URL, remoteImageURL: URL? = nil, previousAttempts: Int = 0, isRefresh: Bool = false) {
         self.itemID = itemID
         self.url = url
         self.remoteImageURL = remoteImageURL
         self.previousAttempts = previousAttempts
+        self.isRefresh = isRefresh
     }
 }
 

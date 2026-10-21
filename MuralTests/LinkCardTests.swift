@@ -74,9 +74,11 @@ struct LinkCardTests {
         // aquecido, a primeira passada do `ThumbnailView` encontra a imagem pronta. O cache pode descartar
         // imagens quando falta memória (builds e outros testes rodando), então aquece logo antes de cada
         // desenho. Se o cartão procurar a imagem noutro endereço, o teste continua falhando.
+        let imageURL = try #require(files.url(for: image))
+        let iconURL = try #require(files.url(for: icon))
         func pixel(at point: CGPoint) async throws -> RenderedPixel {
-            try await Self.warmCache(files.url(for: image), maxPixelSize: LinkCard.imageMaxPixelSize)
-            try await Self.warmCache(files.url(for: icon), maxPixelSize: LinkCard.iconMaxPixelSize)
+            try await Self.warmCache(imageURL, maxPixelSize: LinkCard.imageMaxPixelSize)
+            try await Self.warmCache(iconURL, maxPixelSize: LinkCard.iconMaxPixelSize)
             return try RenderedPixel.read(card, size: Self.size, at: point)
         }
 
@@ -94,6 +96,60 @@ struct LinkCardTests {
     func missingEnvironmentFallsBackToMonogram() throws {
         let item = Self.linkItem("https://apple.com", previewImageFile: "inexistente.jpg", iconFile: "inexistente.png")
         let pixel = try RenderedPixel.read(LinkCard(item: item), size: Self.size, at: Self.topLeft)
+        #expect(pixel.isClose(to: Self.monogramColor(host: "apple.com")), "\(pixel)")
+    }
+
+    @Test("Com a pasta de prévias presente mas sem o arquivo da imagem, o topo é o monograma e não um quadro cinza")
+    func missingImageFileFallsBackToMonogram() throws {
+        let files = Self.makeFiles()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        // A pasta existe e tem outra prévia: só o arquivo deste cartão sumiu (rascunho promovido, pacote importado).
+        let other = try files.store(imageData: Self.solidPNG(width: 200, height: 400, color: Self.imageColor), iconData: nil, for: UUID())
+        try #require(other.image != nil)
+        let item = Self.linkItem("https://apple.com", previewImageFile: "sumiu.jpg", iconFile: "sumiu.png")
+        let card = LinkCard(item: item).environment(\.linkPreviewFiles, files)
+        let expected = Self.monogramColor(host: "apple.com")
+
+        for point in [Self.topLeft, Self.topRight, CGPoint(x: 146, y: 77)] {
+            let pixel = try RenderedPixel.read(card, size: Self.size, at: point)
+            #expect(pixel.isClose(to: expected), "em \(point): \(pixel); esperado o monograma \(expected)")
+        }
+    }
+
+    @Test("Sem o arquivo do ícone, a linha do site mostra o globo, igual a um cartão que nunca teve ícone")
+    func missingIconFileFallsBackToGlobe() throws {
+        let files = Self.makeFiles()
+        defer { try? FileManager.default.removeItem(at: files.directory) }
+        let other = try files.store(imageData: nil, iconData: Self.solidPNG(width: 64, height: 64, color: Self.iconColor), for: UUID())
+        try #require(other.icon != nil)
+        let missing = LinkCard(item: Self.linkItem("https://apple.com", iconFile: "sumiu.png")).environment(\.linkPreviewFiles, files)
+        let never = LinkCard(item: Self.linkItem("https://apple.com")).environment(\.linkPreviewFiles, files)
+
+        // O quadro de 10x10 do ícone começa em (8, 86,5). Um quadro cinza de miniatura que não carregou preencheria os
+        // cantos; o globo deixa o papel à mostra. Os dois cartões têm de coincidir em toda a grade.
+        for x in stride(from: 9, through: 17, by: 2) {
+            for y in stride(from: 88, through: 96, by: 2) {
+                let point = CGPoint(x: x, y: y)
+                let missingPixel = try RenderedPixel.read(missing, size: Self.size, at: point)
+                let neverPixel = try RenderedPixel.read(never, size: Self.size, at: point)
+                #expect(missingPixel.isClose(to: neverPixel, tolerance: 0.01), "em \(point): \(missingPixel) no lugar de \(neverPixel)")
+            }
+        }
+    }
+
+    @Test("Nome de arquivo inseguro (com .. ou /) nunca mostra imagem: fica o monograma, mesmo se o arquivo existir")
+    func unsafeFileNamesFallBackToMonogram() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "MuralTests-LinkCardRoot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = LinkPreviewFiles(directory: root.appendingPathComponent("LinkPreviews", isDirectory: true))
+        try FileManager.default.createDirectory(at: files.directory, withIntermediateDirectories: true)
+        // A imagem está fora da pasta, ao alcance de um `../`.
+        try Self.solidPNG(width: 200, height: 400, color: Self.imageColor).write(to: root.appendingPathComponent("fora.png"))
+        let item = Self.linkItem("https://apple.com", previewImageFile: "../fora.png")
+        let card = LinkCard(item: item).environment(\.linkPreviewFiles, files)
+
+        let pixel = try RenderedPixel.read(card, size: Self.size, at: Self.topLeft)
         #expect(pixel.isClose(to: Self.monogramColor(host: "apple.com")), "\(pixel)")
     }
 

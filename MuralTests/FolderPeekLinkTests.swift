@@ -55,4 +55,24 @@ struct FolderPeekLinkTests {
 
         #expect(peeks.first?.fileURL == nil)
     }
+
+    @Test("A imagem de prévia só conta se o arquivo estiver na pasta de prévias")
+    func previewURLNeedsTheFile() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "MuralTests-FolderPeek-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data([0]).write(to: directory.appendingPathComponent("capa.jpg"))
+        let files = LinkPreviewFiles(directory: directory)
+
+        let stored = try link("Guardada", previewImageFile: "capa.jpg")
+        let missing = try link("Sumiu", previewImageFile: "sumiu.jpg")
+        let none = try link("Sem imagem", previewImageFile: nil)
+
+        #expect(FolderPeekItem.linkPreviewURL(of: stored, in: files) == files.existingURL(for: "capa.jpg"))
+        #expect(FolderPeekItem.linkPreviewURL(of: stored, in: files) != nil)
+        #expect(FolderPeekItem.linkPreviewURL(of: missing, in: files) == nil)
+        #expect(FolderPeekItem.linkPreviewURL(of: none, in: files) == nil)
+        #expect(FolderPeekItem.linkPreviewURL(of: stored, in: nil) == nil, "sem a pasta de prévias no ambiente")
+    }
 }

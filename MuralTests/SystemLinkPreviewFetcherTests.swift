@@ -134,23 +134,23 @@ struct SystemLinkPreviewFetcherTests {
         #expect(probe.urls.isEmpty)
     }
 
-    @Test("Se a página só existe em http, a reserva tenta o endereço original e, sem resultado, a busca falha")
-    func httpOnlyPageFallsBackToTheOriginalAddress() async throws {
+    @Test("Se a página só existe em http, a reserva recebe o endereço https, nunca o http original, e, sem resultado, a busca falha")
+    func httpOnlyPageGivesTheFallbackTheSecureAddress() async throws {
         let server = StubServer()
         server.respond("/antiga", StubServer.Reply(failure: .cannotConnectToHost))
-        let original = server.url("/antiga", scheme: "http")
+        let secure = server.url("/antiga", scheme: "https")
 
         let probe = FallbackProbe(returning: FetchedLinkPreview(title: "Título da reserva"))
         let preview = try await makeFetcher(probe).fetchPreview(for: server.request("/antiga", scheme: "http"))
         #expect(preview.title == "Título da reserva")
-        #expect(probe.urls == [original])
+        #expect(probe.urls == [secure])
 
         let emptyProbe = FallbackProbe()
         let error = await #expect(throws: URLError.self) {
             try await makeFetcher(emptyProbe).fetchPreview(for: server.request("/antiga", scheme: "http"))
         }
         #expect(error?.code == .cannotConnectToHost)
-        #expect(emptyProbe.urls == [original])
+        #expect(emptyProbe.urls == [secure])
         #expect(server.requests.allSatisfy { $0.url.scheme == "https" }, "nenhuma requisição saiu por http")
     }
 
@@ -196,6 +196,66 @@ struct SystemLinkPreviewFetcherTests {
         #expect(preview.imageData == openGraph)
         #expect(preview.remoteImageURL == server.url("/og.png"))
         #expect(server.requestedPaths.prefix(3) == ["/artigo", "/safari.png", "/og.png"])
+    }
+
+    @Test("Uma imagem do Safari que o ImageIO lê mas é minúscula (1x1) passa a vez para a og:image")
+    func uselessSafariImageGivesWayToOpenGraphImage() async throws {
+        let server = StubServer()
+        let openGraph = try TestImage.png(width: 400, height: 210)
+        server.respond("/artigo", html: StubPage.html(image: "/og.png"))
+        server.respond("/safari.png", image: try TestImage.png(width: 1, height: 1))
+        server.respond("/og.png", image: openGraph)
+
+        let preview = try await makeFetcher().fetchPreview(for: server.request("/artigo", remoteImage: "/safari.png"))
+
+        #expect(preview.imageData == openGraph)
+        #expect(preview.remoteImageURL == server.url("/og.png"), "o endereço guardado é o da imagem que ficou, não o da recusada")
+        #expect(server.requestedPaths.prefix(3) == ["/artigo", "/safari.png", "/og.png"])
+    }
+
+    @Test("A imagem de 32 px de lado menor serve; a de 31 px não")
+    func imageNeedsAtLeast32PixelsOnTheShortSide() async throws {
+        let server = StubServer()
+        let fits = try TestImage.png(width: 32, height: 600)
+        server.respond("/artigo", html: StubPage.html())
+        server.respond("/safari.png", image: fits)
+
+        let preview = try await makeFetcher().fetchPreview(for: server.request("/artigo", remoteImage: "/safari.png"))
+        #expect(preview.imageData == fits, "32 px serve")
+
+        let onlyTiny = StubServer()
+        onlyTiny.respond("/artigo", html: StubPage.html(image: "/pequena.png"))
+        onlyTiny.respond("/pequena.png", image: try TestImage.png(width: 600, height: 31))
+        let none = try await makeFetcher().fetchPreview(for: onlyTiny.request("/artigo"))
+        #expect(none.imageData == nil && none.remoteImageURL == nil, "31 px não serve")
+    }
+
+    @Test("Num pedido de atualização a imagem de antes (a do Safari) é ignorada e a og:image da página é redescoberta")
+    func refreshIgnoresTheOldRemoteImage() async throws {
+        let server = StubServer()
+        let openGraph = try TestImage.png(width: 400, height: 210)
+        server.respond("/artigo", html: StubPage.html(image: "/og.png"))
+        server.respond("/safari.png", image: try TestImage.png(width: 300, height: 200))
+        server.respond("/og.png", image: openGraph)
+
+        let preview = try await makeFetcher().fetchPreview(for: server.request("/artigo", remoteImage: "/safari.png", isRefresh: true))
+
+        #expect(preview.imageData == openGraph)
+        #expect(preview.remoteImageURL == server.url("/og.png"))
+        #expect(!server.requestedPaths.contains("/safari.png"), "a imagem de antes nem chegou a ser pedida")
+    }
+
+    @Test("Num pedido de atualização sem og:image na página, não sobra imagem: a de antes não volta")
+    func refreshWithoutOpenGraphImageHasNoImage() async throws {
+        let server = StubServer()
+        server.respond("/artigo", html: StubPage.html())
+        server.respond("/safari.png", image: try TestImage.png(width: 300, height: 200))
+
+        let preview = try await makeFetcher().fetchPreview(for: server.request("/artigo", remoteImage: "/safari.png", isRefresh: true))
+
+        #expect(preview.imageData == nil && preview.remoteImageURL == nil)
+        #expect(preview.title == "Título da página")
+        #expect(!server.requestedPaths.contains("/safari.png"))
     }
 
     @Test("Uma imagem que o ImageIO não lê é ignorada e vale a seguinte")
@@ -297,6 +357,22 @@ struct SystemLinkPreviewFetcherTests {
         #expect(server.requestedPaths == ["/artigo", "/primeiro.png", "/segundo.png"])
     }
 
+    @Test("Um ícone que o ImageIO lê mas é pequeno demais (15 px) passa a vez para o seguinte; 16 px serve")
+    func tinyIconGivesWayToTheNextOne() async throws {
+        let server = StubServer()
+        let icon = try TestImage.png(width: 16, height: 64)
+        server.respond("/artigo", html: StubPage.html(icons: ["/pixel.png", "/quinze.png", "/bom.png"]))
+        server.respond("/pixel.png", image: try TestImage.png(width: 1, height: 1))
+        server.respond("/quinze.png", image: try TestImage.png(width: 64, height: 15))
+        server.respond("/bom.png", image: icon)
+        server.respond("/favicon.ico", image: try TestImage.png(width: 32, height: 32))
+
+        let preview = try await makeFetcher().fetchPreview(for: server.request("/artigo"))
+
+        #expect(preview.iconData == icon)
+        #expect(server.requestedPaths == ["/artigo", "/pixel.png", "/quinze.png", "/bom.png"], "o /favicon.ico fica de fora")
+    }
+
     @Test("Se nenhum ícone declarado serve, vale o /favicon.ico da origem")
     func faviconIsTheLastResort() async throws {
         let server = StubServer()
@@ -391,6 +467,51 @@ struct SystemLinkPreviewFetcherTests {
         let preview = try await makeFetcher(probe).fetchPreview(for: server.request("/artigo"))
 
         #expect(preview.iconData == fallbackIcon)
+    }
+
+    @Test("Imagem da reserva acima de 5 MB e ícone acima de 512 KB são descartados; o título dela fica")
+    func oversizedFallbackMediaIsDiscarded() async throws {
+        let server = StubServer()
+        server.respond("/artigo", html: StubPage.html(title: nil))
+        let probe = FallbackProbe(
+            returning: FetchedLinkPreview(
+                title: "Título da reserva", imageData: Data(count: Self.imageLimit + 1), iconData: Data(count: Self.iconLimit + 1)))
+
+        let preview = try await makeFetcher(probe).fetchPreview(for: server.request("/artigo"))
+
+        #expect(preview.title == "Título da reserva")
+        #expect(preview.imageData == nil && preview.remoteImageURL == nil)
+        #expect(preview.iconData == nil)
+    }
+
+    @Test("Imagem da reserva de exatamente 5 MB e ícone de exatamente 512 KB ainda são aceitos")
+    func fallbackMediaAtTheLimitIsAccepted() async throws {
+        let server = StubServer()
+        server.respond("/artigo", html: StubPage.html(title: nil))
+        let image = Data(count: Self.imageLimit)
+        let icon = Data(count: Self.iconLimit)
+        let probe = FallbackProbe(returning: FetchedLinkPreview(title: "Título da reserva", imageData: image, iconData: icon))
+
+        let preview = try await makeFetcher(probe).fetchPreview(for: server.request("/artigo"))
+
+        #expect(preview.imageData == image)
+        #expect(preview.iconData == icon)
+    }
+
+    @Test("A mídia grande da reserva é descartada sem tirar o ícone que a página deu")
+    func oversizedFallbackMediaKeepsThePageIcon() async throws {
+        let server = StubServer()
+        let icon = try TestImage.png(width: 64, height: 64)
+        server.respond("/artigo", html: StubPage.html(title: nil, icons: ["/icone.png"]))
+        server.respond("/icone.png", image: icon)
+        let probe = FallbackProbe(
+            returning: FetchedLinkPreview(
+                title: "Título da reserva", imageData: Data(count: Self.imageLimit + 1), iconData: Data(count: Self.iconLimit + 1)))
+
+        let preview = try await makeFetcher(probe).fetchPreview(for: server.request("/artigo"))
+
+        #expect(preview.iconData == icon)
+        #expect(preview.imageData == nil)
     }
 
     @Test("A reserva que falha não derruba o que a página deu")
@@ -527,6 +648,26 @@ struct SystemLinkPreviewFetcherTests {
         #expect((configuration.httpAdditionalHeaders?["Accept"] as? String)?.hasPrefix("text/html") == true)
     }
 
+    @Test("Sem sessão injetada, todo buscador usa a mesma sessão compartilhada, que tem a configuração padrão")
+    func defaultFetchersShareOneSession() {
+        let first = SystemLinkPreviewFetcher()
+        let second = SystemLinkPreviewFetcher()
+        #expect(first.session === second.session)
+        #expect(first.session === SystemLinkPreviewFetcher.sharedSession)
+
+        let configuration = SystemLinkPreviewFetcher.sharedSession.configuration
+        #expect(configuration.httpCookieStorage == nil && configuration.urlCredentialStorage == nil && configuration.urlCache == nil)
+        #expect(configuration.timeoutIntervalForRequest == 15 && configuration.timeoutIntervalForResource == 30)
+        #expect((configuration.httpAdditionalHeaders?["Accept"] as? String)?.hasPrefix("text/html") == true)
+    }
+
+    @Test("Uma sessão injetada continua valendo no lugar da compartilhada")
+    func injectedSessionReplacesTheSharedOne() {
+        let injected = StubURLProtocol.session()
+        #expect(SystemLinkPreviewFetcher(session: injected).session === injected)
+        #expect(SystemLinkPreviewFetcher(session: injected).session !== SystemLinkPreviewFetcher.sharedSession)
+    }
+
     @Test("Accept-Language lista até 5 idiomas, do mais ao menos preferido, e é omitido sem idiomas")
     func acceptLanguageListsTheUsersLanguages() {
         #expect(SystemLinkPreviewFetcher.acceptLanguage(for: []) == nil)
@@ -586,8 +727,12 @@ private enum StubPage {
 }
 
 extension StubServer {
-    /// Pedido de prévia para um caminho deste servidor; `remoteImage` é a imagem que o Safari entregaria.
-    fileprivate func request(_ path: String, scheme: String = "https", remoteImage: String? = nil) -> LinkPreviewRequest {
-        LinkPreviewRequest(itemID: UUID(), url: url(path, scheme: scheme), remoteImageURL: remoteImage.map { url($0) })
+    /// Pedido de prévia para um caminho deste servidor; `remoteImage` é a imagem que o Safari entregaria e
+    /// `isRefresh` marca um "Atualizar prévia".
+    fileprivate func request(
+        _ path: String, scheme: String = "https", remoteImage: String? = nil, isRefresh: Bool = false
+    ) -> LinkPreviewRequest {
+        LinkPreviewRequest(
+            itemID: UUID(), url: url(path, scheme: scheme), remoteImageURL: remoteImage.map { url($0) }, isRefresh: isRefresh)
     }
 }

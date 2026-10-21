@@ -27,9 +27,7 @@ struct CardView: View {
                 itemCount: children.count,
                 peeks: FolderPeekItem.latest(
                     children, fileURL: model.fileURL(for:),
-                    linkPreviewURL: { child in
-                        child.link?.previewImageFile.flatMap { name in linkPreviewFiles.map { $0.url(for: name) } }
-                    })
+                    linkPreviewURL: { FolderPeekItem.linkPreviewURL(of: $0, in: linkPreviewFiles) })
             )
         }
     }

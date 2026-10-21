@@ -97,10 +97,11 @@ private struct Harness {
         try? FileManager.default.removeItem(at: files.directory)
     }
 
-    func request(_ host: String, _ number: Int = 0, attempts: Int = 0, image: String? = nil) -> LinkPreviewRequest {
+    func request(_ host: String, _ number: Int = 0, attempts: Int = 0, image: String? = nil, isRefresh: Bool = false) -> LinkPreviewRequest
+    {
         LinkPreviewRequest(
             itemID: UUID(), url: URL(string: "https://\(host)/pagina-\(number)")!, remoteImageURL: image.flatMap { URL(string: $0) },
-            previousAttempts: attempts)
+            previousAttempts: attempts, isRefresh: isRefresh)
     }
 
     /// Espera a fila ficar ociosa, com prazo: um travamento vira falha do teste em vez de travar a suíte.
@@ -270,10 +271,32 @@ struct LinkPreviewQueueTests {
         #expect(update.remoteImageURL == remote)
         #expect(update.state == .ready(fetchedAt: fixedNow))
 
-        let image = try Data(contentsOf: harness.files.url(for: try #require(update.previewImageFile)))
-        let icon = try Data(contentsOf: harness.files.url(for: try #require(update.iconFile)))
+        let imageName = try #require(update.previewImageFile)
+        let iconName = try #require(update.iconFile)
+        let image = try Data(contentsOf: try #require(harness.files.url(for: imageName)))
+        let icon = try Data(contentsOf: try #require(harness.files.url(for: iconName)))
         #expect(TestImages.typeIdentifier(of: image) == "public.jpeg" && TestImages.size(of: image)?.width == 800)
         #expect(TestImages.typeIdentifier(of: icon) == "public.png" && TestImages.size(of: icon)?.width == 64)
+    }
+
+    @Test("Pedido de atualização chega ao buscador como tal e o resultado vem marcado para substituir o conteúdo")
+    func refreshRequestsProduceReplacingUpdates() async {
+        let harness = Harness()
+        defer { harness.cleanup() }
+        let refresh = harness.request("a.example.com", 1, image: "https://a.example.com/antiga.jpg", isRefresh: true)
+        let plain = harness.request("b.example.com", 2)
+        await harness.fetcher.releaseAll()
+
+        await harness.queue.enqueue([refresh, plain])
+        await harness.settle()
+
+        let started = await harness.fetcher.started
+        #expect(started.first { $0.itemID == refresh.itemID }?.isRefresh == true)
+        #expect(started.first { $0.itemID == refresh.itemID }?.remoteImageURL?.absoluteString == "https://a.example.com/antiga.jpg")
+        #expect(started.first { $0.itemID == plain.itemID }?.isRefresh == false)
+        let updates = await harness.deliveries.updates
+        #expect(updates.first { $0.itemID == refresh.itemID }?.replacesContent == true)
+        #expect(updates.first { $0.itemID == plain.itemID }?.replacesContent == false)
     }
 
     @Test("Sem imagem nem ícone, o resultado vem só com os textos e nada é gravado")

@@ -62,15 +62,16 @@ struct LinkFailureView: View {
     /// A imagem de prévia na proporção do cartão; sem ela, o ícone do site ou um globo.
     @ViewBuilder
     private var cover: some View {
-        if let name = link?.previewImageFile, let files {
+        // Arquivo de prévia que sumiu conta como ausente: cai no ícone ou no globo, nunca num quadro cinza.
+        if let name = link?.previewImageFile, let url = files?.existingURL(for: name) {
             Color.clear
                 .aspectRatio(LinkCard.imageAspectRatio, contentMode: .fit)
-                .overlay { ThumbnailView(url: files.url(for: name), kind: .image, maxPixelSize: 960) }
+                .overlay { ThumbnailView(url: url, kind: .image, maxPixelSize: 960) }
                 .clipShape(.rect(cornerRadius: Theme.mediaCorner))
                 .frame(maxWidth: 360)
                 .accessibilityHidden(true)
-        } else if let name = link?.iconFile, let files {
-            ThumbnailView(url: files.url(for: name), kind: .image, maxPixelSize: 128, contentMode: .fit)
+        } else if let name = link?.iconFile, let url = files?.existingURL(for: name) {
+            ThumbnailView(url: url, kind: .image, maxPixelSize: 128, contentMode: .fit)
                 .frame(width: 56, height: 56)
                 .clipShape(.rect(cornerRadius: 12))
                 .accessibilityHidden(true)

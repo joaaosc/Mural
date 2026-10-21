@@ -17,6 +17,18 @@ enum TestImages {
         try encode(try image(width: width, height: height, transparent: false), as: .jpeg, orientation: orientation)
     }
 
+    /// PNG em tons de cinza, de uma cor só. Comprime a quase nada e o contexto de desenho gasta 1 byte por pixel,
+    /// então serve para imagens de dezenas de milhões de pixels.
+    static func grayPNG(width: Int, height: Int) throws -> Data {
+        let context = try #require(
+            CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.setFillColor(gray: 0.5, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return try encode(try #require(context.makeImage()), as: .png)
+    }
+
     /// Largura e altura em pixels gravadas no arquivo, sem aplicar a orientação.
     static func size(of data: Data) -> (width: Int, height: Int)? {
         guard let properties = properties(of: data), let width = properties[kCGImagePropertyPixelWidth] as? Int,

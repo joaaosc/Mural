@@ -68,21 +68,35 @@ extension BoardModel {
     /// Pedidos de prévia para os cartões de link indicados, na ordem recebida e sem repetir cartão.
     ///
     /// Ficam de fora ids que não existem, cartões de outro tipo e os que `LinkPreviewPolicy.shouldFetch`
-    /// manda esperar (prévia pronta ou falha recente). Com `force` entram todos os cartões de link, como
-    /// ao pedir para atualizar a prévia. `previousAttempts` vem do estado `.failed` do cartão.
-    public func linkPreviewRequests(for itemIDs: [UUID], now: Date = .now, force: Bool = false) -> [LinkPreviewRequest] {
+    /// manda esperar (prévia pronta ou falha recente). Um cartão com prévia pronta volta para a lista se
+    /// algum arquivo dele (imagem ou ícone) não existir mais, o que acontece quando a pasta das prévias não
+    /// acompanha o mural (rascunho promovido, pacote portátil importado). Com `force` entram todos os cartões
+    /// de link, como ao pedir para atualizar a prévia, e o pedido leva `isRefresh`. `previousAttempts` vem do
+    /// estado `.failed` do cartão.
+    /// - Parameter fileExists: diz se existe o arquivo de prévia com esse nome. Por padrão tudo existe, o que
+    ///   desliga a conferência dos arquivos.
+    public func linkPreviewRequests(
+        for itemIDs: [UUID], now: Date = .now, force: Bool = false, fileExists: (String) -> Bool = { _ in true }
+    ) -> [LinkPreviewRequest] {
         var seen = Set<UUID>()
         var requests: [LinkPreviewRequest] = []
         for id in itemIDs where seen.insert(id).inserted {
             guard let item = board.item(id: id), item.kind == .link, let link = item.link, WebLink.isWeb(link.url),
-                force || LinkPreviewPolicy.shouldFetch(link.preview, now: now)
+                force || LinkPreviewPolicy.shouldFetch(link.preview, now: now) || Self.hasMissingFile(link, fileExists: fileExists)
             else { continue }
             var attempts = 0
             if case .failed(_, let count) = link.preview { attempts = count }
             requests.append(
-                LinkPreviewRequest(itemID: id, url: link.url, remoteImageURL: link.remoteImageURL, previousAttempts: attempts))
+                LinkPreviewRequest(
+                    itemID: id, url: link.url, remoteImageURL: link.remoteImageURL, previousAttempts: attempts, isRefresh: force))
         }
         return requests
+    }
+
+    /// Prévia pronta cujo arquivo de imagem ou de ícone não existe mais.
+    private static func hasMissingFile(_ link: LinkInfo, fileExists: (String) -> Bool) -> Bool {
+        guard case .ready = link.preview else { return false }
+        return [link.previewImageFile, link.iconFile].compactMap { $0 }.contains { !fileExists($0) }
     }
 
     /// Aplica os resultados das buscas de prévia aos cartões de link e grava uma vez se algo mudou.
@@ -90,9 +104,10 @@ extension BoardModel {
     /// Resultados de cartões apagados ou que não são de link são ignorados. Numa busca bem-sucedida
     /// (`.ready`) o título da página, o nome do site e os arquivos novos substituem os antigos, mas um valor
     /// vazio nunca apaga o que já existe. O resumo e a imagem remota só entram se o cartão ainda não tiver
-    /// um, porque o que veio do Safari ao copiar tem prioridade. O título do cartão só vira o título da
-    /// página enquanto for o provisório (o host do endereço); depois de renomeado, não é mexido.
-    /// Numa falha (`.failed`) só o estado muda.
+    /// um, porque o que veio do Safari ao copiar tem prioridade; numa atualização pedida pela pessoa
+    /// (`LinkPreviewUpdate.replacesContent`) os novos, se não forem vazios, trocam os de antes. O título do
+    /// cartão só vira o título da página enquanto for o provisório (o host do endereço); depois de
+    /// renomeado, não é mexido. Numa falha (`.failed`) só o estado muda.
     public func applyLinkPreviews(_ updates: [LinkPreviewUpdate]) {
         guard !updates.isEmpty else { return }
         var updated = board
@@ -131,8 +146,10 @@ extension BoardModel {
             if item.title == WebLink.displayHost(of: link.url) { item.title = pageTitle }
         }
         if let siteName = nonBlank(update.siteName) { link.siteName = siteName }
-        if nonBlank(link.summary) == nil, let summary = nonBlank(update.summary) { link.summary = summary }
-        if link.remoteImageURL == nil, let imageURL = update.remoteImageURL, WebLink.isWeb(imageURL) { link.remoteImageURL = imageURL }
+        if update.replacesContent || nonBlank(link.summary) == nil, let summary = nonBlank(update.summary) { link.summary = summary }
+        if update.replacesContent || link.remoteImageURL == nil, let imageURL = update.remoteImageURL, WebLink.isWeb(imageURL) {
+            link.remoteImageURL = imageURL
+        }
         if let file = update.previewImageFile { link.previewImageFile = file }
         if let file = update.iconFile { link.iconFile = file }
         item.link = link

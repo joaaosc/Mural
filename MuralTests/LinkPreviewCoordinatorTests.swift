@@ -28,8 +28,8 @@ struct LinkPreviewCoordinatorTests {
         #expect(link.summary == "Resumo buscado")
         let image = try #require(link.previewImageFile)
         let icon = try #require(link.iconFile)
-        #expect(FileManager.default.fileExists(atPath: harness.files.url(for: image).path))
-        #expect(FileManager.default.fileExists(atPath: harness.files.url(for: icon).path))
+        #expect(harness.exists(image))
+        #expect(harness.exists(icon))
         #expect(await harness.fetcher.requests.map(\.itemID) == [harness.linkID])
 
         let saved = try #require(try BoardStore(directory: harness.storeDirectory).load())
@@ -58,12 +58,53 @@ struct LinkPreviewCoordinatorTests {
         await coordinator.waitUntilIdle()
 
         #expect(await harness.fetcher.requests.count == 2, "com force a prévia é buscada de novo")
+        #expect(await harness.fetcher.requests.map(\.isRefresh) == [false, true], "só o pedido forçado é uma atualização")
         let second = try harness.link()
         let secondImage = try #require(second.previewImageFile)
         let secondIcon = try #require(second.iconFile)
         #expect(secondImage != firstImage && secondIcon != firstIcon)
         #expect(harness.exists(secondImage) && harness.exists(secondIcon), "os arquivos em uso ficam")
         #expect(!harness.exists(firstImage) && !harness.exists(firstIcon), "os antigos e sem uso são apagados")
+    }
+
+    @Test("Prévia pronta cujos arquivos não estão na pasta é buscada de novo sem force; com os arquivos no lugar, não")
+    func readyCardWithMissingFilesIsFetchedAgain() async throws {
+        let link = LinkInfo(
+            url: URL(string: "https://exemplo.com/artigo")!, previewImageFile: "sumiu.jpg", iconFile: "sumiu.png",
+            preview: .ready(fetchedAt: .now))
+        let harness = try Harness(link: link)
+        defer { harness.tearDown() }
+        let coordinator = harness.makeCoordinator()
+
+        coordinator.request([harness.linkID])
+        await coordinator.waitUntilIdle()
+
+        #expect(await harness.fetcher.requests.count == 1, "os arquivos do cartão não existem: a prévia é buscada de novo")
+        #expect(await harness.fetcher.requests.map(\.isRefresh) == [false], "não é uma atualização pedida pela pessoa")
+        let refreshed = try harness.link()
+        let image = try #require(refreshed.previewImageFile)
+        let icon = try #require(refreshed.iconFile)
+        #expect(image != "sumiu.jpg" && icon != "sumiu.png")
+        #expect(harness.exists(image) && harness.exists(icon))
+
+        coordinator.request([harness.linkID])
+        await coordinator.waitUntilIdle()
+        #expect(await harness.fetcher.requests.count == 1, "agora os arquivos existem: nada a buscar")
+    }
+
+    @Test("Prévia pronta com um nome de arquivo inseguro também volta para a fila e ganha arquivos novos")
+    func readyCardWithUnsafeFileNameIsFetchedAgain() async throws {
+        let link = LinkInfo(
+            url: URL(string: "https://exemplo.com/artigo")!, previewImageFile: "../fora.jpg", preview: .ready(fetchedAt: .now))
+        let harness = try Harness(link: link)
+        defer { harness.tearDown() }
+        let coordinator = harness.makeCoordinator()
+
+        coordinator.request([harness.linkID])
+        await coordinator.waitUntilIdle()
+
+        #expect(await harness.fetcher.requests.count == 1)
+        #expect(try harness.link().previewImageFile != "../fora.jpg")
     }
 
     @Test("A varredura do começo apaga só o arquivo antigo e sem uso")
@@ -75,7 +116,7 @@ struct LinkPreviewCoordinatorTests {
         defer { harness.tearDown() }
         try FileManager.default.createDirectory(at: harness.files.directory, withIntermediateDirectories: true)
         for name in ["antigo-sem-uso.jpg", "antigo-em-uso.jpg", "novo-sem-uso.jpg"] {
-            try Data("arquivo".utf8).write(to: harness.files.url(for: name))
+            try Data("arquivo".utf8).write(to: harness.files.directory.appendingPathComponent(name))
         }
         try harness.age("antigo-sem-uso.jpg", by: 2 * Self.oneHour)
         try harness.age("antigo-em-uso.jpg", by: 2 * Self.oneHour)
@@ -217,12 +258,13 @@ private final class Harness {
     }
 
     func exists(_ fileName: String) -> Bool {
-        FileManager.default.fileExists(atPath: files.url(for: fileName).path)
+        files.existingURL(for: fileName) != nil
     }
 
     /// Faz o arquivo parecer `seconds` mais velho.
     func age(_ fileName: String, by seconds: TimeInterval) throws {
         try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -seconds)], ofItemAtPath: files.url(for: fileName).path)
+            [.modificationDate: Date(timeIntervalSinceNow: -seconds)],
+            ofItemAtPath: files.directory.appendingPathComponent(fileName).path)
     }
 }

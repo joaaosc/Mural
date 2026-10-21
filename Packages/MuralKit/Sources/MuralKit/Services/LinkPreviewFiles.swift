@@ -18,8 +18,9 @@ public struct LinkPreviewFiles: Sendable {
     private static let minimumIconSide = 16
     private static let jpegQuality = 0.82
     /// Imagens com mais pixels que isto são recusadas sem decodificar, para uma imagem minúscula no arquivo
-    /// mas gigante na tela não esgotar a memória.
-    private static let maximumSourcePixels = 100_000_000
+    /// mas gigante na tela não esgotar a memória. A fila grava até 4 imagens ao mesmo tempo: com 40 milhões de
+    /// pixels (uns 160 MB em RGBA) o pico fica abaixo de 1 GB; com os 100 milhões de antes (uns 400 MB), passava de 1,5 GB.
+    private static let maximumSourcePixels = 40_000_000
 
     public let directory: URL
 
@@ -27,9 +28,34 @@ public struct LinkPreviewFiles: Sendable {
         self.directory = directory
     }
 
-    /// Endereço do arquivo com esse nome dentro da pasta.
-    public func url(for fileName: String) -> URL {
-        directory.appendingPathComponent(fileName, isDirectory: false)
+    /// Endereço do arquivo com esse nome dentro da pasta; `nil` se o nome não for seguro.
+    ///
+    /// Os nomes vêm do `board.json`, que pode ter vindo de um pacote importado, então só vale um nome simples,
+    /// que não saia da pasta: ficam de fora o nome vazio, o que contém `/`, `\` ou `..` e o que começa por `.`.
+    public func url(for fileName: String) -> URL? {
+        Self.isSafeFileName(fileName) ? fileURL(named: fileName) : nil
+    }
+
+    /// Endereço do arquivo com esse nome, se o nome for seguro (ver `url(for:)`) e o arquivo existir na pasta.
+    ///
+    /// Um nome que aponta para uma subpasta não conta. Serve para mostrar a imagem só quando ela está lá: a
+    /// pasta das prévias de um mural pode não acompanhá-lo (rascunho promovido, pacote importado).
+    public func existingURL(for fileName: String) -> URL? {
+        guard let url = url(for: fileName) else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { return nil }
+        return url
+    }
+
+    /// Os dados são uma imagem que `store(imageData:iconData:for:)` aceitaria como imagem de prévia: um formato
+    /// que o ImageIO lê, com lado menor de 32 px ou mais e até 40 milhões de pixels. Só o cabeçalho é lido.
+    public static func canStoreImage(_ data: Data) -> Bool {
+        acceptedSource(of: data, minimumSide: minimumImageSide) != nil
+    }
+
+    /// O mesmo para o ícone, cujo lado menor mínimo é 16 px.
+    public static func canStoreIcon(_ data: Data) -> Bool {
+        acceptedSource(of: data, minimumSide: minimumIconSide) != nil
     }
 
     /// Reduz e grava a imagem de prévia e o ícone de um cartão, criando a pasta se faltar.
@@ -53,12 +79,12 @@ public struct LinkPreviewFiles: Sendable {
         var names: (image: String?, icon: String?) = (nil, nil)
         if let image {
             let name = uniqueName(itemID: itemID, kind: "", fileExtension: image.fileExtension)
-            try image.data.write(to: url(for: name), options: .atomic)
+            try image.data.write(to: fileURL(named: name), options: .atomic)
             names.image = name
         }
         if let icon {
             let name = uniqueName(itemID: itemID, kind: "icon-", fileExtension: icon.fileExtension)
-            try icon.data.write(to: url(for: name), options: .atomic)
+            try icon.data.write(to: fileURL(named: name), options: .atomic)
             names.icon = name
         }
         return names
@@ -93,22 +119,31 @@ public struct LinkPreviewFiles: Sendable {
 
     // MARK: Nomes
 
+    /// Endereço de um arquivo da pasta sem conferir o nome: só para os nomes que esta própria estrutura gera.
+    private func fileURL(named name: String) -> URL {
+        directory.appendingPathComponent(name, isDirectory: false)
+    }
+
+    /// Nome simples de arquivo: não vazio, sem `/`, `\` nem `..` e sem começar por `.`.
+    private static func isSafeFileName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains("\\") && !name.contains("..")
+    }
+
     /// `<itemID>-<8 hex>` com o `kind` entre os dois; se o nome já existir, sorteia de novo.
     private func uniqueName(itemID: UUID, kind: String, fileExtension: String) -> String {
         var name = ""
         for _ in 0..<16 {
             name = "\(itemID.uuidString)-\(kind)\(UUID().uuidString.prefix(8)).\(fileExtension)"
-            if !FileManager.default.fileExists(atPath: url(for: name).path) { break }
+            if !FileManager.default.fileExists(atPath: fileURL(named: name).path) { break }
         }
         return name
     }
 
     // MARK: Imagem
 
-    /// Reduz a imagem e a codifica; `nil` se os dados não forem uma imagem aceita.
-    private static func reduced(
-        _ data: Data, maximumSide: Int, minimumSide: Int, allowsJPEG: Bool
-    ) -> (data: Data, fileExtension: String)? {
+    /// A origem da imagem, se o cabeçalho a aceita: lado menor de ao menos `minimumSide` e até o teto de pixels.
+    /// Não decodifica os pixels.
+    private static func acceptedSource(of data: Data, minimumSide: Int) -> CGImageSource? {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
             CGImageSourceGetCount(source) > 0,
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -116,7 +151,14 @@ public struct LinkPreviewFiles: Sendable {
             min(width, height) >= minimumSide
         else { return nil }
         let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
-        guard !overflow, pixels <= maximumSourcePixels else { return nil }
+        return !overflow && pixels <= maximumSourcePixels ? source : nil
+    }
+
+    /// Reduz a imagem e a codifica; `nil` se os dados não forem uma imagem aceita.
+    private static func reduced(
+        _ data: Data, maximumSide: Int, minimumSide: Int, allowsJPEG: Bool
+    ) -> (data: Data, fileExtension: String)? {
+        guard let source = acceptedSource(of: data, minimumSide: minimumSide) else { return nil }
 
         // A miniatura nunca amplia: uma imagem menor que o limite sai no tamanho original.
         let options: [CFString: Any] = [

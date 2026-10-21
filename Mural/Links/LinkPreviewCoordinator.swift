@@ -52,9 +52,10 @@ final class LinkPreviewCoordinator {
     }
 
     /// Busca a prévia dos cartões de link indicados. Sem `force`, cartões com prévia pronta ou com falha
-    /// recente ficam de fora (política do domínio); com `force`, todos os cartões de link entram.
+    /// recente ficam de fora (política do domínio), exceto os de prévia pronta cujo arquivo de imagem ou de
+    /// ícone não está mais na pasta; com `force`, todos os cartões de link entram.
     func request(_ itemIDs: [UUID], force: Bool = false) {
-        let requests = model.linkPreviewRequests(for: itemIDs, force: force)
+        let requests = model.linkPreviewRequests(for: itemIDs, force: force, fileExists: { files.existingURL(for: $0) != nil })
         guard !requests.isEmpty else { return }
         perform { await $0.enqueue(requests) }
     }

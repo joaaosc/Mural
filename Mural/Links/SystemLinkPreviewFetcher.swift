@@ -1,5 +1,4 @@
 import Foundation
-import ImageIO
 import LinkPresentation
 import MuralKit
 
@@ -17,10 +16,13 @@ nonisolated enum LinkPreviewFetchError: Error, Equatable {
 /// faltar título ou imagem, pede ao LinkPresentation o que faltou.
 ///
 /// - O endereço `http` é trocado por `https`; o app não tem exceção de ATS. Se a página só existir em `http`,
-///   a busca própria falha e só a reserva ainda tenta.
+///   a busca falha: nem a reserva recebe o endereço `http`.
 /// - A página é lida até 512 KB (e só até o `</head>`), a imagem até 5 MB e o ícone até 512 KB. O que passar
-///   disso é recusado, mesmo sem `Content-Length`.
-/// - A imagem que veio com o link (a do Safari ao arrastar) vale mais que a `og:image` da página.
+///   disso é recusado, mesmo sem `Content-Length` e mesmo vindo da reserva.
+/// - Uma imagem só serve se o ImageIO a lê e ela tem tamanho de prévia (`LinkPreviewFiles.canStoreImage(_:)`);
+///   uma de 1×1 pixel do Safari, por exemplo, passa a vez para a `og:image`.
+/// - A imagem que veio com o link (a do Safari ao arrastar) vale mais que a `og:image` da página, menos num pedido
+///   de atualização (`LinkPreviewRequest.isRefresh`), que a ignora e procura a imagem de novo na página.
 /// - O `<head>` tem prioridade; a reserva só completa o que faltar.
 nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
     /// Reserva: recebe o endereço da página e devolve o que achou, ou `nil`.
@@ -38,13 +40,18 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
     private static let headEnd = Array("</head".utf8)
     private static let imageAccept = "image/*,*/*;q=0.8"
 
-    private let session: URLSession
+    /// Sessão das buscas reais: uma só para o app inteiro, porque cada janela de mural cria o seu buscador.
+    static let sharedSession = URLSession(configuration: defaultConfiguration())
+
+    /// A sessão desta instância. Fica visível para os testes conferirem que o padrão é a compartilhada.
+    let session: URLSession
     private let fallback: Fallback
 
     /// - Parameters:
-    ///   - session: sessão das buscas; os testes injetam uma com um `URLProtocol` de mentira.
+    ///   - session: sessão das buscas; por padrão a compartilhada (`sharedSession`), e os testes injetam uma com
+    ///     um `URLProtocol` de mentira.
     ///   - fallback: reserva; a padrão usa o `LinkMetadata` do LinkPresentation.
-    init(session: URLSession = URLSession(configuration: defaultConfiguration()), fallback: @escaping Fallback = systemFallback) {
+    init(session: URLSession = SystemLinkPreviewFetcher.sharedSession, fallback: @escaping Fallback = systemFallback) {
         self.session = session
         self.fallback = fallback
     }
@@ -106,8 +113,9 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
         let head = page?.head ?? HTMLHeadMetadata()
         var preview = FetchedLinkPreview(title: head.title, siteName: head.siteName, summary: head.summary)
 
-        // 2. A imagem: a do Safari, a `og:image` ou a própria página, nessa ordem.
-        var imageURLs = [request.remoteImageURL, head.imageURL].compactMap { $0 }
+        // 2. A imagem: a do Safari, a `og:image` ou a própria página, nessa ordem. Num pedido de atualização a do
+        // Safari (ou a da busca anterior) fica de fora: o que se quer é a imagem que a página tem agora.
+        var imageURLs = [request.isRefresh ? nil : request.remoteImageURL, head.imageURL].compactMap { $0 }
         var loadedImages: [URL: Data] = [:]
         if let page, let data = page.image {
             imageURLs.append(page.url)
@@ -124,10 +132,10 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
         if let page, let favicon = Self.faviconURL(for: page.url) { iconURLs.append(favicon) }
         preview.iconData = try await firstIcon(in: iconURLs)
 
-        // 4. A reserva, só se faltar título ou imagem, e só para o que faltar. Se a página abriu por `https`,
-        // a reserva recebe esse endereço; se não, o original, que pode ser `http`.
+        // 4. A reserva, só se faltar título ou imagem, e só para o que faltar. Ela só recebe o endereço `https`,
+        // nunca o `http` original, mesmo quando a página não abriu.
         if preview.title == nil || preview.imageData == nil {
-            preview = try await completing(preview, from: page == nil ? request.url : pageURL)
+            preview = try await completing(preview, from: pageURL)
         }
 
         guard preview.title != nil || preview.summary != nil || preview.imageData != nil || preview.iconData != nil else {
@@ -191,8 +199,10 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
 
     // MARK: Imagem e ícone
 
-    /// A primeira imagem que o ImageIO consegue ler: a que já foi baixada (a própria página) ou a que baixa
-    /// agora, até 5 MB. Endereços `http` viram `https` e cada endereço é tentado uma vez.
+    /// A primeira imagem que serve de prévia: a que já foi baixada (a própria página) ou a que baixa agora, até
+    /// 5 MB, e que o ImageIO lê com lado menor de 32 px ou mais e até 40 milhões de pixels. Uma imagem que o ImageIO
+    /// lê mas que a gravação recusaria (um pixel de rastreamento, por exemplo) passa a vez para a seguinte.
+    /// Endereços `http` viram `https` e cada endereço é tentado uma vez.
     private func firstImage(in urls: [URL], alreadyLoaded: [URL: Data]) async throws -> (data: Data, url: URL)? {
         var tried = Set<URL>()
         for url in urls {
@@ -201,19 +211,19 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
             try Task.checkCancellation()
             var data = alreadyLoaded[secure]
             if data == nil { data = try await downloadFile(at: secure, byteLimit: Self.imageByteLimit) }
-            if let data, Self.isReadableImage(data) { return (data, secure) }
+            if let data, LinkPreviewFiles.canStoreImage(data) { return (data, secure) }
         }
         return nil
     }
 
-    /// O primeiro ícone que baixa (até 512 KB) e que o ImageIO consegue ler.
+    /// O primeiro ícone que baixa (até 512 KB) e que serve: o ImageIO o lê, com lado menor de 16 px ou mais.
     private func firstIcon(in urls: [URL]) async throws -> Data? {
         var tried = Set<URL>()
         for url in urls {
             let secure = WebLink.secureVariant(of: url) ?? url
             guard tried.insert(secure).inserted else { continue }
             try Task.checkCancellation()
-            if let data = try await downloadFile(at: secure, byteLimit: Self.iconByteLimit), Self.isReadableImage(data) {
+            if let data = try await downloadFile(at: secure, byteLimit: Self.iconByteLimit), LinkPreviewFiles.canStoreIcon(data) {
                 return data
             }
         }
@@ -236,12 +246,6 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
         }
     }
 
-    /// O ImageIO reconhece os bytes como imagem (sem decodificar os pixels).
-    static func isReadableImage(_ data: Data) -> Bool {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
-        return CGImageSourceGetCount(source) > 0
-    }
-
     /// `/favicon.ico` na raiz da origem (esquema, host e porta) de `pageURL`.
     private static func faviconURL(for pageURL: URL) -> URL? {
         guard var components = URLComponents(url: pageURL, resolvingAgainstBaseURL: false) else { return nil }
@@ -256,7 +260,8 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
     // MARK: Reserva
 
     /// Completa a prévia com o que a reserva achou, sem trocar nada que a página já deu. Falha da reserva,
-    /// que não é cancelamento, só a deixa sem efeito.
+    /// que não é cancelamento, só a deixa sem efeito. A reserva não limita o que devolve: imagem acima de 5 MB e
+    /// ícone acima de 512 KB são descartados aqui, como seriam se viessem da rede.
     private func completing(_ preview: FetchedLinkPreview, from url: URL) async throws -> FetchedLinkPreview {
         try Task.checkCancellation()
         let extra: FetchedLinkPreview?
@@ -272,11 +277,13 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
         merged.title = merged.title ?? Self.nonBlank(extra.title)
         merged.siteName = merged.siteName ?? Self.nonBlank(extra.siteName)
         merged.summary = merged.summary ?? Self.nonBlank(extra.summary)
-        if merged.imageData == nil, let data = extra.imageData {
+        if merged.imageData == nil, let data = extra.imageData, data.count <= Self.imageByteLimit {
             merged.imageData = data
             merged.remoteImageURL = extra.remoteImageURL
         }
-        merged.iconData = merged.iconData ?? extra.iconData
+        if merged.iconData == nil, let data = extra.iconData, data.count <= Self.iconByteLimit {
+            merged.iconData = data
+        }
         return merged
     }
 

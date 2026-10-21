@@ -130,7 +130,7 @@ public actor LinkPreviewQueue {
             return LinkPreviewUpdate(
                 itemID: request.itemID, pageTitle: fetched.title, siteName: fetched.siteName, summary: fetched.summary,
                 remoteImageURL: fetched.remoteImageURL, previewImageFile: names.image, iconFile: names.icon,
-                state: .ready(fetchedAt: now()))
+                replacesContent: request.isRefresh, state: .ready(fetchedAt: now()))
         } catch {
             if error is CancellationError || Task.isCancelled { return nil }
             return LinkPreviewUpdate(itemID: request.itemID, state: .failed(at: now(), attempts: request.previousAttempts + 1))

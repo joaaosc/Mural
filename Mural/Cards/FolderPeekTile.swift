@@ -31,6 +31,15 @@ struct FolderPeekItem: Identifiable, Equatable {
     }
 }
 
+extension FolderPeekItem {
+    /// A imagem de prévia de um link, só se o arquivo estiver na pasta de prévias. Arquivo que sumiu (mural
+    /// promovido ou importado sem as prévias) não espia: o link aparece pelo título.
+    static func linkPreviewURL(of item: BoardItem, in files: LinkPreviewFiles?) -> URL? {
+        guard let name = item.link?.previewImageFile else { return nil }
+        return files?.existingURL(for: name)
+    }
+}
+
 /// Miniatura de um cartão que espia pela borda da pasta: foto, vídeo e PDF pela imagem; link pela imagem
 /// de prévia; nota, lista e link sem imagem como papelzinho com o título; post-it na própria cor.
 struct FolderPeekTile: View {

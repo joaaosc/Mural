@@ -50,7 +50,8 @@ struct LinkCard: View {
                 .fill(Theme.paper)
                 .cardShadow()
         }
-        // A política do domínio ignora prévia pronta ou falha recente, então pedir a cada aparição é barato.
+        // A política do domínio ignora prévia pronta (com os arquivos no lugar) ou falha recente, então pedir a cada
+        // aparição é barato. Com o arquivo faltando, o pedido refaz a busca e o cartão deixa de ficar no monograma.
         .task(id: PreviewTrigger(itemID: item.id, coordinator: coordinator.map(ObjectIdentifier.init))) {
             coordinator?.request([item.id])
         }
@@ -75,10 +76,11 @@ struct LinkCard: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// A imagem de prévia, se o arquivo está na pasta; sem ele (a pasta pode não acompanhar o mural), o monograma.
     @ViewBuilder
     private var coverContent: some View {
-        if let name = link?.previewImageFile, let files {
-            ThumbnailView(url: files.url(for: name), kind: .image, maxPixelSize: Self.imageMaxPixelSize)
+        if let name = link?.previewImageFile, let url = files?.existingURL(for: name) {
+            ThumbnailView(url: url, kind: .image, maxPixelSize: Self.imageMaxPixelSize)
         } else {
             monogram
         }
@@ -107,10 +109,11 @@ struct LinkCard: View {
         }
     }
 
+    /// O ícone do site, se o arquivo está na pasta; sem ele, um globo.
     @ViewBuilder
     private var siteIcon: some View {
-        if let name = link?.iconFile, let files {
-            ThumbnailView(url: files.url(for: name), kind: .image, maxPixelSize: Self.iconMaxPixelSize, contentMode: .fit)
+        if let name = link?.iconFile, let url = files?.existingURL(for: name) {
+            ThumbnailView(url: url, kind: .image, maxPixelSize: Self.iconMaxPixelSize, contentMode: .fit)
                 .frame(width: 10, height: 10)
                 .clipShape(.rect(cornerRadius: 2))
         } else {
