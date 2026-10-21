@@ -18,6 +18,7 @@ struct CardButton: View {
 
     @State private var isConfirmingDelete = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.linkPreviewCoordinator) private var linkPreviewCoordinator
 
     private var isSelected: Bool { selection?.selected.contains(item.id) ?? false }
 
@@ -70,12 +71,14 @@ struct CardButton: View {
         }
     }
 
-    /// Só para link: abrir a página no navegador e copiar o endereço.
+    /// Só para link: abrir a página no navegador, copiar o endereço e buscar a prévia de novo.
     @ViewBuilder
     private var linkMenu: some View {
         if let url = item.browserURL {
             Button("Abrir no navegador") { NSWorkspace.shared.open(url) }
             Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
+            Button("Atualizar prévia") { linkPreviewCoordinator?.request([item.id], force: true) }
+                .disabled(linkPreviewCoordinator == nil)
         }
     }
 

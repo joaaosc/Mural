@@ -353,6 +353,14 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(
             reopened.buttons["Página de teste Mural"].waitForExistence(timeout: 10),
             "o cartão de link colado deveria continuar após reabrir")
+
+        // O buscador falso dos testes de interface (sem rede) entrega o site "Exemplo", que o cartão expõe como
+        // valor de acessibilidade. Vale se a prévia da primeira abertura foi gravada e se foi buscada de novo.
+        let card = reopened.buttons["Página de teste Mural"]
+        let fetched = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Exemplo"), object: card)
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [fetched], timeout: 10), .completed,
+            "a prévia do cartão de link deveria ser buscada pelo buscador falso e mostrar o site Exemplo")
     }
 
     @MainActor

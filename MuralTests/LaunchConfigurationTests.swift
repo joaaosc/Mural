@@ -40,4 +40,13 @@ struct LaunchConfigurationTests {
             #expect(directory.path != LaunchConfiguration.linkPreviewsDirectory(for: second, arguments: arguments).path)
         }
     }
+
+    @Test("Os testes de interface usam o buscador de prévias falso, sem rede; o resto usa o do sistema")
+    func linkPreviewFetcherFollowsLaunchArguments() {
+        #expect(LaunchConfiguration.linkPreviewFetcher(arguments: []) is SystemLinkPreviewFetcher)
+        #expect(LaunchConfiguration.linkPreviewFetcher(arguments: ["-quiet"]) is SystemLinkPreviewFetcher)
+        for argument in ["-uiTesting", "-uiTestingKeep"] {
+            #expect(LaunchConfiguration.linkPreviewFetcher(arguments: ["-quiet", argument]) is FixtureLinkPreviewFetcher)
+        }
+    }
 }

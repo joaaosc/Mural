@@ -10,6 +10,7 @@ struct LinkCard: View {
     let item: BoardItem
 
     @Environment(\.linkPreviewFiles) private var files
+    @Environment(\.linkPreviewCoordinator) private var coordinator
 
     /// Proporção (largura ÷ altura) da área da imagem: a das imagens de prévia que os sites publicam.
     static let imageAspectRatio: CGFloat = 1.91
@@ -49,6 +50,17 @@ struct LinkCard: View {
                 .fill(Theme.paper)
                 .cardShadow()
         }
+        // A política do domínio ignora prévia pronta ou falha recente, então pedir a cada aparição é barato.
+        .task(id: PreviewTrigger(itemID: item.id, coordinator: coordinator.map(ObjectIdentifier.init))) {
+            coordinator?.request([item.id])
+        }
+    }
+
+    /// Refaz o pedido quando o cartão muda ou quando o coordenador passa a existir: ele é criado depois
+    /// da primeira exibição dos cartões da janela.
+    private struct PreviewTrigger: Equatable {
+        let itemID: UUID
+        let coordinator: ObjectIdentifier?
     }
 
     // MARK: Topo

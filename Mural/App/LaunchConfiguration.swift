@@ -46,4 +46,10 @@ enum LaunchConfiguration {
         guard !arguments.contains(where: testArguments.contains) else { return false }
         return environment["XCTestConfigurationFilePath"] == nil
     }
+
+    /// Quem busca as prévias dos links: nos testes de interface, um buscador falso, sem rede; no resto, o de verdade.
+    static func linkPreviewFetcher(arguments: [String] = ProcessInfo.processInfo.arguments) -> any LinkPreviewFetching {
+        if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return FixtureLinkPreviewFetcher() }
+        return SystemLinkPreviewFetcher()
+    }
 }

@@ -38,6 +38,7 @@ private struct LoadedRootView: View {
     @State private var importError: String?
     /// Texto solto colado, esperando a escolha do tipo no popup.
     @State private var pendingPaste: PendingPaste?
+    @State private var linkPreviewCoordinator: LinkPreviewCoordinator?
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -128,6 +129,7 @@ private struct LoadedRootView: View {
             }
         }
         .environment(\.linkPreviewFiles, LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)))
+        .environment(\.linkPreviewCoordinator, linkPreviewCoordinator)
         .ignoresSafeArea()
         .navigationTitle(session.title)
         .navigationSubtitle(breadcrumb)
@@ -253,6 +255,15 @@ private struct LoadedRootView: View {
         .onChange(of: session.editingItemID) { _, editingItemID in
             if editingItemID == nil { isCanvasFocused = true }
         }
+        .task {
+            // Criado uma vez só, no primeiro `.task`; os cartões de link refazem o pedido quando ele passa a existir.
+            guard linkPreviewCoordinator == nil else { return }
+            linkPreviewCoordinator = LinkPreviewCoordinator(
+                model: model,
+                files: LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)),
+                fetcher: LaunchConfiguration.linkPreviewFetcher())
+        }
+        .onDisappear { linkPreviewCoordinator?.cancelAll() }
     }
 
     // MARK: Seletor de ⌘
