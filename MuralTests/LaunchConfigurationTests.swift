@@ -49,4 +49,13 @@ struct LaunchConfigurationTests {
             #expect(LaunchConfiguration.linkPreviewFetcher(arguments: ["-quiet", argument]) is FixtureLinkPreviewFetcher)
         }
     }
+
+    @Test("A conferência manual usa a pasta de testes, mas prévias e páginas de verdade, sem apagar nada")
+    func manualTestingUsesTestLibraryWithRealPreviews() {
+        let arguments = ["-manualTesting"]
+
+        #expect(LaunchConfiguration.libraryRoot(arguments: arguments).lastPathComponent == "MuralUITests")
+        #expect(LaunchConfiguration.linkPreviewFetcher(arguments: arguments) is SystemLinkPreviewFetcher)
+        #expect(LaunchConfiguration.loadsLivePages(arguments: arguments))
+    }
 }

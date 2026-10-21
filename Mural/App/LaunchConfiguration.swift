@@ -18,11 +18,13 @@ enum LaunchConfiguration {
         return BoardStore(directory: root)
     }
 
-    /// Raiz da biblioteca: a pasta padrão do app ou, nos testes de interface, a pasta de testes.
+    /// Raiz da biblioteca: a pasta padrão do app ou, nos testes de interface e na conferência manual
+    /// (`-manualTesting`: pasta de testes, mas prévias e páginas de verdade), a pasta de testes.
     /// Só calcula o endereço, sem criar nem apagar nada.
     static func libraryRoot(arguments: [String] = ProcessInfo.processInfo.arguments) -> URL {
         let base = BoardStore.defaultDirectory()
-        guard arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") else { return base }
+        let usesTestLibrary = ["-uiTesting", "-uiTestingKeep", "-manualTesting"].contains { arguments.contains($0) }
+        guard usesTestLibrary else { return base }
         return base.deletingLastPathComponent().appendingPathComponent("MuralUITests", isDirectory: true)
     }
 
