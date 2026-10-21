@@ -24,6 +24,12 @@ public enum ContentClassifier {
         return .text
     }
 
+    /// Opções do popup de colar: a sugestão é a mesma classificação de `kind(forText:)`.
+    public static func pasteChoice(forText text: String) -> PasteChoice {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PasteChoice(suggested: kind(forText: trimmed), offersChecklist: ChecklistParser.looksLikeChecklist(trimmed))
+    }
+
     /// Título sugerido para um texto: a primeira linha, encurtada.
     public static func title(forText text: String, limit: Int = 48) -> String {
         let first = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Nota"

@@ -21,6 +21,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var imageMetadata: ImageMetadata?
     /// Etiqueta curta exibida no canto da coleção (por exemplo, "CLIENT 001").
     public var tag: String?
+    /// Frases curtas escolhidas para o texto dobrável (corpo da nota ou abertura da lista).
+    public var keySentences: KeySentenceRecord?
 
     public init(
         id: UUID = UUID(),
@@ -34,7 +36,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         checklist: ChecklistDocument? = nil,
         stickyColor: StickyColor? = nil,
         imageMetadata: ImageMetadata? = nil,
-        tag: String? = nil
+        tag: String? = nil,
+        keySentences: KeySentenceRecord? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -48,12 +51,23 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.stickyColor = stickyColor
         self.imageMetadata = imageMetadata
         self.tag = tag
+        self.keySentences = keySentences
     }
 }
 
 extension BoardItem {
     /// Texto que representa o cartão: o corpo, se houver, senão o título.
     public var displayText: String { text ?? title }
+
+    /// Nota sem título nem corpo, ou post-it sem texto: um cartão novo que ficou vazio.
+    public var isBlank: Bool {
+        let body = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        switch kind {
+        case .text: return body.isEmpty && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .sticky: return body.isEmpty
+        default: return false
+        }
+    }
 
     /// Lista do cartão; uma lista sem conteúdo vira um documento vazio com o título.
     public var checklistDocument: ChecklistDocument {

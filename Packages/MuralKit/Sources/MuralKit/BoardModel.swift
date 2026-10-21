@@ -196,6 +196,75 @@ public final class BoardModel {
         }
     }
 
+    /// Texto colado no tipo que o usuário escolheu no popup.
+    @discardableResult
+    public func importText(_ text: String, as kind: ItemKind, into parentID: UUID? = nil) -> BoardItem? {
+        guard let item = try? importer.importText(text, as: kind, parentID: parentID) else { return nil }
+        let placed = insert(item)
+        persist()
+        return placed
+    }
+
+    // MARK: Cartões de texto
+
+    /// Nota vazia, para ser escrita na página de leitura.
+    @discardableResult
+    public func createNote(into parentID: UUID? = nil) -> BoardItem {
+        let placed = insert(BoardItem(kind: .text, title: "", parentID: parentID))
+        persist()
+        return placed
+    }
+
+    /// Post-it vazio, para ser escrito na versão ampliada.
+    @discardableResult
+    public func createSticky(into parentID: UUID? = nil, color: StickyColor = .yellow) -> BoardItem {
+        let placed = insert(BoardItem(kind: .sticky, title: "", parentID: parentID, stickyColor: color))
+        persist()
+        return placed
+    }
+
+    /// Grava título e corpo (Markdown) de uma nota. Sem título, usa a primeira linha do corpo.
+    /// Corpo novo descarta as frases curtas escolhidas para o anterior.
+    public func updateNote(_ itemID: UUID, title: String, text: String) {
+        guard var item = board.item(id: itemID), item.kind == .text else { return }
+        let body = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = cleanTitle.isEmpty ? (body.map { ContentClassifier.title(forText: $0) } ?? "") : cleanTitle
+        guard item.title != resolvedTitle || item.text != body else { return }
+        if item.text != body { item.keySentences = nil }
+        item.title = resolvedTitle
+        item.text = body
+        board.update(item)
+        persist()
+    }
+
+    /// Grava texto e cor de um post-it. O título acompanha a primeira linha.
+    public func updateSticky(_ itemID: UUID, text: String, color: StickyColor) {
+        guard var item = board.item(id: itemID), item.kind == .sticky else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = trimmed.isEmpty ? nil : trimmed
+        guard item.text != body || item.stickyColor != color else { return }
+        item.text = body
+        item.title = body.map { ContentClassifier.title(forText: $0) } ?? ""
+        item.stickyColor = color
+        board.update(item)
+        persist()
+    }
+
+    /// Guarda as frases curtas escolhidas, se ainda valem para o texto atual do cartão
+    /// (ele pode ter mudado enquanto o modelo escolhia).
+    @discardableResult
+    public func setKeySentences(_ record: KeySentenceRecord, for itemID: UUID) -> Bool {
+        guard var item = board.item(id: itemID), let source = NoteFolding.source(of: item), record.matches(source) else {
+            return false
+        }
+        guard item.keySentences != record else { return true }
+        item.keySentences = record
+        board.update(item)
+        persist()
+        return true
+    }
+
     // MARK: Alterações
 
     public func toggleChecklistEntry(_ entryID: UUID, in itemID: UUID) {

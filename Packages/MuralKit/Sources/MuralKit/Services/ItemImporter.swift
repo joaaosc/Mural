@@ -62,11 +62,17 @@ public struct ItemImporter: Sendable {
         return item
     }
 
-    /// Transforma texto colado em post-it, lista ou nota.
+    /// Transforma texto colado em post-it, lista ou nota, pelo classificador.
     public func importText(_ text: String, parentID: UUID? = nil) throws -> BoardItem {
+        try importText(text, as: ContentClassifier.kind(forText: text), parentID: parentID)
+    }
+
+    /// Transforma texto no tipo escolhido: `.sticky`, `.checklist` ou `.text` (nota em
+    /// Markdown). Na nota, um título `# Assim` na primeira linha vira o título do cartão
+    /// e sai do corpo, para não aparecer duas vezes.
+    public func importText(_ text: String, as kind: ItemKind, parentID: UUID? = nil) throws -> BoardItem {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ImportError.emptyText }
-        let kind = ContentClassifier.kind(forText: trimmed)
         switch kind {
         case .checklist:
             let doc = ChecklistParser.parse(trimmed)
@@ -76,9 +82,26 @@ public struct ItemImporter: Sendable {
                 kind: .sticky, title: ContentClassifier.title(forText: trimmed), parentID: parentID, text: trimmed,
                 stickyColor: .yellow)
         default:
+            if let (title, body) = Self.leadingHeading(of: trimmed) {
+                return BoardItem(kind: .text, title: title, parentID: parentID, text: body.isEmpty ? nil : body)
+            }
             return BoardItem(
                 kind: .text, title: ContentClassifier.title(forText: trimmed), parentID: parentID, text: trimmed)
         }
+    }
+
+    /// Título `#` a `######` na primeira linha e o resto do texto, sem as linhas em branco do começo.
+    static func leadingHeading(of text: String) -> (title: String, body: String)? {
+        let lines = text.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let first = lines[0].trimmingCharacters(in: .whitespaces)
+        let level = first.prefix { $0 == "#" }.count
+        guard (1...6).contains(level), first.dropFirst(level).first?.isWhitespace == true else { return nil }
+        var title = first.dropFirst(level).trimmingCharacters(in: .whitespaces)
+        // Sequência de fechamento (`# Título ##`), como no Markdown.
+        if let closing = title.range(of: #"\s+#+$"#, options: .regularExpression) { title.removeSubrange(closing) }
+        guard !title.isEmpty else { return nil }
+        let body = lines.count > 1 ? String(lines[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        return (title, body)
     }
 
     /// Lê um arquivo de texto detectando a codificação pela marca de ordem de bytes;
