@@ -183,6 +183,13 @@ private struct LoadedRootView: View {
             return .handled
         }
         .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in
+            if case .item(let noteID)? = path.last, session.editingItemID != noteID,
+                session.model?.item(id: noteID)?.kind == .text,
+                let pieces = NoteImagePaste.read(from: .general)
+            {
+                Task { await session.appendImages(pieces, toNote: noteID) }
+                return
+            }
             // Lê agora (o conteúdo pode mudar); copia e grava fora do Main Actor.
             let content = PasteboardImporter.read()
             let folder = currentFolderID

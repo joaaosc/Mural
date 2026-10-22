@@ -609,6 +609,88 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    // MARK: Imagens coladas em notas
+
+    /// Grava uma imagem colada em `Items/`. Os testes trocam para decidir quando a gravação termina.
+    @ObservationIgnored var storeNoteImage: (NoteImagePaste.Source, BoardModel) async -> NoteAttachment? = {
+        source, model in
+        await NoteImagePaste.store(source, with: model)
+    }
+
+    /// Grava as imagens coladas e as liga à nota. Se a janela fechou ou a apresentação mudou no
+    /// meio, descarta tudo e devolve `nil` para cada imagem.
+    func prepareNoteImages(_ sources: [NoteImagePaste.Source], for itemID: UUID) async -> [NoteAttachment?] {
+        guard let model, !isClosed else { return sources.map { _ in nil } }
+        let epoch = presentationEpoch
+        var stored: [NoteAttachment?] = []
+        for source in sources {
+            stored.append(await storeNoteImage(source, model))
+        }
+        guard !isClosed, presentationEpoch == epoch else {
+            for attachment in stored.compactMap({ $0 }) { model.discardNoteImage(attachment) }
+            return sources.map { _ in nil }
+        }
+        var result: [NoteAttachment?] = []
+        for attachment in stored {
+            if let attachment, model.addNoteAttachment(attachment, to: itemID) {
+                result.append(attachment)
+            } else {
+                if let attachment { model.discardNoteImage(attachment) }
+                result.append(nil)
+            }
+        }
+        captureBoardIfNeeded()
+        if result.contains(where: { $0 == nil }) {
+            model.lastError = "A imagem colada não pôde ser lida."
+        }
+        return result
+    }
+
+    /// Troca o marcador provisório pelo Markdown final, no rascunho da nota ou, sem rascunho,
+    /// no texto gravado. Serve quando o editor fechou antes de a imagem ficar pronta.
+    func replacePendingImage(_ token: UUID, with markdown: String, in itemID: UUID) {
+        if var draft = noteDrafts[itemID] {
+            if let text = NoteImageMarkup.replacingPending(token, with: markdown, in: draft.text) {
+                draft.text = text
+                noteDrafts[itemID] = draft
+            }
+            return
+        }
+        guard let model, let item = model.item(id: itemID), item.kind == .text,
+            let text = NoteImageMarkup.replacingPending(token, with: markdown, in: item.text ?? "")
+        else { return }
+        model.updateNote(itemID, title: item.title, text: text)
+        captureBoardIfNeeded()
+    }
+
+    /// ⌘V com a página da nota aberta e sem editar: grava as imagens e acrescenta tudo ao fim do corpo.
+    func appendImages(_ pieces: [NoteImagePaste.Piece], toNote itemID: UUID) async {
+        guard let model, !isClosed, model.item(id: itemID)?.kind == .text else { return }
+        var sources: [NoteImagePaste.Source] = []
+        for case .image(let source) in pieces { sources.append(source) }
+        let attachments = await prepareNoteImages(sources, for: itemID)
+        guard !isClosed, let item = model.item(id: itemID), item.kind == .text else { return }
+        var blocks: [String] = []
+        var next = attachments.makeIterator()
+        for piece in pieces {
+            switch piece {
+            case .text(let text):
+                let trimmed = text.trimmingCharacters(in: .newlines)
+                if !trimmed.isEmpty { blocks.append(trimmed) }
+            case .image:
+                if let attachment = next.next() ?? nil {
+                    blocks.append(NoteImageMarkup.line(fileName: attachment.fileName))
+                }
+            }
+        }
+        guard !blocks.isEmpty else { return }
+        let body = item.text ?? ""
+        let addition = NoteImageMarkup.insertion(
+            of: [blocks.joined(separator: "\n\n")], after: body[...], before: "")
+        model.updateNote(itemID, title: item.title, text: body + addition)
+        captureBoardIfNeeded()
+    }
+
     // MARK: Edição de notas e post-its
 
     /// Cria um card de texto ou post-it vazio na pasta aberta (ou no mural) e abre a
