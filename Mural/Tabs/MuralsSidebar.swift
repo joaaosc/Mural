@@ -60,7 +60,7 @@ struct MuralsSidebar: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button("Novo mural", systemImage: "plus") { tabs.requestNewBoard() }
+            Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
                 .buttonStyle(.borderless)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)

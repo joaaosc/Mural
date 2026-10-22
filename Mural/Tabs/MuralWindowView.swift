@@ -100,7 +100,7 @@ struct MuralWindowView: View {
             // O vidro do sistema cobriria também o recuo sobre a barra lateral: a faixa desenha o próprio vidro.
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .primaryAction) {
-                Button("Novo mural", systemImage: "plus") { tabs.requestNewBoard() }
+                Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
                     .help("Novo mural (⌘N)")
                     .accessibilityIdentifier("new-board-button")
             }
@@ -122,7 +122,6 @@ struct MuralWindowView: View {
             isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }),
             presenting: alert
         ) { _ in
-            Button("OK", role: .cancel) {}
         } message: { alert in
             Text(alert.message)
         }

@@ -80,17 +80,15 @@ struct BoardTabButton: View {
         .background(background, in: .capsule)
         .overlay(alignment: .leading) {
             if isHovering {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 6)
-                .help("Fechar aba (⌘W)")
-                .accessibilityLabel("Fechar aba \(title)")
+                Button("Fechar aba \(title)", systemImage: "xmark", action: onClose)
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(.rect)
+                    .buttonStyle(.plain)
+                    .padding(.leading, 6)
+                    .help("Fechar aba (⌘W)")
             }
         }
         .onHover { isHovering = $0 }
