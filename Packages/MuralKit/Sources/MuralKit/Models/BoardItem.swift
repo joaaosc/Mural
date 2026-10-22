@@ -25,6 +25,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var keySentences: KeySentenceRecord?
     /// Endereço e prévia da página, quando `kind == .link`.
     public var link: LinkInfo?
+    /// Cor escolhida pela pessoa no menu do cartão, como as tags do Finder.
+    public var colorTag: TagColor?
 
     public init(
         id: UUID = UUID(),
@@ -40,7 +42,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         imageMetadata: ImageMetadata? = nil,
         tag: String? = nil,
         keySentences: KeySentenceRecord? = nil,
-        link: LinkInfo? = nil
+        link: LinkInfo? = nil,
+        colorTag: TagColor? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -56,6 +59,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.tag = tag
         self.keySentences = keySentences
         self.link = link
+        self.colorTag = colorTag
     }
 }
 

@@ -280,6 +280,17 @@ public final class BoardModel {
         persist()
     }
 
+    /// Define a cor do cartão (`nil` tira a cor). Vale para qualquer tipo de cartão.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe ou já tem essa cor.
+    @discardableResult
+    public func setColorTag(_ color: TagColor?, for itemID: UUID) -> Bool {
+        guard var item = board.item(id: itemID), item.colorTag != color else { return false }
+        item.colorTag = color
+        board.update(item)
+        persist()
+        return true
+    }
+
     /// Guarda as frases curtas escolhidas, se ainda valem para o texto atual do cartão
     /// (ele pode ter mudado enquanto o modelo escolhia).
     @discardableResult

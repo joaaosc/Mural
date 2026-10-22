@@ -78,7 +78,7 @@ struct BoardFormatVersionTests {
         }
     }
 
-    @Test("A versão exigida vem do conteúdo: 2 só com pasta dentro de pasta, e volta a 1 sem ela")
+    @Test("A versão exigida vem do conteúdo: 2 com pasta dentro de pasta, 3 com link, 4 com cor, e volta sem eles")
     func requiredVersionFollowsContent() {
         #expect(Board().formatVersion == 1)
         #expect(Board(items: items).requiredFormatVersion == 1, "pasta solta com cartão dentro é da versão 1")
@@ -93,8 +93,22 @@ struct BoardFormatVersionTests {
         #expect(loose)
         #expect(board.formatVersion == 1, "sem pasta aninhada, o mural volta a abrir nas builds da versão 1")
 
+        var colored = note
+        colored.colorTag = .green
+        board.update(colored)
+        #expect(board.formatVersion == 4, "cartão com cor exige a versão 4")
+        #expect(Board(items: board.items).formatVersion == 4)
+
+        board.update(note)
+        #expect(board.formatVersion == 1, "sem cor, o mural volta a abrir nas builds da versão 1")
+
         board.add(BoardItem(kind: .link, title: "Apple", position: BoardPoint(x: 600, y: 100)))
         #expect(board.formatVersion == 3, "cartão de link exige a versão 3")
+
+        board.update(colored)
+        #expect(board.formatVersion == 4, "link e cor juntos exigem a versão 4")
+        board.update(note)
+        #expect(board.formatVersion == 3, "sem a cor, o link continua exigindo a versão 3")
     }
 
     @Test("Chamada sem efeito deixa o mural antigo, e a versão 0, como estavam")

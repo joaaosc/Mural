@@ -6,7 +6,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// que a sua (`BoardRepositoryError.futureBoardFormat`).
     /// - 2: pasta dentro de pasta (a versão 1 só tinha pastas soltas no mural).
     /// - 3: cartão de link.
-    public static let currentFormatVersion = 3
+    /// - 4: cor nos cartões (`BoardItem.colorTag`).
+    public static let currentFormatVersion = 4
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -31,6 +32,7 @@ public struct Board: Codable, Equatable, Sendable {
         var version = 1
         if items.contains(where: { $0.kind == .folder && $0.parentID != nil }) { version = max(version, 2) }
         if items.contains(where: { $0.kind == .link }) { version = max(version, 3) }
+        if items.contains(where: { $0.colorTag != nil }) { version = max(version, 4) }
         return version
     }
 
