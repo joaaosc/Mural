@@ -440,7 +440,7 @@ final class MuralUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "o app continua aberto")
     }
 
-    /// Seletor "Mural: nome": cria o mural B, volta ao rascunho pelo seletor sem abrir outra
+    /// Seletor do mural: cria o mural B, volta ao rascunho pelo seletor sem abrir outra
     /// janela, e o conteúdo do rascunho continua no mesmo lugar.
     @MainActor
     func testSwitcherCreatesBoardAndReturnsWithoutDuplicatingWindows() throws {
@@ -466,7 +466,7 @@ final class MuralUITests: XCTestCase {
 
         // O seletor expõe o nome no título do botão de menu.
         let switcherB = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier == %@ AND title == %@", "board-switcher", "Mural: Mural B"))
+            .matching(NSPredicate(format: "identifier == %@ AND title == %@", "board-switcher", "Mural B"))
             .firstMatch
         XCTAssertTrue(switcherB.waitForExistence(timeout: 10), "o mural B deveria abrir numa janela própria")
         let windowCount = app.windows.count

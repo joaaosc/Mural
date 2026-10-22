@@ -1,7 +1,7 @@
 import MuralKit
 import SwiftUI
 
-/// Seletor "Mural: nome" da barra da janela. Lista os murais da biblioteca e o rascunho
+/// Seletor do mural na barra da janela, com o nome do mural aberto. Lista os murais da biblioteca e o rascunho
 /// de exemplo; escolher um mural já aberto traz a janela dele para a frente (uma janela
 /// por mural) e escolher outro abre a sessão restaurada dele.
 struct BoardSwitcherMenu: View {
@@ -30,7 +30,8 @@ struct BoardSwitcherMenu: View {
                 .accessibilityIdentifier("switcher-new-board")
             Button("Mostrar Todos os Murais") { openWindow(value: BoardRoute.library) }
         } label: {
-            Text("Mural: \(currentName)")
+            // Só o nome: a aba da janela já diz que é um mural. O VoiceOver continua lendo "Mural: nome".
+            Text(currentName)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
