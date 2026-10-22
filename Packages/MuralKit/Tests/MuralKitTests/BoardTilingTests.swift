@@ -33,8 +33,11 @@ struct BoardTilingTests {
 
     @Test("Dois cartões numa janela larga ficam lado a lado, com o vão entre eles")
     func twoSideBySide() throws {
-        let first = item(.text, x: 0, y: 0)
-        let second = item(.text, x: 600, y: 0)
+        // Datas explícitas: dois `Date.now` seguidos podem cair no mesmo microssegundo e empatar.
+        let first = BoardItem(
+            kind: .text, title: "", createdAt: Date(timeIntervalSince1970: 1), position: BoardPoint(x: 0, y: 0))
+        let second = BoardItem(
+            kind: .text, title: "", createdAt: Date(timeIntervalSince1970: 2), position: BoardPoint(x: 600, y: 0))
         let positions = BoardTiling.bsp([second, first], aspect: 1.6)
         let left = try #require(positions[first.id])
         let right = try #require(positions[second.id])
