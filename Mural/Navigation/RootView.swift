@@ -515,8 +515,8 @@ private struct LoadedRootView: View {
     @ViewBuilder
     private func pageBackground(for destination: Destination) -> some View {
         switch destination {
-        case .collection: Theme.canvas
-        case .item: Theme.page
+        case .collection: SurfaceFill(.collectionPage)
+        case .item: SurfaceFill(.itemPage)
         }
     }
 

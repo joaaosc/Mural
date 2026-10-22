@@ -79,7 +79,7 @@ struct BoardCanvasView: View {
         }
         .scrollPosition($scrollPosition)
         .discreetScrollIndicators([.horizontal, .vertical])
-        .background(Theme.canvas)
+        .background { SurfaceFill(.board) }
         .onScrollGeometryChange(for: CanvasScrollMetrics.self) { geometry in
             CanvasScrollMetrics(geometry)
         } action: { _, metrics in

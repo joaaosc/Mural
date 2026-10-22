@@ -47,6 +47,54 @@ enum Theme {
     }
 }
 
+/// Fundo de cada nível: o mural deixa passar um pouco do material da janela (`MuralApp`), e as
+/// páginas de pasta e de item ficam foscas sobre o mural, que aparece só como um borrão de cor.
+/// Com Reduzir Transparência, os três ficam sólidos, nas cores de `Theme.canvas` e `Theme.page`.
+/// Cartões, post-its e mídia continuam sempre opacos: são conteúdo, não fundo.
+enum Surface {
+    /// O mural, logo acima do material da janela.
+    case board
+    /// A página de uma pasta aberta, por cima do mural.
+    case collectionPage
+    /// A página de um item aberto, por cima do mural ou da pasta.
+    case itemPage
+}
+
+/// O fundo de um nível (`Surface`), já respeitando Reduzir Transparência.
+struct SurfaceFill: View {
+    let surface: Surface
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// Quanto da cor do mural cobre o material da janela: o bastante para os cartões se destacarem
+    /// de qualquer papel de parede.
+    private static let boardTint = 0.72
+    /// Quanto da cor da página cobre o material sobre o mural: o mural vira só um tom por trás.
+    private static let pageTint = 0.82
+
+    init(_ surface: Surface) {
+        self.surface = surface
+    }
+
+    var body: some View {
+        if reduceTransparency {
+            solid
+        } else {
+            switch surface {
+            case .board:
+                Theme.canvas.opacity(Self.boardTint)
+            case .collectionPage:
+                Rectangle().fill(.regularMaterial).overlay(Theme.canvas.opacity(Self.pageTint))
+            case .itemPage:
+                Rectangle().fill(.regularMaterial).overlay(Theme.page.opacity(Self.pageTint))
+            }
+        }
+    }
+
+    private var solid: Color {
+        surface == .itemPage ? Theme.page : Theme.canvas
+    }
+}
+
 extension View {
     /// Sombra suave dos cartões sobre o mural.
     func cardShadow() -> some View {

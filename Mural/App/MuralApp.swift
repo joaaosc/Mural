@@ -21,6 +21,9 @@ struct MuralApp: App {
         WindowGroup(for: BoardRoute.self) { $route in
             BoardWindowHost(route: route ?? .library, registry: registry)
                 .frame(minWidth: 760, minHeight: 500)
+                // Material do sistema atrás de tudo: dá profundidade ao mural e acompanha a janela
+                // ativa ou inativa. O mural e as páginas o cobrem em parte (`SurfaceFill`).
+                .containerBackground(Material.regular, for: .window)
                 .environment(\.muralCommandCoordinator, commandCoordinator)
         }
         .environment(\.muralCommandCoordinator, commandCoordinator)
