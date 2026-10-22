@@ -128,7 +128,9 @@ private struct LoadedRootView: View {
         }
         .environment(\.linkPreviewFiles, LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)))
         .environment(\.linkPreviewCoordinator, linkPreviewCoordinator)
-        .ignoresSafeArea()
+        // Passa por baixo da barra da janela, mas não da barra lateral: um cartão atrás dela não
+        // teria como ser clicado.
+        .ignoresSafeArea(edges: .vertical)
         .navigationTitle(session.title)
         .navigationSubtitle(breadcrumb)
         .focusedSceneValue(session.restorationPhase == .ready ? session.actions : nil)
@@ -165,6 +167,8 @@ private struct LoadedRootView: View {
         .focusEffectDisabled()
         .focused($isCanvasFocused)
         .onAppear { isCanvasFocused = true }
+        // Depois de escolher o mural na barra lateral, o teclado volta para ele (⌘V, Esc).
+        .onChange(of: tabs?.boardFocusRequest) { _, _ in isCanvasFocused = true }
         .onKeyPress(.escape) {
             if !session.currentSelection.isEmpty {
                 session.clearSelection()

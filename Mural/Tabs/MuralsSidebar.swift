@@ -1,3 +1,4 @@
+import AppKit
 import MuralKit
 import SwiftUI
 
@@ -18,6 +19,12 @@ struct MuralsSidebar: View {
             set: { route in
                 guard let route, let entry = entries.first(where: { $0.route == route }) else { return }
                 tabs.open(route, title: entry.manifest.name)
+                // O clique deixa o teclado na lista: devolve ao mural, para ⌘V e Esc agirem nele. Depois do
+                // clique terminar, senão a lista retoma o teclado ao soltar o botão.
+                DispatchQueue.main.async {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                    tabs.focusBoard()
+                }
             })
     }
 

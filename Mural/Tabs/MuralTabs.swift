@@ -74,6 +74,9 @@ final class MuralTabs {
     private(set) var resumeDraftAvailable = false
     /// Muda quando a lista de murais pode ter mudado: a barra lateral relê.
     private(set) var libraryRevision = 0
+    /// Muda quando o mural da aba ativa deve ficar com o teclado (⌘V, Esc), por exemplo depois de um
+    /// clique na barra lateral, que deixa o teclado na lista.
+    private(set) var boardFocusRequest = 0
 
     /// A janela do Mural. Uma segunda janela que apareça entrega a vez a esta.
     @ObservationIgnored private(set) weak var window: NSWindow?
@@ -197,6 +200,11 @@ final class MuralTabs {
     /// A aba que tinha a sessão (o `RootView` conhece a sessão, não a aba).
     func tabID(of session: BoardWindowSession) -> UUID? {
         tabs.first { $0.session === session }?.id
+    }
+
+    /// Devolve o teclado ao mural da aba ativa.
+    func focusBoard() {
+        boardFocusRequest &+= 1
     }
 
     /// Mural renomeado, criado ou importado: a barra lateral relê a lista.
