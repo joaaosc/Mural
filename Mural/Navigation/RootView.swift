@@ -51,6 +51,11 @@ private struct LoadedRootView: View {
         return nil
     }
 
+    /// Pasta ou cartão aberto, como subtítulo da janela (ex.: "Viagem › Hotel").
+    private var breadcrumb: String {
+        path.compactMap { model.item(id: $0.id)?.title }.joined(separator: " › ")
+    }
+
     private var navigationAnimation: Animation? {
         reduceMotion ? nil : .smooth(duration: 0.45)
     }
@@ -108,6 +113,16 @@ private struct LoadedRootView: View {
         }
         .ignoresSafeArea()
         .navigationTitle(session.title)
+        .navigationSubtitle(breadcrumb)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                BoardSwitcherMenu(
+                    currentName: session.title,
+                    currentRoute: session.route,
+                    library: session.registry.library,
+                    onNewBoard: { session.actions.newBoard() })
+            }
+        }
         .focusedSceneValue(session.restorationPhase == .ready ? session.actions : nil)
         .overlay(alignment: .topLeading) {
             FloatingToolbar(

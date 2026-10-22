@@ -1144,6 +1144,8 @@ private struct BoardLibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.muralCommandCoordinator) private var commandCoordinator
     @State private var entries: [BoardLibraryEntry] = []
+    /// Packages que não puderam ser lidos; os outros murais continuam listados.
+    @State private var unreadable: [BoardLibraryIssue] = []
     @State private var name = ""
     @State private var isCreating = false
     @State private var isPackageImporterPresented = false
@@ -1154,17 +1156,30 @@ private struct BoardLibraryView: View {
 
     var body: some View {
         NavigationStack {
-            List(entries, id: \.route) { entry in
-                Button {
-                    openWindow(value: entry.route)
-                } label: {
-                    Label(entry.manifest.name, systemImage: entry.route.isDraft ? "doc.badge.clock" : "rectangle.on.rectangle")
+            List {
+                ForEach(entries, id: \.route) { entry in
+                    Button {
+                        openWindow(value: entry.route)
+                    } label: {
+                        Label(entry.manifest.name, systemImage: entry.route.isDraft ? "doc.badge.clock" : "rectangle.on.rectangle")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(
+                        entry.route.isDraft
+                            ? "welcome-draft-entry"
+                            : "saved-board-entry-\(entry.manifest.id.rawValue.uuidString)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(
-                    entry.route.isDraft
-                        ? "welcome-draft-entry"
-                        : "saved-board-entry-\(entry.manifest.id.rawValue.uuidString)")
+                if !unreadable.isEmpty {
+                    Section {
+                        Label(
+                            unreadable.count == 1
+                                ? "1 mural não pôde ser lido" : "\(unreadable.count) murais não puderam ser lidos",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .foregroundStyle(.secondary)
+                        .help(unreadable.map { "\($0.packageName): \($0.reason)" }.joined(separator: "\n"))
+                    }
+                }
             }
             .navigationTitle("Murais")
             .toolbar {
@@ -1279,7 +1294,9 @@ private struct BoardLibraryView: View {
 
     private func refresh() async {
         do {
-            entries = try await registry.library.list()
+            let report = try await registry.library.listReport()
+            entries = report.entries
+            unreadable = report.unreadable
             actions.resumeDraftAvailable =
                 (try? await registry.library.lifecycleState())?.lifecycle == .draft
         } catch let loadError {

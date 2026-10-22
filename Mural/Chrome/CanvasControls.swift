@@ -26,10 +26,11 @@ struct CanvasControls: View {
                 .buttonStyle(.glass)
                 .help("Visão do mural (\(zoomPercent)%)")
 
+                // Ação textual e sem ambiguidade: o "+" sozinho parecia "novo mural".
                 Button("Adicionar arquivos", systemImage: "plus", action: onAdd)
-                    .labelStyle(.iconOnly)
+                    .labelStyle(.titleAndIcon)
                     .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.circle)
+                    .buttonBorderShape(.capsule)
                     .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
             }
         }

@@ -7,7 +7,7 @@ import Foundation
 /// `release`; a sessão só é aposentada quando o último dono a solta e ela está limpa.
 /// Uma sessão suja sem donos fica registrada para que a próxima janela a recupere.
 public actor BoardSessionRegistry {
-    public let library: BoardLibrary
+    public nonisolated let library: BoardLibrary
     private var sessions: [BoardID: BoardSession] = [:]
     private var opening: [BoardID: Task<BoardSession, Error>] = [:]
     private var owners: [BoardID: Int] = [:]
