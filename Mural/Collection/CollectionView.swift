@@ -21,6 +21,12 @@ struct CollectionView: View {
 
     private var children: [BoardItem] { model.children(of: folder.id) }
 
+    /// Seletor de ⌘ só quando esta pasta é o nível de cima (sem um item aberto por cima dela).
+    private var selection: CardSelection? {
+        guard let session, session.path.last == .collection(folder.id) else { return nil }
+        return CardSelection(session: session)
+    }
+
     var body: some View {
         ScrollView {
             Group {
@@ -95,7 +101,8 @@ struct CollectionView: View {
             onOpen: { onOpenItem(item.id) },
             onDelete: session?.delete,
             onMoveToBoard: session?.moveToBoard,
-            onMoveIntoFolder: session?.moveIntoFolder
+            onMoveIntoFolder: session?.moveIntoFolder,
+            selection: selection
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
         .cardEmphasis(filter?.emphasis(for: item.kind) ?? 1)

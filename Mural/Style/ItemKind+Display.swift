@@ -1,3 +1,4 @@
+import Foundation
 import MuralKit
 
 extension ItemKind {
@@ -40,5 +41,17 @@ extension ItemKind {
         case 1: "A pasta e o item dentro dela serão removidos."
         default: "A pasta e os \(childCount) itens dentro dela serão removidos."
         }
+    }
+
+    /// Aviso mostrado antes de apagar vários cartões marcados: conta o que as pastas levam junto.
+    static func deleteWarning(forSelection items: [BoardItem], childCount: (UUID) -> Int) -> String {
+        let files = "Os arquivos guardados pelo Mural serão removidos; os originais não são tocados."
+        let folders = items.filter { $0.kind == .folder }
+        guard !folders.isEmpty else { return files }
+        let inside = folders.reduce(0) { $0 + childCount($1.id) }
+        let marked = ItemKind.folder.count(folders.count)
+        guard inside > 0 else { return "Inclui \(marked) sem nada dentro. \(files)" }
+        let contents = inside == 1 ? "1 item" : "\(inside) itens"
+        return "Inclui \(marked) com \(contents) dentro, que também serão removidos. \(files)"
     }
 }

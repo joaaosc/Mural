@@ -1,9 +1,10 @@
+import AppKit
 import MuralKit
 import SwiftUI
 
 /// Cartão clicável do mural, da prévia de pasta e de dentro da pasta: abre o item,
 /// participa da transição de "crescer do cartão" e oferece Abrir, Mover e Apagar… no menu de
-/// contexto, com confirmação antes de apagar.
+/// contexto, com confirmação antes de apagar. Com o seletor de ⌘ aberto, o clique marca.
 struct CardButton: View {
     let item: BoardItem
     let model: BoardModel
@@ -12,17 +13,36 @@ struct CardButton: View {
     var onDelete: ((UUID) -> Void)? = nil
     var onMoveToBoard: ((UUID) -> Void)? = nil
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
+    /// `nil` onde não há seletor (a prévia de pasta que aparece ao passar o ponteiro).
+    var selection: CardSelection? = nil
 
     @State private var isConfirmingDelete = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var isSelected: Bool { selection?.selected.contains(item.id) ?? false }
+
     var body: some View {
         HeroSlot(id: item.id, context: hero) {
-            Button(action: onOpen) {
+            Button(action: activate) {
                 CardView(item: item, model: model)
             }
             .buttonStyle(.plain)
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: Theme.cardCorner)
+                        .strokeBorder(.tint, lineWidth: 3)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if selection?.isActive == true {
+                    SelectionBadge(isSelected: isSelected)
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+            }
             .accessibilityLabel(item.title)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
             .contextMenu {
                 Button("Abrir", action: onOpen)
                 moveMenu
@@ -36,6 +56,15 @@ struct CardButton: View {
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: model.children(of: item.id).count))
             }
+        }
+    }
+
+    /// Com o seletor aberto (ou ⌘ segurado no clique), o clique marca o cartão em vez de abrir.
+    private func activate() {
+        if let selection, selection.isActive || NSEvent.modifierFlags.contains(.command) {
+            selection.toggle(item.id)
+        } else {
+            onOpen()
         }
     }
 

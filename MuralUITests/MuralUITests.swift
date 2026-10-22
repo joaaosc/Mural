@@ -464,6 +464,35 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Viagem"].firstMatch.waitForExistence(timeout: 5), "a pasta fica no mural")
     }
 
+    /// ⌘-clique marca vários cartões; a barra do seletor apaga todos de uma vez, com confirmação.
+    @MainActor
+    func testCommandClickSelectsAndDeletesCards() throws {
+        let app = launch()
+        let first = app.buttons["Design Philosophy"].firstMatch
+        let second = app.buttons["Alpha"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(second.exists)
+
+        XCUIElement.perform(withKeyModifiers: .command) {
+            first.click()
+            second.click()
+        }
+        let bar = app.descendants(matching: .any)["selection-bar"].firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "com cartões marcados, a barra do seletor aparece")
+        XCTAssertTrue(first.isSelected, "⌘-clique marca o cartão")
+        XCTAssertTrue(second.isSelected)
+        XCTAssertFalse(app.buttons["Voltar"].exists, "⌘-clique marca, não abre")
+
+        app.buttons["Apagar…"].firstMatch.click()
+        let confirm = app.buttons["Apagar"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "apagar vários pede confirmação")
+        confirm.click()
+        XCTAssertTrue(first.waitForNonExistence(timeout: 5), "os cartões marcados saem do mural")
+        XCTAssertFalse(second.exists)
+        XCTAssertTrue(app.buttons["The Cottage"].exists, "o resto do mural continua")
+        XCTAssertFalse(bar.exists, "sem nada marcado, a barra de criação volta")
+    }
+
     /// Arrasta o elemento a partir do centro: segura um instante e solta `dx`, `dy` pontos adiante.
     @MainActor
     private func drag(_ element: XCUIElement, dx: CGFloat, dy: CGFloat) {

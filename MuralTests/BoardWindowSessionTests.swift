@@ -877,6 +877,85 @@ struct BoardWindowSessionTests {
         #expect(reloaded.model?.item(id: folderID)?.title == "Referências")
     }
 
+    @Test("Seleção apaga vários cartões do mural de uma vez; a pasta leva o conteúdo e o resto fica")
+    func deleteSelection() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Seleção")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let kept = model.createSticky()
+        let note = model.createNote()
+        let folder = model.createFolder(named: "Caixa")
+        let inside = model.createNote(into: folder.id)
+        session.captureBoardIfNeeded()
+
+        // Cartão de dentro da pasta não entra na seleção do mural.
+        session.toggleSelection(inside.id)
+        #expect(session.currentSelection.isEmpty)
+        #expect(!session.isSelecting)
+
+        session.toggleSelection(note.id)
+        session.toggleSelection(folder.id)
+        session.toggleSelection(kept.id)
+        session.toggleSelection(kept.id)
+        #expect(session.currentSelection == [note.id, folder.id])
+        #expect(session.isSelecting)
+
+        session.deleteSelection()
+        #expect(model.item(id: note.id) == nil)
+        #expect(model.item(id: folder.id) == nil)
+        #expect(model.item(id: inside.id) == nil)
+        #expect(model.item(id: kept.id) != nil)
+        #expect(!session.isSelecting)
+        await session.flushAndPrepareToLeave()
+
+        let reloaded = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        #expect(reloaded.model?.rootItems.map(\.id) == [kept.id])
+    }
+
+    @Test("Trocar de nível limpa a seleção; dentro da pasta só os cartões dela entram")
+    func selectionFollowsLevel() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Níveis")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let note = model.createNote()
+        let folder = model.createFolder(named: "Caixa")
+        let inside = model.createNote(into: folder.id)
+        session.captureBoardIfNeeded()
+
+        session.toggleSelection(note.id)
+        session.setNavigation(path: [.collection(folder.id)], filter: nil)
+        #expect(session.currentSelection.isEmpty)
+        session.toggleSelection(note.id)
+        session.toggleSelection(inside.id)
+        #expect(session.currentSelection == [inside.id])
+        session.clearSelection()
+        #expect(!session.isSelecting)
+    }
+
+    @Test("Aviso de apagar vários conta o que as pastas marcadas levam junto")
+    func selectionDeleteWarning() {
+        let note = BoardItem(kind: .text, title: "Nota")
+        let full = BoardItem(kind: .folder, title: "Cheia")
+        let empty = BoardItem(kind: .folder, title: "Vazia")
+        let children = [full.id: 3, empty.id: 0]
+        let count: (UUID) -> Int = { children[$0] ?? 0 }
+        #expect(!ItemKind.deleteWarning(forSelection: [note], childCount: count).contains("pasta"))
+        #expect(ItemKind.deleteWarning(forSelection: [note, empty], childCount: count).hasPrefix("Inclui 1 pasta sem nada dentro."))
+        #expect(
+            ItemKind.deleteWarning(forSelection: [full, empty], childCount: count)
+                .hasPrefix("Inclui 2 pastas com 3 itens dentro"))
+    }
+
     @Test("Sem o modelo ligado, nenhuma fila é criada e a nota dobra pela primeira frase")
     func sessionWithoutModel() async throws {
         let directory = try root()

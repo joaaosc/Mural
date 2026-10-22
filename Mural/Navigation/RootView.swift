@@ -1,3 +1,4 @@
+import AppKit
 import MuralKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -31,6 +32,9 @@ private struct LoadedRootView: View {
     @State private var boardNameDraft = ""
     @State private var isNewFolderPresented = false
     @State private var folderNameDraft = ""
+    @State private var isConfirmingSelectionDelete = false
+    /// Espera curta antes de abrir o seletor ao segurar ⌘: some se o ⌘ era de um atalho.
+    @State private var commandHoldTask: Task<Void, Never>?
     @State private var importError: String?
     /// Texto solto colado, esperando a escolha do tipo no popup.
     @State private var pendingPaste: PendingPaste?
@@ -73,7 +77,7 @@ private struct LoadedRootView: View {
     }
 
     var body: some View {
-        withDialogs(boardContent)
+        withDialogs(withSelection(boardContent))
     }
 
     /// O mural, os níveis abertos e o que age sobre eles. Folhas e avisos ficam em
@@ -105,7 +109,8 @@ private struct LoadedRootView: View {
                 onDelete: session.delete,
                 onMoveToBoard: session.moveToBoard,
                 onMoveIntoFolder: session.moveIntoFolder,
-                onMove: session.move
+                onMove: session.move,
+                selection: canvasSelection
             )
             .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
             .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
@@ -144,16 +149,7 @@ private struct LoadedRootView: View {
             .disabled(session.restorationPhase != .ready)
         }
         .overlay(alignment: .bottom) {
-            if session.acceptsNewContent {
-                CreationBar(
-                    onNewNote: { createCard(.text) },
-                    onNewSticky: { createCard(.sticky) },
-                    onNewFolder: newFolderAction,
-                    onAddFiles: { session.beginFileImport(folderID: currentFolderID) }
-                )
-                .padding(.bottom, 18)
-                .transition(.opacity)
-            }
+            bottomBar
         }
         .overlay {
             if session.restorationPhase != .ready {
@@ -177,6 +173,10 @@ private struct LoadedRootView: View {
         .focused($isCanvasFocused)
         .onAppear { isCanvasFocused = true }
         .onKeyPress(.escape) {
+            if !session.currentSelection.isEmpty {
+                session.clearSelection()
+                return .handled
+            }
             if session.editingItemID != nil {
                 session.finishEditing()
                 return .handled
@@ -251,6 +251,89 @@ private struct LoadedRootView: View {
         .onChange(of: session.editingItemID) { _, editingItemID in
             if editingItemID == nil { isCanvasFocused = true }
         }
+    }
+
+    // MARK: Seletor de ⌘
+
+    /// Segurar ⌘ abre o seletor; ⌫ apaga o que está marcado, com confirmação.
+    private func withSelection(_ content: some View) -> some View {
+        content
+            .onModifierKeysChanged(mask: .command, initial: false) { _, keys in
+                commandHoldTask?.cancel()
+                guard keys.contains(.command) else {
+                    session.isCommandSelecting = false
+                    return
+                }
+                // Um atalho (⌘V, ⌘W…) solta o ⌘ antes disso: o seletor não pisca a cada atalho.
+                commandHoldTask = Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    session.isCommandSelecting = true
+                }
+            }
+            // ⌘-Tab: o app perde o foco antes de o ⌘ ser solto, e a janela não vê a soltura.
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                commandHoldTask?.cancel()
+                session.isCommandSelecting = false
+            }
+            .onDeleteCommand(perform: selectionDeleteAction)
+            .confirmationDialog(selectionDeleteTitle, isPresented: $isConfirmingSelectionDelete) {
+                Button("Apagar", role: .destructive, action: deleteSelection)
+            } message: {
+                Text(selectionDeleteWarning)
+            }
+    }
+
+    /// Seletor dos cartões soltos, só com o mural na frente.
+    private var canvasSelection: CardSelection? {
+        path.isEmpty ? CardSelection(session: session) : nil
+    }
+
+    /// Barra do centro inferior: a de criação ou, com o seletor aberto, a da seleção.
+    @ViewBuilder
+    private var bottomBar: some View {
+        if session.acceptsNewContent {
+            Group {
+                if session.isSelecting {
+                    SelectionBar(
+                        count: session.currentSelection.count,
+                        onDelete: { isConfirmingSelectionDelete = true },
+                        onCancel: { session.clearSelection() })
+                } else {
+                    CreationBar(
+                        onNewNote: { createCard(.text) },
+                        onNewSticky: { createCard(.sticky) },
+                        onNewFolder: newFolderAction,
+                        onAddFiles: { session.beginFileImport(folderID: currentFolderID) })
+                }
+            }
+            .padding(.bottom, 18)
+            .transition(.opacity)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: session.isSelecting)
+        }
+    }
+
+    /// ⌫ só age com algo marcado; sem nada, o comando Apagar fica desligado.
+    private var selectionDeleteAction: (() -> Void)? {
+        guard !session.currentSelection.isEmpty else { return nil }
+        return { isConfirmingSelectionDelete = true }
+    }
+
+    private var selectionDeleteTitle: String {
+        let count = session.currentSelection.count
+        return count == 1 ? "Apagar 1 item?" : "Apagar \(count) itens?"
+    }
+
+    private var selectionDeleteWarning: String {
+        let items = session.currentSelection.compactMap { model.item(id: $0) }
+        return ItemKind.deleteWarning(forSelection: items) { model.children(of: $0).count }
+    }
+
+    private func deleteSelection() {
+        withAnimation(reduceMotion ? nil : .smooth) {
+            session.deleteSelection()
+        }
+        isCanvasFocused = true
     }
 
     /// Folhas de nome (mural e pasta) e avisos de importação.

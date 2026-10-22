@@ -92,6 +92,11 @@ final class BoardWindowSession {
     var warningMessage: String?
     /// Escolha das frases curtas pelo modelo do aparelho; `nil` quando desligada.
     private(set) var keySentences: KeySentenceCoordinator?
+    /// Cartões marcados com ⌘-clique para apagar de uma vez. Valem só no nível aberto
+    /// (mural ou pasta); trocar de nível limpa a marcação.
+    private(set) var selectedItemIDs: Set<UUID> = []
+    /// ⌘ segurado por um instante: os cartões mostram o seletor mesmo sem nada marcado.
+    var isCommandSelecting = false
     /// Nota ou post-it aberto no modo de edição.
     private(set) var editingItemID: UUID?
     private(set) var noteDrafts: [UUID: NoteDraft] = [:]
@@ -393,7 +398,9 @@ final class BoardWindowSession {
         }
         let newPath = Self.workspaceDestinations(from: path, board: model.board)
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
+        let previousPath = self.path
         self.path = Self.destinations(from: newPath, board: model.board)
+        if self.path != previousPath { selectedItemIDs = [] }
         self.filter = Self.filter(from: newFilter, path: self.path, board: model.board)
         let retainedItemIDs = Set(
             newPath.compactMap { destination -> UUID? in
@@ -954,9 +961,52 @@ final class BoardWindowSession {
         captionDrafts.removeValue(forKey: itemID)
         noteDrafts.removeValue(forKey: itemID)
         newItemIDs.remove(itemID)
+        selectedItemIDs.remove(itemID)
         if editingItemID == itemID { editingItemID = nil }
         restoringReadingItems.removeValue(forKey: itemID)
         captureBoardIfNeeded()
+    }
+
+    // MARK: Seleção
+
+    /// Cartões do nível aberto, os únicos que entram na seleção; a página de um item não tem.
+    var selectableItemIDs: Set<UUID> {
+        guard let model else { return [] }
+        switch path.last {
+        case nil: return Set(model.rootItems.map(\.id))
+        case .collection(let folderID)?: return Set(model.children(of: folderID).map(\.id))
+        case .item?: return []
+        }
+    }
+
+    /// Marcação que ainda vale: um cartão apagado ou guardado numa pasta sai sozinho.
+    var currentSelection: Set<UUID> {
+        selectedItemIDs.intersection(selectableItemIDs)
+    }
+
+    /// Seletor aberto: ⌘ segurado ou algum cartão marcado. Aberto, o clique marca em vez de abrir.
+    var isSelecting: Bool {
+        isCommandSelecting || !currentSelection.isEmpty
+    }
+
+    func toggleSelection(_ itemID: UUID) {
+        guard !isClosed, selectableItemIDs.contains(itemID) else { return }
+        if selectedItemIDs.remove(itemID) == nil {
+            selectedItemIDs.insert(itemID)
+        }
+    }
+
+    func clearSelection() {
+        selectedItemIDs = []
+    }
+
+    /// Apaga de uma vez os cartões marcados; uma pasta leva o conteúdo junto, como ao apagar um só.
+    func deleteSelection() {
+        let itemIDs = currentSelection
+        selectedItemIDs = []
+        for itemID in itemIDs {
+            delete(itemID)
+        }
     }
 
     func move(_ itemID: UUID, to position: BoardPoint) {

@@ -16,6 +16,8 @@ struct BoardCanvasView: View {
     var onMoveToBoard: ((UUID) -> Void)? = nil
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
+    /// Seletor de ⌘ dos cartões soltos; a prévia de pasta fica de fora.
+    var selection: CardSelection? = nil
 
     @State private var hoveredFolder: UUID?
     /// Pasta sob o ponteiro agora, atualizada mesmo durante um arrasto; vira o foco ao soltar.
@@ -169,7 +171,8 @@ struct BoardCanvasView: View {
             onOpen: { open(destinations) },
             onDelete: onDelete,
             onMoveToBoard: onMoveToBoard,
-            onMoveIntoFolder: onMoveIntoFolder)
+            onMoveIntoFolder: onMoveIntoFolder,
+            selection: selection)
     }
 
     /// Posição do cartão: a gravada mais o arrasto em andamento.
