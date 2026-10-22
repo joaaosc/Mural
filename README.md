@@ -18,7 +18,8 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   mesma linha dos botões da janela. Um mural fica em uma aba só; abri-lo de novo leva à aba dele.
   Trocar de aba não relê o disco, e o mural volta ao mesmo ponto.
 - **Barra lateral** (botão ao lado dos botões da janela, ⌃⌘S): todos os murais; clicar abre a aba.
-  **+** e ⌘N criam um mural novo numa aba.
+  **+** e ⌘N criam um mural novo numa aba. Com ela aberta, as abas começam depois dela, num vidro
+  só em volta delas; a barra lateral é mais encorpada que o mural, que deixa ver o fundo como vidro.
 - ⌘W fecha a aba; fechar a última fecha a janela, e o app continua aberto. Visualizar › Mostrar
   Todos os Murais (⇧⌘\) ou o Dock reabrem a janela. ⌃⇥ e ⌃⇧⇥ passam de uma aba para outra.
 - As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app.
@@ -30,8 +31,8 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
 - **Cor no menu do botão direito**, como as tags do Finder: vermelho, laranja, amarelo, verde, azul,
   roxo e cinza, uma por cartão. Tocar de novo na cor (ou em "Remover cor") tira a cor.
-- **Vários de uma vez**: com cartões marcados com ⌘, as bolinhas da barra do seletor pintam todos
-  (ou tiram a cor).
+- **Vários de uma vez**: com cartões marcados (⌘-clique ou Shift + arrastar), as bolinhas da barra do
+  seletor pintam todos (ou tiram a cor).
 - **Filtro por cor**: o botão de cor na barra de filtros destaca uma cor e esmaece o resto, junto
   com o filtro de tipo; cada nível começa sem filtro.
 - Pasta, nota e lista ficam tingidas de leve (a pasta também ganha a aba na cor cheia, e a página
@@ -66,11 +67,21 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   painel do próprio Notas já preenchido, com títulos, listas, tarefas e imagens. Cada vez cria uma
   nota nova; o Mural não lê nem atualiza notas do Notas.
 
+## Marcar vários cartões
+
+- **⌘-clique** marca ou desmarca um cartão; segurar ⌘ mostra o círculo de marcar em todos.
+- **Shift + arrastar** numa área vazia, no mural ou dentro de uma pasta, desenha um retângulo: os
+  cartões que ele cruza somam-se aos já marcados. Começado em cima de um cartão, o arrasto move o cartão.
+- A barra do seletor mostra quantos estão marcados, as cores, Apagar (⌫, com confirmação) e Cancelar
+  (Esc).
+
 ## Pastas
 
 - **Pasta dentro de pasta**, até 8 níveis: "Pasta" na barra de criação e Arquivo › Nova pasta…
   (⌃⌘N) criam a subpasta na pasta aberta. No mural, soltar uma pasta sobre outra a guarda dentro
   (só destacam as pastas que podem recebê-la).
+- **Renomear…** no menu do botão direito da pasta (no mural ou dentro de outra pasta) abre uma folha
+  com o nome atual.
 - O menu do botão direito tem "Mover para a pasta ▸" com o caminho ("Viagem › Hotel"), "Mover para
   a pasta de cima" e "Mover para o mural". Apagar uma pasta apaga tudo que há dentro, em todos os
   níveis, com o total no aviso.
