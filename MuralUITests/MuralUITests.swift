@@ -917,6 +917,44 @@ final class MuralUITests: XCTestCase {
         waitForExpectations(timeout: 5)
     }
 
+    /// Na página da nota, clicar na tarefa marca a caixa no texto, e a marca fica ao reabrir.
+    @MainActor
+    func testClickingTaskInNoteTogglesIt() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Card de texto"].firstMatch.click()
+        let body = app.textViews["Texto da nota em Markdown"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        // Sem a letra "c" no que se digita: o executor de testes já mandou "c" com ⌘.
+        app.typeText("Obra")
+        app.typeKey(.return, modifierFlags: [])
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("- [ ] Pintar a porta\n- [x] Lixar o batente", forType: .string)
+        app.typeKey("v", modifierFlags: .command)
+        let pasted = NSPredicate(format: "value CONTAINS %@", "Pintar a porta")
+        expectation(for: pasted, evaluatedWith: body)
+        waitForExpectations(timeout: 5)
+        app.typeKey(.return, modifierFlags: .command)
+
+        let task = app.descendants(matching: .any)["stretch-task-0"]
+        XCTAssertTrue(task.waitForExistence(timeout: 5))
+        XCTAssertEqual(task.value as? String, "A fazer")
+        task.click()
+        expectation(for: NSPredicate(format: "value == %@", "Feita"), evaluatedWith: task)
+        waitForExpectations(timeout: 5)
+
+        app.buttons["Voltar"].firstMatch.click()
+        let reopened = app.buttons["Obra"].firstMatch
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5))
+        reopened.click()
+        let again = app.descendants(matching: .any)["stretch-task-0"]
+        XCTAssertTrue(again.waitForExistence(timeout: 5))
+        expectation(for: NSPredicate(format: "value == %@", "Feita"), evaluatedWith: again)
+        waitForExpectations(timeout: 5)
+    }
+
     /// A folha de lembretes cria os cartões e a bolinha do cartão marca como concluído.
     @MainActor
     func testRemindersSheetAddsCardsAndToggles() throws {

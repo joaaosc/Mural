@@ -1,4 +1,5 @@
 import MuralKit
+import StretchText
 import StretchTextUI
 import SwiftUI
 
@@ -21,6 +22,7 @@ struct NotePageContent: View {
                 FoldedTextView(itemID: item.id, result: result, session: session)
                     .stretchMarkdownStyle(.notePage)
                     .lineSpacing(5)
+                    .modifier(NoteTaskToggle(itemID: item.id, source: result.segmentation.source, session: session))
                     .stretchMarkdownImage {
                         NoteImageView(image: $0, item: item, model: model, maxPixelSize: 1600)
                     }
@@ -30,6 +32,23 @@ struct NotePageContent: View {
         }
         .task(id: item.id) {
             session?.prioritizeKeySentences(for: item.id)
+        }
+    }
+}
+
+/// Faz a tarefa da nota virar botão na página; sem sessão (prévias), ela fica só desenho.
+private struct NoteTaskToggle: ViewModifier {
+    let itemID: UUID
+    let source: String
+    let session: BoardWindowSession?
+
+    func body(content: Content) -> some View {
+        if let session {
+            content.stretchMarkdownTaskToggle { segment in
+                session.toggleNoteTask(itemID, segment: segment, source: source)
+            }
+        } else {
+            content
         }
     }
 }

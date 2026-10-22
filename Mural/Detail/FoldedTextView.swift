@@ -32,12 +32,14 @@ struct FoldedTextView: View {
             }
     }
 
-    /// Frases curtas novas para o mesmo texto mantêm os abertos; texto novo volta dobrado.
+    /// Frases curtas novas para o mesmo texto mantêm os abertos. Texto novo reabre só o que a sessão
+    /// guarda para ele (como depois de marcar uma tarefa); numa edição comum a memória é do texto velho
+    /// e tudo volta dobrado.
     private func adopt(_ new: FoldResult, replacing old: FoldResult) {
         if new.segmentation.source == old.segmentation.source {
             state.replaceDocument(new.document)
         } else {
-            state = StretchState(document: new.document)
+            state = Self.restoredState(itemID: itemID, result: new, session: session)
         }
     }
 

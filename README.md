@@ -44,7 +44,8 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
 - **Card de texto**: título num campo próprio e corpo em Markdown (títulos, listas, tarefas,
   citações, código, **negrito**). Editar e Concluir ficam na pílula da página (⌘E, ⌘↩);
-  ⌘B e ⌘I, no menu Formatar.
+  ⌘B e ⌘I, no menu Formatar. As tarefas (`- [ ]`) marcam e desmarcam com um clique na página
+  da nota, sem mudar as frases curtas nem fechar os parágrafos abertos.
 - **Sticker** (post-it): texto curto sobre papel colorido, com as cinco cores na edição.
 - **Leitura dobrável**: no corpo das notas e no texto de abertura das listas, cada parágrafo
   de duas frases ou mais mostra só uma frase até ser clicado, e abre no lugar
