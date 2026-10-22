@@ -48,6 +48,38 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   voltam abertos ao reabrir a nota.
 - **⌘V com texto solto** abre um popup que pergunta se ele vira sticker, card de texto
   ou, quando parece lista, lista; a sugestão fica no Return.
+- **Imagem no card de texto**: editando o corpo, ⌘V, Editar › Colar ou soltar uma imagem a põem
+  numa linha própria do Markdown, `![Imagem colada](arquivo)`, onde está o cursor (no título, ela
+  vai para o fim do corpo; com a página aberta sem editar, ⌘V acrescenta no fim). Vale arquivo de
+  imagem, captura de tela, "Copiar Imagem" e texto formatado com imagens (Notas, TextEdit, Pages,
+  Safari); imagem que só existe na internet não é baixada. A leitura e a miniatura mostram a imagem;
+  o arquivo fica em `Items/` e sai do disco quando nenhuma nota o cita mais. Murais com imagem em
+  nota usam a versão 5 do formato.
+- **Salvar no Notas**, na pílula da página e no menu do cartão (nota, sticker e lista): abre o
+  painel do próprio Notas já preenchido, com títulos, listas, tarefas e imagens. Cada vez cria uma
+  nota nova; o Mural não lê nem atualiza notas do Notas.
+
+## Pastas
+
+- **Pasta dentro de pasta**, até 8 níveis: "Pasta" na barra de criação e Arquivo › Nova pasta…
+  (⌃⌘N) criam a subpasta na pasta aberta. No mural, soltar uma pasta sobre outra a guarda dentro
+  (só destacam as pastas que podem recebê-la).
+- O menu do botão direito tem "Mover para a pasta ▸" com o caminho ("Viagem › Hotel"), "Mover para
+  a pasta de cima" e "Mover para o mural". Apagar uma pasta apaga tudo que há dentro, em todos os
+  níveis, com o total no aviso.
+- A pasta mostra em leque, pela borda direita, os três cartões mais recentes de dentro.
+- Murais com pasta dentro de pasta usam a versão 2 do formato.
+
+## Lembretes
+
+- **Lembretes…**, na barra de criação e no menu Arquivo, abre uma folha com as listas e os lembretes
+  do app Lembretes; cada lembrete escolhido vira um cartão com a bolinha na cor da lista, a data
+  (em vermelho se atrasado), a prioridade e a lista. Na primeira vez o macOS pede acesso.
+- Clicar na bolinha marca ou desmarca o lembrete no próprio app Lembretes; a página tem Marcar como
+  concluído e Abrir no Lembretes. Os cartões se atualizam ao abrir o mural, ao voltar ao app e quando
+  o Lembretes muda; um lembrete apagado lá fica acinzentado, e sem acesso o cartão mostra o último
+  estado guardado. Apagar o cartão não apaga o lembrete.
+- Murais com lembretes usam a versão 6 do formato.
 
 ## Links
 
@@ -67,7 +99,9 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
 - macOS 27 e Xcode 27.2 ou mais novo (o projeto usa o formato JSON `project.xcproj`).
 - O pacote [StretchText](../Workbench/StretchText) em `../Workbench/StretchText`, ao lado
-  desta pasta: o projeto e o `MuralKit` apontam para ele por caminho relativo.
+  desta pasta: o projeto e o `MuralKit` apontam para ele por caminho relativo. A imagem dentro
+  da nota precisa da versão com o bloco de imagem (`MarkdownImage`), hoje na branch
+  `markdown-imagens` do Workbench.
 - Para a escolha das frases pelo modelo: um Mac com Apple Intelligence ligada. Sem ela,
   o app funciona com a primeira frase.
 
