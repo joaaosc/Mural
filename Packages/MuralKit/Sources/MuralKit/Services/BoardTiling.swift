@@ -10,12 +10,12 @@ public enum BoardTiling {
     /// Formato padrão (largura ÷ altura) quando a janela ainda não tem tamanho.
     public static let defaultAspect = 1.6
 
-    /// Posições do mosaico para os cartões, na ordem de leitura atual, a partir de `origin`.
+    /// Posições do mosaico para os cartões, na ordem em que foram criados, a partir de `origin`.
     /// - Parameter aspect: largura ÷ altura desejada para o mosaico todo (a da janela).
     public static func bsp(
         _ items: [BoardItem], aspect: Double, gap: Double = 24, origin: BoardPoint = BoardPoint(x: 80, y: 80)
     ) -> [UUID: BoardPoint] {
-        let ordered = readingOrder(items)
+        let ordered = insertionOrder(items)
         guard !ordered.isEmpty else { return [:] }
         let ratio = aspect.isFinite && aspect > 0 ? aspect : defaultAspect
         // Área-alvo: a soma dos cartões com o vão, no formato pedido. Cada corte é feito no lado
@@ -31,16 +31,13 @@ public enum BoardTiling {
         return positions
     }
 
-    /// De cima para baixo e da esquerda para a direita. Cartões quase na mesma altura (faixas de 80 pt)
-    /// contam como a mesma linha; empate fica na ordem da lista.
-    static func readingOrder(_ items: [BoardItem]) -> [BoardItem] {
-        let band = 80.0
-        return items.enumerated()
+    /// Do mais antigo para o mais novo, como as janelas que um WM vai encaixando; empate fica na ordem
+    /// da lista. Não depende da posição: organizar de novo não embaralha o mosaico (a ordem de leitura
+    /// de um mosaico intercala os blocos da árvore e mudaria a cada vez).
+    static func insertionOrder(_ items: [BoardItem]) -> [BoardItem] {
+        items.enumerated()
             .sorted { lhs, rhs in
-                let lhsRow = (lhs.element.position.y / band).rounded(.down)
-                let rhsRow = (rhs.element.position.y / band).rounded(.down)
-                if lhsRow != rhsRow { return lhsRow < rhsRow }
-                if lhs.element.position.x != rhs.element.position.x { return lhs.element.position.x < rhs.element.position.x }
+                if lhs.element.createdAt != rhs.element.createdAt { return lhs.element.createdAt < rhs.element.createdAt }
                 return lhs.offset < rhs.offset
             }
             .map(\.element)

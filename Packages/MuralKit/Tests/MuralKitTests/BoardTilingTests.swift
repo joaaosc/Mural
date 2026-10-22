@@ -70,13 +70,26 @@ struct BoardTilingTests {
         #expect(tall.height > tall.width)
     }
 
-    @Test("O cartão do canto superior esquerdo continua primeiro")
-    func readingOrder() {
-        let topLeft = item(.text, x: 40, y: 30)
-        let sameRowRight = item(.text, x: 500, y: 60)
-        let below = item(.text, x: 10, y: 400)
-        #expect(BoardTiling.readingOrder([below, sameRowRight, topLeft]).map(\.id) == [topLeft.id, sameRowRight.id, below.id])
-        #expect(BoardTiling.bsp([below, sameRowRight, topLeft], aspect: 1.6)[topLeft.id] == BoardPoint(x: 80, y: 80))
+    @Test("O cartão mais antigo fica primeiro; empate segue a ordem da lista")
+    func insertionOrder() {
+        let now = Date.now
+        let older = BoardItem(kind: .text, title: "", createdAt: now.addingTimeInterval(-60), position: BoardPoint(x: 900, y: 900))
+        let newer = BoardItem(kind: .text, title: "", createdAt: now, position: BoardPoint(x: 0, y: 0))
+        let tie = BoardItem(kind: .sticky, title: "", createdAt: now, position: BoardPoint(x: 0, y: 0))
+        #expect(BoardTiling.insertionOrder([newer, tie, older]).map(\.id) == [older.id, newer.id, tie.id])
+        #expect(BoardTiling.bsp([newer, tie, older], aspect: 1.6)[older.id] == BoardPoint(x: 80, y: 80))
+    }
+
+    @Test("Organizar um mural já organizado não muda nada")
+    func tilingIsStable() throws {
+        let items = scattered
+        let first = BoardTiling.bsp(items, aspect: 1.6)
+        let tiled = try items.map { item in
+            var copy = item
+            copy.position = try #require(first[item.id])
+            return copy
+        }
+        #expect(BoardTiling.bsp(tiled, aspect: 1.6) == first)
     }
 
     @Test("Mudar várias posições mantém a ordem da lista e ignora cartões de pasta")
