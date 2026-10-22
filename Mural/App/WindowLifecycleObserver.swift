@@ -15,8 +15,10 @@ struct WindowLifecycleObserver: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WindowLifecycleObserverView, context: Context) {
+        // Só troca o callback. A janela observada muda em `viewDidMoveToWindow`: o SwiftUI
+        // também chama esta atualização enquanto a janela está sendo destruída, e observar
+        // a janela nesse instante derrubava o app.
         nsView.onWillClose = onWillClose
-        nsView.updateWindowObservation()
     }
 
     static func dismantleNSView(_ nsView: WindowLifecycleObserverView, coordinator: ()) {
@@ -28,7 +30,9 @@ struct WindowLifecycleObserver: NSViewRepresentable {
 final class WindowLifecycleObserverView: NSView {
     var onWillClose: (@MainActor () -> Void)?
 
-    private weak var observedWindow: NSWindow?
+    /// Identidade da janela observada, sem referência a ela: formar uma referência (mesmo
+    /// fraca) a uma janela em desalocação aborta o processo (`objc_initWeak`).
+    private var observedWindowID: ObjectIdentifier?
     private var notificationToken: NSObjectProtocol?
 
     override func viewDidMoveToWindow() {
@@ -44,19 +48,19 @@ final class WindowLifecycleObserverView: NSView {
     }
 
     func updateWindowObservation() {
-        guard window !== observedWindow else { return }
+        let currentID = window.map(ObjectIdentifier.init)
+        guard currentID != observedWindowID else { return }
         stopObservingWindow()
 
-        guard let window else { return }
-        observedWindow = window
+        guard let window, let currentID else { return }
+        observedWindowID = currentID
         notificationToken = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak self, weak window] notification in
-            guard let self,
-                let notificationWindow = notification.object as? NSWindow,
-                notificationWindow === window
+        ) { [weak self] notification in
+            guard let self, let closing = notification.object as AnyObject?,
+                ObjectIdentifier(closing) == currentID
             else { return }
             Task { @MainActor [weak self] in
                 self?.onWillClose?()
@@ -69,6 +73,6 @@ final class WindowLifecycleObserverView: NSView {
             NotificationCenter.default.removeObserver(notificationToken)
         }
         notificationToken = nil
-        observedWindow = nil
+        observedWindowID = nil
     }
 }
