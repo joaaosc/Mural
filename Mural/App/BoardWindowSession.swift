@@ -1256,6 +1256,12 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    /// Renomeia a pasta e agenda a gravação; nome vazio ou igual ao atual não muda nada.
+    func renameFolder(_ itemID: UUID, to name: String) {
+        guard !isClosed, model?.renameFolder(itemID, to: name) == true else { return }
+        captureBoardIfNeeded()
+    }
+
     /// Dá a cor (ou tira, com `nil`) a todos os cartões marcados, com uma gravação só. A marcação continua,
     /// para a pessoa poder fazer mais alguma coisa com os mesmos cartões.
     func colorSelection(_ color: TagColor?) {

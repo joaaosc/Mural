@@ -31,6 +31,9 @@ private struct LoadedRootView: View {
     @State private var isNewFolderPresented = false
     @State private var isReminderPickerPresented = false
     @State private var folderNameDraft = ""
+    /// Pasta esperando o nome novo (Renomear… no menu dela).
+    @State private var renamingFolder: FolderRenameRequest?
+    @State private var folderRenameDraft = ""
     @State private var isConfirmingSelectionDelete = false
     /// Espera curta antes de abrir o seletor ao segurar ⌘: some se o ⌘ era de um atalho.
     @State private var commandHoldTask: Task<Void, Never>?
@@ -106,6 +109,7 @@ private struct LoadedRootView: View {
             onSetColorTag: { session.setColorTag($1, for: $0) },
             onToggleReminder: toggleReminder,
             onMove: session.move,
+            onRename: beginRenameFolder,
             selection: canvasSelection
         )
     }
@@ -405,6 +409,14 @@ private struct LoadedRootView: View {
                     createFolder(named: folderNameDraft)
                 }
             }
+            .sheet(item: $renamingFolder) { request in
+                nameSheet(
+                    title: "Renomear pasta", placeholder: "Nome da pasta", text: $folderRenameDraft,
+                    actionTitle: "Renomear"
+                ) {
+                    renameFolder(request.id)
+                }
+            }
             .sheet(isPresented: $isReminderPickerPresented) {
                 ReminderPickerSheet(session: session)
             }
@@ -448,6 +460,7 @@ private struct LoadedRootView: View {
                 Button("Cancelar", role: .cancel) {
                     isRenamePresented = false
                     isNewFolderPresented = false
+                    renamingFolder = nil
                 }
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
@@ -511,7 +524,7 @@ private struct LoadedRootView: View {
             if let folder = model.item(id: id) {
                 CollectionView(
                     folder: folder, model: model, session: session, hero: hero, filter: filter,
-                    colorFilter: session.colorFilter
+                    colorFilter: session.colorFilter, onRenameFolder: beginRenameFolder
                 ) {
                     childID in
                     // Pasta abre outro nível de pasta; o resto abre a página do item.
@@ -593,6 +606,18 @@ private struct LoadedRootView: View {
             _ = session.createFolder(named: name)
         }
         isFolderInfoPresented = false
+        isCanvasFocused = true
+    }
+
+    /// Pede o nome novo da pasta, começando pelo atual.
+    private func beginRenameFolder(_ folderID: UUID) {
+        folderRenameDraft = model.item(id: folderID)?.title ?? ""
+        renamingFolder = FolderRenameRequest(id: folderID)
+    }
+
+    private func renameFolder(_ folderID: UUID) {
+        renamingFolder = nil
+        session.renameFolder(folderID, to: folderRenameDraft)
         isCanvasFocused = true
     }
 

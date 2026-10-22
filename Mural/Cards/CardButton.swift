@@ -16,6 +16,8 @@ struct CardButton: View {
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
     var onSetColorTag: ((UUID, TagColor?) -> Void)? = nil
     var onMoveUp: ((UUID) -> Void)? = nil
+    /// Pede o nome novo da pasta; `nil` esconde o item (por exemplo, na prévia de pasta).
+    var onRename: ((UUID) -> Void)? = nil
     /// Marca ou reabre o lembrete; `nil` onde a bolinha não é clicável (a prévia de pasta).
     var onToggleReminder: ((UUID) -> Void)? = nil
     /// `nil` onde não há seletor (a prévia de pasta que aparece ao passar o ponteiro).
@@ -56,6 +58,9 @@ struct CardButton: View {
             .overlay(alignment: .topLeading) { reminderToggle }
             .contextMenu {
                 Button("Abrir", action: onOpen)
+                if item.kind == .folder, let onRename {
+                    Button("Renomear…") { onRename(item.id) }
+                }
                 linkMenu
                 notesMenu
                 moveMenu

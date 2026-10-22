@@ -756,6 +756,27 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Voltar"].exists, "o arrasto não abre o cartão")
     }
 
+    /// Botão direito na pasta › Renomear…: a folha começa com o nome atual e o cartão passa a mostrar o novo.
+    @MainActor
+    func testContextMenuRenamesFolder() throws {
+        let app = launch()
+        let folder = app.buttons["44th Street"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.rightClick()
+        app.menuItems["Renomear…"].firstMatch.click()
+
+        let name = app.textFields["Nome da pasta"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5), "renomear pede o nome")
+        XCTAssertEqual(name.value as? String, "44th Street", "o campo começa com o nome atual")
+        name.click()
+        name.typeKey("a", modifierFlags: .command)
+        name.typeText("Obra da Rua 44\r")
+
+        XCTAssertTrue(
+            app.buttons["Obra da Rua 44"].firstMatch.waitForExistence(timeout: 5), "o cartão da pasta mostra o nome novo")
+        XCTAssertFalse(app.buttons["44th Street"].exists)
+    }
+
     /// Ponto da janela em coordenadas de tela (as de `frame`).
     @MainActor
     private func point(in window: XCUIElement, x: CGFloat, y: CGFloat) -> XCUICoordinate {
