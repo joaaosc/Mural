@@ -13,16 +13,15 @@ struct PDFKitView: NSViewRepresentable {
         let view = PDFView()
         view.displayMode = .singlePageContinuous
         view.backgroundColor = .clear
-        view.document = PDFDocument(url: url)
+        // Abre o documento fora do Main Actor; a restauração espera ele chegar.
+        context.coordinator.loadDocument(at: url, into: view)
         context.coordinator.install(on: view)
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
-        let urlChanged = context.coordinator.update(url: url, in: view)
-        if urlChanged || view.document?.documentURL != url {
-            view.document = PDFDocument(url: url)
-            context.coordinator.restore(in: view)
+        if context.coordinator.update(url: url, in: view) {
+            context.coordinator.loadDocument(at: url, into: view)
         }
     }
 
@@ -60,6 +59,32 @@ struct PDFKitView: NSViewRepresentable {
         static let maxRestoreAttempts = 4
         static let restoreTimeout: Duration = .milliseconds(1500)
         weak var observedClipView: NSClipView?
+        private var documentLoad: Task<Void, Never>?
+        private var requestedURL: URL?
+        private var isLoadingDocument = false
+
+        /// Abre o PDF fora do Main Actor (um PDF grande travaria a janela) e o instala
+        /// na view quando pronto; pedidos antigos são descartados.
+        func loadDocument(at url: URL, into view: PDFView) {
+            guard requestedURL != url else { return }
+            requestedURL = url
+            documentLoad?.cancel()
+            isLoadingDocument = true
+            // O documento anterior sai já: a posição do item novo não pode ser aplicada nele.
+            if view.document != nil { view.document = nil }
+            documentLoad = Task { [weak self, weak view] in
+                let document = await Coordinator.openDocument(at: url)
+                guard let self, let view, !Task.isCancelled, self.requestedURL == url else { return }
+                self.isLoadingDocument = false
+                view.document = document
+                self.restore(in: view)
+            }
+        }
+
+        @concurrent
+        nonisolated static func openDocument(at url: URL) async -> sending PDFDocument? {
+            PDFDocument(url: url)
+        }
 
         init(itemID: UUID, url: URL, session: BoardWindowSession?) {
             self.itemID = itemID
@@ -135,7 +160,8 @@ struct PDFKitView: NSViewRepresentable {
         func restore(in view: PDFView) {
             installLayoutObservers(on: view)
             guard let document = view.document, document.pageCount > 0 else {
-                finishUnavailableRestore(in: view)
+                // Ainda abrindo: a restauração continua quando o documento chegar.
+                if !isLoadingDocument { finishUnavailableRestore(in: view) }
                 return
             }
             guard view.bounds.width > 0, view.bounds.height > 0,
@@ -348,6 +374,8 @@ struct PDFKitView: NSViewRepresentable {
             pendingCapture?.cancel()
             restoreDeadline?.cancel()
             restoreDeadline = nil
+            documentLoad?.cancel()
+            documentLoad = nil
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             if let presentationToken {

@@ -432,21 +432,58 @@ final class BoardWindowSession {
             return
         }
 
-        let imported = await SecurityScopedAccess.withAccess(
-            to: urls,
-            operation: { [weak self] in
-                guard let self,
-                    self.boardID == destination.boardID,
-                    self.presentationEpoch == destination.presentationEpoch,
-                    destination.folderID.map({ model.item(id: $0)?.kind == .folder }) ?? true
-                else { return false }
-                _ = model.importFiles(urls, into: destination.folderID)
-                self.captureBoardIfNeeded()
-                return true
-            })
-        if !imported {
-            error = "A importação foi descartada porque o mural mudou enquanto o painel estava aberto."
+        // O escopo de segurança fica aberto durante toda a cópia, que roda fora do Main Actor.
+        let prepared = await SecurityScopedAccess.withAccess(to: urls) {
+            await model.prepareFiles(urls, parentID: destination.folderID)
         }
+        guard !isClosed, boardID == destination.boardID, presentationEpoch == destination.presentationEpoch else {
+            model.discard(prepared)
+            error = "A importação foi descartada porque o mural mudou enquanto o painel estava aberto."
+            return
+        }
+        model.commit(prepared, into: destination.folderID)
+        captureBoardIfNeeded()
+    }
+
+    /// Colar ou soltar: o conteúdo já foi lido; a cópia e a conversão rodam fora do Main
+    /// Actor e o cartão entra depois, se a janela ainda for a mesma.
+    func importPasted(_ content: PasteboardImporter.Content, into folderID: UUID?, animation: Animation?) async {
+        guard let model, !isClosed else { return }
+        let epoch = presentationEpoch
+        let prepared: BoardModel.PreparedImport
+        switch content {
+        case .files(let urls):
+            prepared = await model.prepareFiles(urls, parentID: folderID)
+        case .data(let data, let fileExtension, let kind, let title):
+            prepared = await model.prepareData(
+                data, fileExtension: fileExtension, kind: kind, title: title, parentID: folderID)
+        case .imageNeedingConversion(let data):
+            guard let png = await PasteboardImporter.pngData(from: data) else {
+                model.lastError = "A imagem copiada não pôde ser lida."
+                return
+            }
+            prepared = await model.prepareData(
+                png, fileExtension: "png", kind: .image, title: "Imagem colada", parentID: folderID)
+        case .text(let text):
+            withAnimation(animation) {
+                if model.importText(text, into: folderID) == nil {
+                    model.lastError = "O conteúdo copiado não pôde virar um cartão."
+                }
+            }
+            captureBoardIfNeeded()
+            return
+        case .nothing:
+            model.lastError = "O conteúdo copiado não pôde virar um cartão."
+            return
+        }
+        guard !isClosed, presentationEpoch == epoch else {
+            model.discard(prepared)
+            return
+        }
+        withAnimation(animation) {
+            _ = model.commit(prepared, into: folderID)
+        }
+        captureBoardIfNeeded()
     }
 
     func beginSaveCopy() {

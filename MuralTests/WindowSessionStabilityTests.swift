@@ -1,6 +1,8 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import MuralKit
+import PDFKit
 import Testing
 
 @testable import Mural
@@ -163,6 +165,54 @@ struct WindowSessionStabilityTests {
         await reopening.flushAndPrepareToLeave()
         #expect(reopening.isDirty == false)
         #expect(try #require(try await library.open(route)).board.items.contains { $0.title.contains("janela nova") })
+    }
+
+    @Test("Colar grava fora do Main Actor e o cartão entra no mural; janela fechada descarta")
+    func pastedContentIsPreparedThenCommitted() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Colar")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        await makeReady(session)
+        let model = try #require(session.model)
+
+        await session.importPasted(
+            .data(Data([1, 2, 3]), fileExtension: "png", kind: .image, title: "Imagem colada"), into: nil,
+            animation: nil)
+        let pasted = try #require(model.board.items.first { $0.title == "Imagem colada" })
+        let pastedFile = try #require(model.fileURL(for: pasted))
+        #expect(FileManager.default.fileExists(atPath: pastedFile.path))
+
+        await session.handleWindowWillClose()
+        let itemsDirectory = pastedFile.deletingLastPathComponent()
+        let before = try FileManager.default.contentsOfDirectory(atPath: itemsDirectory.path).count
+        await session.importPasted(
+            .data(Data([4, 5]), fileExtension: "pdf", kind: .pdf, title: "Depois de fechar"), into: nil,
+            animation: nil)
+        #expect(!model.board.items.contains { $0.title == "Depois de fechar" })
+        #expect(try FileManager.default.contentsOfDirectory(atPath: itemsDirectory.path).count == before)
+    }
+
+    @Test("O PDF abre em segundo plano e chega à view")
+    func pdfDocumentLoadsInBackground() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("doc.pdf")
+        let document = PDFDocument()
+        let page = try #require(PDFPage(image: NSImage(size: CGSize(width: 200, height: 300), flipped: false) { _ in true }))
+        document.insert(page, at: 0)
+        #expect(document.write(to: url))
+
+        let view = PDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
+        let coordinator = PDFKitView.Coordinator(itemID: UUID(), url: url, session: nil)
+        coordinator.loadDocument(at: url, into: view)
+        coordinator.install(on: view)
+        for _ in 0..<100 where view.document == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(view.document?.pageCount == 1)
+        coordinator.invalidate()
     }
 
     @Test("Renomear pela janela não volta ao nome antigo no autosave seguinte")

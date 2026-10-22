@@ -149,15 +149,18 @@ private struct LoadedRootView: View {
             return .handled
         }
         .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in
-            withAnimation(importAnimation) {
-                PasteboardImporter.paste(into: model, parentID: currentFolderID)
-            }
-            session.captureBoardIfNeeded()
+            // Lê agora (o conteúdo pode mudar); copia e grava fora do Main Actor.
+            let content = PasteboardImporter.read()
+            let folder = currentFolderID
+            let animation = importAnimation
+            Task { await session.importPasted(content, into: folder, animation: animation) }
         }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
-            withAnimation(importAnimation) { _ = model.importFiles(files, into: currentFolderID) }
-            session.captureBoardIfNeeded()
+            guard !files.isEmpty else { return }
+            let folder = currentFolderID
+            let animation = importAnimation
+            Task { await session.importPasted(.files(files), into: folder, animation: animation) }
         }
         .fileImporter(
             isPresented: $session.isImporterPresented,
