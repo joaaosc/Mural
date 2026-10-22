@@ -42,6 +42,7 @@ struct StickyEditorView: View {
     }
 
     private func focus() {
-        isFocused = true
+        // No `onAppear` a página ainda está entrando e o campo recusa o foco: o pedido vai na volta seguinte.
+        Task { @MainActor in isFocused = true }
     }
 }

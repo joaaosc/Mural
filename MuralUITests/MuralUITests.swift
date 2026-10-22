@@ -902,6 +902,21 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.images["Imagem colada"].waitForExistence(timeout: 5), "a imagem colada aparece na leitura")
     }
 
+    /// O post-it novo abre com o cursor no texto: o que se digita entra nele.
+    @MainActor
+    func testNewStickyStartsWithCursorInText() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Sticker"].firstMatch.click()
+        let text = app.textViews["Texto do post-it"]
+        XCTAssertTrue(text.waitForExistence(timeout: 5))
+        app.typeText("Ligar para o pintor")
+
+        let typed = NSPredicate(format: "value CONTAINS %@", "pintor")
+        expectation(for: typed, evaluatedWith: text)
+        waitForExpectations(timeout: 5)
+    }
+
     /// A folha de lembretes cria os cartões e a bolinha do cartão marca como concluído.
     @MainActor
     func testRemindersSheetAddsCardsAndToggles() throws {
