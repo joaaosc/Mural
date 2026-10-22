@@ -18,6 +18,8 @@ struct MuralWindowView: View {
     @SceneStorage("mural.sidebar") private var storedSidebar = false
     @State private var role = WindowRole.pending
     @State private var windowWidth: CGFloat = 1240
+    /// Onde o item da faixa começa na janela, medido: o item central da barra não fica no centro exato.
+    @State private var stripOriginX: CGFloat = 0
     @State private var isNewBoardPresented = false
     @State private var boardNameDraft = ""
     @State private var isPackageImporterPresented = false
@@ -33,9 +35,11 @@ struct MuralWindowView: View {
         max(0, windowWidth - 150 - 70)
     }
 
-    /// Com a barra lateral aberta, as abas começam depois dela, como no Safari.
+    /// Com a barra lateral aberta, as abas começam depois dela (e da linha divisória), como no Safari. A conta
+    /// usa a posição medida do item, e não uma estimativa dos botões à esquerda.
     private var stripLeadingInset: CGFloat {
-        tabs.isSidebarVisible ? max(0, MuralsSidebar.width + 8 - 150) : 0
+        guard tabs.isSidebarVisible else { return 0 }
+        return max(0, MuralsSidebar.width + 1 + BoardTabStrip.sidebarGap - stripOriginX)
     }
 
     var body: some View {
@@ -87,7 +91,13 @@ struct MuralWindowView: View {
             ToolbarItem(placement: .principal) {
                 BoardTabStrip(tabs: tabs, width: stripItemWidth - stripLeadingInset)
                     .padding(.leading, stripLeadingInset)
+                    .onGeometryChange(for: CGFloat.self) {
+                        $0.frame(in: .global).minX
+                    } action: {
+                        stripOriginX = $0
+                    }
             }
+            // O vidro do sistema cobriria também o recuo sobre a barra lateral: a faixa desenha o próprio vidro.
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .primaryAction) {
                 Button("Novo mural", systemImage: "plus") { tabs.requestNewBoard() }

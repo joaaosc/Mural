@@ -10,11 +10,16 @@ struct BoardTabStrip: View {
     static let spacing: CGFloat = 4
     static let minimumTabWidth: CGFloat = 90
     static let height: CGFloat = 30
+    /// Margem entre as abas e a borda do vidro que as envolve.
+    static let glassInset: CGFloat = 3
+    /// Espaço entre a barra lateral aberta e o começo da faixa.
+    static let sidebarGap: CGFloat = 8
 
     var body: some View {
         let count = tabs.tabs.count
-        let tabWidth = Self.tabWidth(count: count, available: width)
-        let fits = CGFloat(count) * tabWidth + Self.spacing * CGFloat(max(0, count - 1)) <= width + 0.5
+        let inner = max(0, width - Self.glassInset * 2)
+        let tabWidth = Self.tabWidth(count: count, available: inner)
+        let fits = CGFloat(count) * tabWidth + Self.spacing * CGFloat(max(0, count - 1)) <= inner + 0.5
         ScrollView(.horizontal) {
             HStack(spacing: Self.spacing) {
                 ForEach(tabs.tabs) { tab in
@@ -33,7 +38,11 @@ struct BoardTabStrip: View {
         }
         .scrollIndicators(.never)
         .scrollDisabled(fits)
-        .frame(width: width, height: Self.height, alignment: .leading)
+        .frame(width: inner, height: Self.height, alignment: .leading)
+        .clipShape(.capsule)
+        .padding(Self.glassInset)
+        // O vidro envolve só as abas: com a barra lateral aberta, o recuo antes delas fica sem vidro.
+        .glassEffect(.regular, in: .capsule)
     }
 
     /// Largura de cada aba: a faixa dividida igualmente, sem passar do mínimo legível.
@@ -68,7 +77,7 @@ struct BoardTabButton: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .background(background, in: .rect(cornerRadius: 9))
+        .background(background, in: .capsule)
         .overlay(alignment: .leading) {
             if isHovering {
                 Button(action: onClose) {
