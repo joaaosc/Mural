@@ -37,6 +37,15 @@ enum BoardFilter: String, CaseIterable, Identifiable {
         matches(kind) ? 1 : 0.25
     }
 
+    /// Destaque de um cartão com o filtro de tipo e o de cor juntos: fica normal só quem passa nos dois;
+    /// sem filtro nenhum, todos ficam normais.
+    static func emphasis(for item: BoardItem, kind: BoardFilter?, color: TagColor?) -> Double {
+        guard kind != nil || color != nil else { return 1 }
+        let kindMatches = kind?.matches(item.kind) ?? true
+        let colorMatches = color.map { item.colorTag == $0 } ?? true
+        return kindMatches && colorMatches ? 1 : 0.25
+    }
+
     /// Filtros que fazem sentido em cada nível: pastas também guardam pastas,
     /// e um item aberto sozinho não tem o que filtrar.
     static func available(at level: NavigationLevel) -> [BoardFilter] {

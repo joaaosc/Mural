@@ -1,3 +1,4 @@
+import MuralKit
 import SwiftUI
 
 /// Barra flutuante de navegação e filtros.
@@ -13,6 +14,7 @@ struct FloatingToolbar: View {
     var level: NavigationLevel
     var onBack: () -> Void
     @Binding var filter: BoardFilter?
+    @Binding var colorFilter: TagColor?
 
     @Namespace private var glass
 
@@ -59,6 +61,7 @@ struct FloatingToolbar: View {
                 .accessibilityLabel(option.title)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
+            colorFilterMenu
         }
         // Na coluna, a mesma largura do botão Voltar (rótulo de 56 + margem do vidro).
         .padding(.horizontal, isRail ? 8 : 4)
@@ -66,12 +69,46 @@ struct FloatingToolbar: View {
     }
 }
 
+extension FloatingToolbar {
+    /// Destaque por cor: as sete cores do menu dos cartões; a escolhida esmaece os cartões de outra cor.
+    fileprivate var colorFilterMenu: some View {
+        Menu {
+            Picker("Destacar a cor", selection: $colorFilter) {
+                ForEach(TagColor.allCases) { color in
+                    Label(color.displayName, systemImage: "circle.fill")
+                        .tint(color.color)
+                        .tag(Optional(color))
+                }
+            }
+            .pickerStyle(.palette)
+            if colorFilter != nil {
+                Button("Mostrar todas as cores") { colorFilter = nil }
+            }
+        } label: {
+            Label("Cor", systemImage: colorFilter == nil ? "circle.dashed" : "circle.fill")
+                .labelStyle(ToolbarLabelStyle(showsTitle: isRail))
+                .foregroundStyle(colorFilter.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.primary))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .menuIndicator(.hidden)
+        .background(
+            colorFilter != nil ? AnyShapeStyle(.tint.opacity(0.16)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 10)
+        )
+        .help(colorFilter.map { "Destacando \($0.displayName.lowercased()) (clique para trocar)" } ?? "Destacar uma cor")
+        .accessibilityLabel("Destacar a cor")
+        .accessibilityValue(colorFilter?.displayName ?? "Todas")
+        .accessibilityIdentifier("color-filter")
+    }
+}
+
 #Preview("Mural, pasta e item", traits: .fixedLayout(width: 360, height: 360)) {
     @Previewable @State var filter: BoardFilter? = .notes
+    @Previewable @State var colorFilter: TagColor? = .green
     HStack(alignment: .top, spacing: 30) {
-        FloatingToolbar(level: .board, onBack: {}, filter: $filter)
-        FloatingToolbar(level: .folder, onBack: {}, filter: $filter)
-        FloatingToolbar(level: .item, onBack: {}, filter: $filter)
+        FloatingToolbar(level: .board, onBack: {}, filter: $filter, colorFilter: $colorFilter)
+        FloatingToolbar(level: .folder, onBack: {}, filter: $filter, colorFilter: $colorFilter)
+        FloatingToolbar(level: .item, onBack: {}, filter: $filter, colorFilter: $colorFilter)
     }
     .padding(30)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

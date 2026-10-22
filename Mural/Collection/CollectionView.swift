@@ -9,6 +9,7 @@ struct CollectionView: View {
     let session: BoardWindowSession?
     let hero: HeroContext
     let filter: BoardFilter?
+    var colorFilter: TagColor? = nil
     var onOpenItem: (UUID) -> Void
 
     @State private var scrollPosition = ScrollPosition(idType: UUID.self)
@@ -101,7 +102,7 @@ struct CollectionView: View {
             selection: selection
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
-        .cardEmphasis(filter?.emphasis(for: item.kind) ?? 1)
+        .cardEmphasis(BoardFilter.emphasis(for: item, kind: filter, color: colorFilter))
     }
 
     private var emptyState: some View {

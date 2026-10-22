@@ -103,6 +103,8 @@ final class BoardWindowSession {
 
     var path: [Destination] = []
     var filter: BoardFilter?
+    /// Destaque por cor; não é gravado e some ao trocar de nível, como cada nível começa sem filtro.
+    var colorFilter: TagColor?
     var isImporterPresented = false
 
     @ObservationIgnored private var restoration = CanvasRestorationStateMachine()
@@ -429,7 +431,10 @@ final class BoardWindowSession {
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
         let previousPath = self.path
         self.path = Self.destinations(from: newPath, board: model.board)
-        if self.path != previousPath { selectedItemIDs = [] }
+        if self.path != previousPath {
+            selectedItemIDs = []
+            colorFilter = nil
+        }
         self.filter = Self.filter(from: newFilter, path: self.path, board: model.board)
         let retainedItemIDs = Set(
             newPath.compactMap { destination -> UUID? in

@@ -92,6 +92,7 @@ private struct LoadedRootView: View {
                 model: model,
                 hero: hero,
                 filter: filter,
+                colorFilter: session.colorFilter,
                 zoom: session.zoom,
                 onOpen: open,
                 boardID: session.boardID,
@@ -137,7 +138,8 @@ private struct LoadedRootView: View {
         .overlay(alignment: .topLeading) {
             FloatingToolbar(
                 level: NavigationLevel(path: path), onBack: goBack,
-                filter: Binding(get: { session.filter }, set: { session.setNavigation(path: session.path, filter: $0) })
+                filter: Binding(get: { session.filter }, set: { session.setNavigation(path: session.path, filter: $0) }),
+                colorFilter: $session.colorFilter
             )
             .padding(12)
             .containerCornerOffset(.top)
@@ -469,7 +471,8 @@ private struct LoadedRootView: View {
         case .collection(let id):
             if let folder = model.item(id: id) {
                 CollectionView(
-                    folder: folder, model: model, session: session, hero: hero, filter: filter
+                    folder: folder, model: model, session: session, hero: hero, filter: filter,
+                    colorFilter: session.colorFilter
                 ) {
                     childID in
                     // Pasta abre outro nível de pasta; o resto abre a página do item.

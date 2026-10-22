@@ -6,6 +6,8 @@ struct BoardCanvasView: View {
     let model: BoardModel
     let hero: HeroContext
     let filter: BoardFilter?
+    /// Destaque por cor da barra; some ao trocar de nível, como o filtro de tipo.
+    var colorFilter: TagColor? = nil
     @Bindable var zoom: CanvasZoomController
     var onOpen: ([Destination]) -> Void
     var boardID: BoardID
@@ -42,7 +44,9 @@ struct BoardCanvasView: View {
 
     /// O que está em destaque agora: pasta em foco, cartão arrastado, pasta de destino e filtro.
     private var focus: BoardFocus {
-        BoardFocus(hoveredFolder: hoveredFolder, dragged: drag?.id, dropTarget: drag?.tracker?.target, filter: filter)
+        BoardFocus(
+            hoveredFolder: hoveredFolder, dragged: drag?.id, dropTarget: drag?.tracker?.target, filter: filter,
+            colorFilter: colorFilter)
     }
 
     var body: some View {
@@ -125,6 +129,7 @@ struct BoardCanvasView: View {
         .focusedSceneValue(hero.presented.isEmpty ? zoom : nil)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: hoveredFolder)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: filter)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: colorFilter)
     }
 
     // MARK: Cartões

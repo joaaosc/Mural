@@ -2,7 +2,7 @@ import Foundation
 import MuralKit
 
 /// O que está em destaque no mural agora: a pasta em foco (sob o ponteiro), o cartão
-/// sendo arrastado, a pasta que o receberia se fosse solto e o filtro da barra.
+/// sendo arrastado, a pasta que o receberia se fosse solto e os filtros da barra (tipo e cor).
 ///
 /// Fica fora da view para as regras de esmaecer e empilhar poderem ser testadas.
 struct BoardFocus: Equatable {
@@ -10,13 +10,14 @@ struct BoardFocus: Equatable {
     var dragged: UUID?
     var dropTarget: UUID?
     var filter: BoardFilter?
+    var colorFilter: TagColor?
 
     /// Destaque do cartão (1 = normal): o arrastado e a pasta de destino nunca esmaecem; com
-    /// uma pasta em foco, o resto do mural esmaece; senão, vale o filtro.
+    /// uma pasta em foco, o resto do mural esmaece; senão, valem os filtros.
     func emphasis(for item: BoardItem) -> Double {
         if item.id == dragged || item.id == dropTarget { return 1 }
         if let hoveredFolder, hoveredFolder != item.id { return 0.3 }
-        return filter?.emphasis(for: item.kind) ?? 1
+        return BoardFilter.emphasis(for: item, kind: filter, color: colorFilter)
     }
 
     /// Empilhamento: o arrastado por cima de tudo, a pasta de destino logo abaixo dele, a pasta
