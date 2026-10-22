@@ -696,6 +696,68 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    // MARK: Lembretes
+
+    /// Ponte com o app Lembretes; os testes trocam por uma versão falsa.
+    @ObservationIgnored var reminders: any RemindersProviding = RemindersCenter.shared
+
+    /// Cria um cartão para cada lembrete, na pasta aberta ou no mural.
+    @discardableResult
+    func addReminders(_ snapshots: [ReminderSnapshot]) -> [UUID] {
+        guard restoration.acceptsPersistence, !isClosed, let model, !snapshots.isEmpty else { return [] }
+        let created = model.addReminders(snapshots, into: currentFolderID)
+        captureBoardIfNeeded()
+        return created.map(\.id)
+    }
+
+    /// Confere cada cartão de lembrete com o app Lembretes e atualiza o que mudou ou sumiu.
+    func refreshReminders() async {
+        guard let model, !isClosed else { return }
+        let epoch = presentationEpoch
+        var results: [(UUID, ReminderLookup)] = []
+        for item in model.reminderItems {
+            guard let snapshot = item.reminder else { continue }
+            results.append((item.id, await reminders.lookup(snapshot)))
+        }
+        guard !isClosed, presentationEpoch == epoch else { return }
+        var changed = false
+        for (id, lookup) in results {
+            switch lookup {
+            case .found(let snapshot):
+                if model.updateReminder(id, with: snapshot) { changed = true }
+            case .missing:
+                if model.item(id: id)?.reminder?.isMissing == false {
+                    model.markReminderMissing(id)
+                    changed = true
+                }
+            case .unavailable:
+                break
+            }
+        }
+        if changed { captureBoardIfNeeded() }
+    }
+
+    /// Marca ou desmarca o lembrete como concluído no app Lembretes e no cartão.
+    func toggleReminder(_ itemID: UUID) async {
+        guard let model, !isClosed, let snapshot = model.item(id: itemID)?.reminder else { return }
+        let epoch = presentationEpoch
+        do {
+            let updated = try await reminders.setCompleted(!snapshot.isCompleted, for: snapshot)
+            guard !isClosed, presentationEpoch == epoch else { return }
+            model.updateReminder(itemID, with: updated)
+        } catch {
+            guard !isClosed, presentationEpoch == epoch else { return }
+            model.lastError = "Não foi possível marcar o lembrete no app Lembretes."
+        }
+        captureBoardIfNeeded()
+    }
+
+    /// Abre o lembrete no app Lembretes.
+    func openReminder(_ itemID: UUID) {
+        guard let snapshot = model?.item(id: itemID)?.reminder else { return }
+        reminders.open(snapshot)
+    }
+
     // MARK: Edição de notas e post-its
 
     /// Cria um card de texto ou post-it vazio na pasta aberta (ou no mural) e abre a
