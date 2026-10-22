@@ -22,6 +22,8 @@ struct MuralCommands: Commands {
     }
 
     var body: some Commands {
+        // Os comandos existem mesmo sem janelas: daqui o delegate consegue abrir a biblioteca.
+        let _ = LibraryWindowOpener.shared.register { [openWindow] in openWindow(value: BoardRoute.library) }
         CommandGroup(replacing: .newItem) {
             Button("Novo Mural…") {
                 requestOrOpenLibrary(.newBoard) { $0.newBoard() }

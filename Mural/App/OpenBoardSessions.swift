@@ -69,16 +69,67 @@ private final class OnceGate {
     }
 }
 
-/// Segura o término do app até as janelas de mural gravarem.
+/// Abre a biblioteca de fora de uma view: o delegate do app não tem `openWindow`.
+/// `MuralCommands`, que existe mesmo sem janelas, registra aqui a ação do SwiftUI.
+@MainActor
+final class LibraryWindowOpener {
+    static let shared = LibraryWindowOpener()
+
+    private var action: (@MainActor () -> Void)?
+
+    func register(_ action: @escaping @MainActor () -> Void) {
+        self.action = action
+    }
+
+    /// Devolve `false` quando ainda não há ação registrada.
+    @discardableResult
+    func open() -> Bool {
+        guard let action else { return false }
+        action()
+        return true
+    }
+}
+
+/// Segura o término do app até as janelas de mural gravarem e garante que o app nunca
+/// fique aberto sem nenhuma janela.
 @MainActor
 final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     var openSessions = OpenBoardSessions.shared
+    var libraryOpener = LibraryWindowOpener.shared
     var flushTimeout: Duration = .seconds(10)
+    /// Espera a restauração de janelas do macOS antes de conferir se alguma abriu.
+    var launchWindowCheckDelay: Duration = .milliseconds(800)
     /// Resposta ao AppKit; trocada nos testes para não encerrar o processo de teste.
     var reply: @MainActor (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
     /// Pergunta o que fazer quando algo não foi salvo. `true` sai mesmo assim.
     var confirmQuitWithUnsavedBoards: @MainActor ([String]) -> Bool = MuralAppDelegate.askToQuitAnyway
+    /// Há alguma janela do app aberta (inclusive minimizada)?
+    var hasOpenWindow: @MainActor () -> Bool = {
+        NSApp.windows.contains { ($0.isVisible || $0.isMiniaturized) && $0.canBecomeMain }
+    }
     private var isTerminating = false
+
+    /// O estado salvo pode dizer que havia janelas sem nenhuma restaurável (sessões de teste,
+    /// janelas fechadas): o macOS então não cria a janela padrão e o app abre só com a
+    /// barra de menus. Depois da restauração, sem nenhuma janela, abre a biblioteca.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let delay = launchWindowCheckDelay
+        Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            openLibraryIfNoWindow()
+        }
+    }
+
+    /// Clique no ícone do Dock sem janelas abertas: abre a biblioteca.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, !hasOpenWindow() else { return true }
+        return !libraryOpener.open()
+    }
+
+    func openLibraryIfNoWindow() {
+        guard !hasOpenWindow() else { return }
+        libraryOpener.open()
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !openSessions.live.isEmpty else { return .terminateNow }
