@@ -112,7 +112,7 @@ struct CollectionView: View {
         ContentUnavailableView {
             Label("Pasta vazia", systemImage: "rectangle.stack")
         } description: {
-            Text("Copie imagens, vídeos, PDFs ou texto e cole aqui com ⌘V, ou arraste para a janela.")
+            Text("Copie imagens, vídeos, PDFs, links ou texto e cole aqui com ⌘V, ou arraste para a janela.")
         }
         .frame(maxWidth: .infinity, minHeight: 420)
     }

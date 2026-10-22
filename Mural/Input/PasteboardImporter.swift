@@ -18,11 +18,18 @@ enum PasteboardImporter {
         case data(Data, fileExtension: String, kind: ItemKind, title: String)
         /// Imagem em outro formato (TIFF, JPEG, HEIC, GIF), convertida para PNG ao gravar.
         case imageNeedingConversion(Data)
+        /// Endereços da web, um cartão de link cada, com o título, o resumo e a imagem que vieram junto.
+        case links([LinkDraft])
         case text(String)
         case nothing
     }
 
-    /// Lê na ordem: arquivos, PNG, PDF, outra imagem, texto. Texto só com espaços não conta.
+    /// Lê na ordem: arquivos, PNG, PDF, outra imagem, links, imagem que só o NSImage lê e texto.
+    /// Texto só com espaços não conta.
+    ///
+    /// A imagem vem antes dos links: “Copiar Imagem” do Safari traz imagem e endereço e continua virando
+    /// imagem. Um texto que é só endereço (ou uma lista deles, um por linha) vira link sem passar pelo popup.
+    /// A leitura pelo NSImage fica depois dos links porque ele também aceita um endereço e baixaria a página.
     static func read(from pasteboard: NSPasteboard = .general) -> Content {
         let fileOptions: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: fileOptions) as? [URL], !urls.isEmpty {
@@ -36,6 +43,10 @@ enum PasteboardImporter {
         }
         if let type = pasteboard.availableType(from: convertibleImageTypes), let data = pasteboard.data(forType: type) {
             return .imageNeedingConversion(data)
+        }
+        let links = LinkPasteboardReader.drafts(from: pasteboard)
+        if !links.isEmpty {
+            return .links(links)
         }
         // Representação que só o NSImage sabe ler: converte aqui mesmo (caso raro).
         if let png = pngFromAnyImage(on: pasteboard) {

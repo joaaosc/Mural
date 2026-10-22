@@ -69,19 +69,24 @@ struct LinkCardTests {
         let image = try #require(names.image)
         let icon = try #require(names.icon)
         let item = Self.linkItem("https://apple.com", previewImageFile: image, iconFile: icon)
-        // A miniatura carrega de forma assíncrona e o `ImageRenderer` desenha uma vez só. Com o cache já
-        // aquecido, a primeira passada do `ThumbnailView` encontra a imagem pronta, sem espera.
-        try await Self.warmCache(files.url(for: image), maxPixelSize: LinkCard.imageMaxPixelSize)
-        try await Self.warmCache(files.url(for: icon), maxPixelSize: LinkCard.iconMaxPixelSize)
         let card = LinkCard(item: item).environment(\.linkPreviewFiles, files)
+        // A miniatura carrega de forma assíncrona e o `ImageRenderer` desenha uma vez só: com o cache
+        // aquecido, a primeira passada do `ThumbnailView` encontra a imagem pronta. O cache pode descartar
+        // imagens quando falta memória (builds e outros testes rodando), então aquece logo antes de cada
+        // desenho. Se o cartão procurar a imagem noutro endereço, o teste continua falhando.
+        func pixel(at point: CGPoint) async throws -> RenderedPixel {
+            try await Self.warmCache(files.url(for: image), maxPixelSize: LinkCard.imageMaxPixelSize)
+            try await Self.warmCache(files.url(for: icon), maxPixelSize: LinkCard.iconMaxPixelSize)
+            return try RenderedPixel.read(card, size: Self.size, at: point)
+        }
 
         for point in [Self.topLeft, Self.topRight, CGPoint(x: 146, y: 77)] {
-            let pixel = try RenderedPixel.read(card, size: Self.size, at: point)
+            let pixel = try await pixel(at: point)
             #expect(pixel.isClose(to: Self.imageColor), "em \(point): \(pixel); esperado \(Self.imageColor)")
         }
-        let below = try RenderedPixel.read(card, size: Self.size, at: CGPoint(x: 146, y: 80))
+        let below = try await pixel(at: CGPoint(x: 146, y: 80))
         #expect(below.isNeutral, "a imagem passou da área de cima: \(below)")
-        let iconPixel = try RenderedPixel.read(card, size: Self.size, at: CGPoint(x: 13, y: 91))
+        let iconPixel = try await pixel(at: CGPoint(x: 13, y: 91))
         #expect(iconPixel.isClose(to: Self.iconColor), "o ícone não está no começo da linha do site: \(iconPixel)")
     }
 

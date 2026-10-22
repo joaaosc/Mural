@@ -17,7 +17,7 @@ struct FolderPeek: View {
                     .frame(width: size.width * 0.8, height: size.height * 0.8)
             }
             if children.isEmpty {
-                Text("Pasta vazia — arraste um cartão até ela ou abra e cole com ⌘V")
+                Text("Pasta vazia — arraste um cartão até ela ou abra e cole links, imagens ou texto com ⌘V")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, 8)

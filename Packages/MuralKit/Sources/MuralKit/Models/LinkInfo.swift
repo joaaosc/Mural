@@ -10,7 +10,7 @@ public struct LinkInfo: Codable, Hashable, Sendable {
     public var siteName: String?
     /// Texto de prévia: a descrição da página.
     public var summary: String?
-    /// Endereço da imagem de prévia na web: a que o Safari entrega ao arrastar ou a da própria página.
+    /// Endereço da imagem de prévia na web: a que o Safari entrega ao copiar ou a da própria página.
     /// A cópia local fica em `previewImageFile`.
     public var remoteImageURL: URL?
     /// Nome do arquivo da imagem de prévia, guardado fora da pasta de itens.
@@ -65,14 +65,14 @@ public enum LinkPreviewState: Codable, Hashable, Sendable {
     case failed(at: Date, attempts: Int)
 }
 
-/// Link ainda não inserido no mural, vindo de colar ou arrastar.
+/// Link ainda não inserido no mural, vindo do ⌘V.
 public struct LinkDraft: Hashable, Sendable {
     public var url: URL
     /// Título sugerido pela origem; sem ele, o cartão usa o host do endereço.
     public var title: String?
     /// Texto de prévia que já veio com o link; vazio ou só com espaços é ignorado.
     public var summary: String?
-    /// Imagem de prévia que já veio com o link (a que o Safari entrega ao arrastar); só vale `http` ou `https`.
+    /// Imagem de prévia que já veio com o link (a que o Safari entrega ao copiar um favorito); só vale `http` ou `https`.
     public var imageURL: URL?
 
     public init(url: URL, title: String? = nil, summary: String? = nil, imageURL: URL? = nil) {

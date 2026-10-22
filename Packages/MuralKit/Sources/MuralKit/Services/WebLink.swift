@@ -5,6 +5,8 @@ public enum WebLink {
     private static let webSchemes: Set<String> = ["http", "https"]
     /// Parâmetros de rastreamento que não mudam a página; os `utm_*` são tratados à parte.
     private static let trackingParameters: Set<String> = ["fbclid", "gclid", "mc_cid", "mc_eid"]
+    /// Quantas linhas não vazias `urls(inText:)` aceita antes de tratar o texto como texto comum.
+    private static let maxTextLines = 500
 
     /// Extrai um único endereço da web de um texto colado, sem espaços e quebras nas pontas.
     ///
@@ -25,6 +27,23 @@ public enum WebLink {
         }
         guard let components = URLComponents(string: candidate), isWebAddress(components) else { return nil }
         return components.url
+    }
+
+    /// Extrai os endereços de um texto colado em que toda linha não vazia é um único endereço da web.
+    ///
+    /// Cada linha, sem espaços nas pontas e sem invólucro (`<…>`, aspas duplas ou simples), precisa ser
+    /// aceita por `url(from:)`. Se uma só linha não for, devolve `[]`: um parágrafo com um link no meio
+    /// continua sendo texto. Linhas em branco são ignoradas e os endereços repetidos são mantidos. Com mais
+    /// de 500 linhas não vazias também devolve `[]`, em vez de descartar parte da colagem em silêncio.
+    public static func urls(inText text: String) -> [URL] {
+        var addresses: [URL] = []
+        for line in text.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard addresses.count < maxTextLines, let url = url(from: unwrapped(trimmed)) else { return [] }
+            addresses.append(url)
+        }
+        return addresses
     }
 
     /// Indica se o endereço é `http` ou `https` e tem host.
@@ -82,6 +101,18 @@ public enum WebLink {
     private static func isTracking(_ name: String) -> Bool {
         let name = name.lowercased()
         return name.hasPrefix("utm_") || trackingParameters.contains(name)
+    }
+
+    /// Tira um único par de `<…>`, `"…"` ou `'…'` que envolve a linha inteira; pares que não casam ficam como estão.
+    private static func unwrapped(_ line: String) -> String {
+        guard line.count >= 2, let first = line.first, let last = line.last else { return line }
+        let closing: Character
+        switch first {
+        case "<": closing = ">"
+        case "\"", "'": closing = first
+        default: return line
+        }
+        return last == closing ? String(line.dropFirst().dropLast()) : line
     }
 
     /// Tira o `www.` do começo de um host já em minúsculas.

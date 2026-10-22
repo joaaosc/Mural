@@ -90,7 +90,7 @@ extension BoardModel {
     /// Resultados de cartões apagados ou que não são de link são ignorados. Numa busca bem-sucedida
     /// (`.ready`) o título da página, o nome do site e os arquivos novos substituem os antigos, mas um valor
     /// vazio nunca apaga o que já existe. O resumo e a imagem remota só entram se o cartão ainda não tiver
-    /// um, porque o que veio do Safari ao arrastar tem prioridade. O título do cartão só vira o título da
+    /// um, porque o que veio do Safari ao copiar tem prioridade. O título do cartão só vira o título da
     /// página enquanto for o provisório (o host do endereço); depois de renomeado, não é mexido.
     /// Numa falha (`.failed`) só o estado muda.
     public func applyLinkPreviews(_ updates: [LinkPreviewUpdate]) {

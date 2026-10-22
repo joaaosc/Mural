@@ -332,6 +332,29 @@ final class MuralUITests: XCTestCase {
         XCTAssertEqual(paragraph.value as? String, "Parágrafo inteiro")
     }
 
+    /// Como o “Copiar Link” do Safari: o endereço e o nome da página no mesmo item da área de transferência.
+    @MainActor
+    func testPastedLinkBecomesLinkCardAndSurvivesRelaunch() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let entry = NSPasteboardItem()
+        entry.setString("https://example.com/mural-teste", forType: .URL)
+        entry.setString("Página de teste Mural", forType: NSPasteboard.PasteboardType("public.url-name"))
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([entry])
+        app.typeKey("v", modifierFlags: .command)
+        XCTAssertTrue(
+            app.buttons["Página de teste Mural"].waitForExistence(timeout: 5), "⌘V com um endereço deveria criar um cartão de link")
+
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        XCTAssertTrue(
+            reopened.buttons["Página de teste Mural"].waitForExistence(timeout: 10),
+            "o cartão de link colado deveria continuar após reabrir")
+    }
+
     @MainActor
     func testPastedImageFileOpensWithMetadata() throws {
         let app = launch()

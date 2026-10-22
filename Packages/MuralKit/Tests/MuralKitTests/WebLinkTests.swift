@@ -176,4 +176,112 @@ struct WebLinkTests {
     func noSecureVariant(text: String) throws {
         #expect(WebLink.secureVariant(of: try url(text)) == nil)
     }
+
+    // MARK: urls(inText:)
+
+    private func addresses(inText text: String) -> [String] {
+        WebLink.urls(inText: text).map(\.absoluteString)
+    }
+
+    @Test("Um endereço por linha, na ordem em que aparecem")
+    func listsOneAddressPerLine() {
+        #expect(addresses(inText: "https://apple.com") == ["https://apple.com"])
+        #expect(
+            addresses(inText: "https://apple.com/mac\nhttp://swift.org\nwww.example.com/a?x=1")
+                == ["https://apple.com/mac", "http://swift.org", "https://www.example.com/a?x=1"])
+    }
+
+    @Test(
+        "Linhas em branco, espaços nas pontas e qualquer quebra de linha são ignorados",
+        arguments: [
+            "\n\nhttps://apple.com\n\nhttps://swift.org\n\n",
+            "  https://apple.com  \n\thttps://swift.org\t",
+            "https://apple.com\r\nhttps://swift.org\r\n",
+            "https://apple.com\rhttps://swift.org",
+            "https://apple.com\u{2028}https://swift.org",
+            "https://apple.com\n \t \nhttps://swift.org",
+        ])
+    func ignoresBlankLinesAndPadding(text: String) {
+        #expect(addresses(inText: text) == ["https://apple.com", "https://swift.org"])
+    }
+
+    @Test(
+        "Um par de <…>, aspas duplas ou aspas simples em volta da linha é retirado",
+        arguments: [
+            ("<https://apple.com/mac>", "https://apple.com/mac"),
+            ("\"https://apple.com/mac\"", "https://apple.com/mac"),
+            ("'https://apple.com/mac'", "https://apple.com/mac"),
+            ("  <https://apple.com/mac>  \n", "https://apple.com/mac"),
+            ("<www.apple.com/mac>", "https://www.apple.com/mac"),
+        ])
+    func removesWrappers(text: String, expected: String) {
+        #expect(addresses(inText: text) == [expected])
+    }
+
+    @Test("Cada linha tem o seu invólucro")
+    func eachLineHasItsOwnWrapper() {
+        #expect(
+            addresses(inText: "<https://apple.com>\n\"https://swift.org\"\n'https://example.com'\nhttps://example.org")
+                == ["https://apple.com", "https://swift.org", "https://example.com", "https://example.org"])
+    }
+
+    @Test(
+        "Invólucro que não casa, repetido ou vazio não vale",
+        arguments: [
+            "<https://apple.com", "https://apple.com>", "\"https://apple.com'", "'https://apple.com\"", "<<https://apple.com>>",
+            "\"<https://apple.com>\"", "<\"https://apple.com\">", "``https://apple.com``", "[https://apple.com]", "(https://apple.com)",
+            "<>", "\"\"", "''", "\"", "<",
+        ])
+    func rejectsBrokenWrappers(text: String) {
+        #expect(WebLink.urls(inText: text).isEmpty)
+    }
+
+    @Test(
+        "Uma linha que não é só um endereço invalida o texto todo",
+        arguments: [
+            "https://apple.com\nveja isto", "veja isto\nhttps://apple.com", "https://apple.com\nhttps://swift.org depois",
+            "https://apple.com\n- https://swift.org", "https://apple.com\napple.com", "https://apple.com\nftp://apple.com/arquivo",
+            "https://apple.com\nmailto:alguem@apple.com", "https://apple.com\njavascript:alert(1)", "https://apple.com\nhttps://",
+            "https://apple.com\nhttps://swift.org https://example.com",
+        ])
+    func oneBadLineRejectsEverything(text: String) {
+        #expect(WebLink.urls(inText: text).isEmpty)
+    }
+
+    @Test(
+        "Um parágrafo ou uma frase com um endereço no meio continua sendo texto",
+        arguments: [
+            "Veja https://apple.com/mac depois", "https://apple.com é o site", "Leia: https://apple.com",
+            "Anotações da reunião\nhttps://apple.com/mac\nFim", "https://apple.com https://swift.org",
+            "Primeiro parágrafo.\n\nSegundo, com https://swift.org no meio.",
+        ])
+    func proseStaysText(text: String) {
+        #expect(WebLink.urls(inText: text).isEmpty)
+    }
+
+    @Test(
+        "Texto sem nenhum endereço devolve vazio",
+        arguments: [
+            "", "   ", "\n\n", " \t\r\n ", "apple.com", "texto qualquer", "ftp://apple.com", "mailto:alguem@apple.com",
+            "file:///Users/joao/a.txt",
+        ])
+    func nothingToList(text: String) {
+        #expect(WebLink.urls(inText: text).isEmpty)
+    }
+
+    @Test("Endereços repetidos são todos devolvidos: quem importa é que junta os repetidos")
+    func keepsRepeatedAddresses() {
+        #expect(addresses(inText: "https://apple.com\nhttps://apple.com") == ["https://apple.com", "https://apple.com"])
+    }
+
+    @Test("Até 500 linhas não vazias; com mais, o texto deixa de ser tratado como lista")
+    func lineLimit() {
+        let lines = (1...501).map { "https://example.com/pagina-\($0)" }
+
+        #expect(WebLink.urls(inText: lines.prefix(500).joined(separator: "\n")).count == 500)
+        #expect(WebLink.urls(inText: lines.joined(separator: "\n")).isEmpty)
+        #expect(WebLink.urls(inText: lines.prefix(499).joined(separator: "\n")).count == 499)
+        // Linhas em branco não contam para o limite.
+        #expect(WebLink.urls(inText: lines.prefix(500).joined(separator: "\n\n")).count == 500)
+    }
 }

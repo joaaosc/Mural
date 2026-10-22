@@ -550,6 +550,14 @@ final class BoardWindowSession {
             }
             prepared = await model.prepareData(
                 png, fileExtension: "png", kind: .image, title: "Imagem colada", parentID: folderID)
+        case .links(let drafts):
+            withAnimation(animation) {
+                if model.importLinks(drafts, into: folderID).isEmpty {
+                    model.lastError = "O conteúdo copiado não pôde virar um cartão."
+                }
+            }
+            captureBoardIfNeeded()
+            return
         case .text(let text):
             withAnimation(animation) {
                 if model.importText(text, into: folderID) == nil {

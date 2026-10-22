@@ -6,7 +6,7 @@ public struct LinkPreviewRequest: Hashable, Sendable {
     public var itemID: UUID
     /// Endereço da página.
     public var url: URL
-    /// Imagem que já veio com o link (a do Safari ao arrastar); o buscador pode tentá-la primeiro.
+    /// Imagem que já veio com o link (a do Safari ao copiar um favorito); o buscador pode tentá-la primeiro.
     public var remoteImageURL: URL?
     /// Quantas tentativas anteriores falharam; 0 na primeira busca.
     public var previousAttempts: Int
