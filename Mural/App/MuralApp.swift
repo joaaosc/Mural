@@ -8,7 +8,14 @@ struct MuralApp: App {
     @State private var tabs: MuralTabs
 
     init() {
-        let library = BoardLibrary(rootDirectory: LaunchConfiguration.store().directory)
+        // Nos testes de interface, o mural excluído é apagado em vez de ir para o Lixo de quem roda os testes.
+        let discard: @Sendable (URL) throws -> Void
+        if LaunchConfiguration.isUITesting {
+            discard = { url in try FileManager.default.removeItem(at: url) }
+        } else {
+            discard = { url in try BoardLibrary.moveToTrash(url) }
+        }
+        let library = BoardLibrary(rootDirectory: LaunchConfiguration.store().directory, discardPackage: discard)
         _tabs = State(initialValue: MuralTabs(registry: BoardSessionRegistry(library: library)))
     }
 

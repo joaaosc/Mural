@@ -33,7 +33,8 @@ struct MuralsSidebar: View {
                     .accessibilityAddTraits(.isHeader)
                 ForEach(entries, id: \.route) { entry in
                     SidebarMuralRow(
-                        entry: entry, isSelected: tabs.selected?.route == entry.route, action: { open(entry) })
+                        entry: entry, isSelected: tabs.selected?.route == entry.route, action: { open(entry) },
+                        onDelete: { tabs.requestDelete(entry.route, name: entry.manifest.name) })
                 }
                 if !unreadable.isEmpty {
                     Label(
@@ -104,6 +105,7 @@ private struct SidebarMuralRow: View {
     let entry: BoardLibraryEntry
     let isSelected: Bool
     var action: () -> Void
+    var onDelete: () -> Void
 
     @State private var isHovering = false
 
@@ -119,6 +121,11 @@ private struct SidebarMuralRow: View {
         .buttonStyle(.plain)
         .background(background, in: .rect(cornerRadius: 8))
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Abrir", action: action)
+            Divider()
+            Button(entry.route.isDraft ? "Descartar Rascunho…" : "Excluir Mural…", role: .destructive, action: onDelete)
+        }
         .accessibilityIdentifier(
             entry.route.isDraft
                 ? "welcome-draft-entry" : "saved-board-entry-\(entry.manifest.id.rawValue.uuidString)"

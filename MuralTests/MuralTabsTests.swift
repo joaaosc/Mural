@@ -13,7 +13,10 @@ struct MuralTabsTests {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MuralTabs-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return (BoardLibrary(rootDirectory: directory), directory)
+        // Mural excluído nos testes é apagado, não vai para o Lixo de quem roda os testes.
+        let library = BoardLibrary(
+            rootDirectory: directory, discardPackage: { url in try FileManager.default.removeItem(at: url) })
+        return (library, directory)
     }
 
     private func makeTabs(_ library: BoardLibrary) -> (MuralTabs, WindowCloses) {
@@ -202,6 +205,99 @@ struct MuralTabsTests {
         #expect(!tabs.resumeDraftAvailable)
         await tabs.resumeDraft()
         #expect(tabs.tabs.isEmpty)
+    }
+    // MARK: Excluir mural
+
+    @Test("Excluir o mural de uma aba fecha a aba, solta a sessão e tira o mural da lista; a janela fica")
+    func deletingOpenBoardClosesItsTab() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, closes) = makeTabs(library)
+        var cleared: [BoardID] = []
+        tabs.removeBoardCaches = { cleared.append($0) }
+        let doomedRoute = try await library.createNamedBoard("Excluir")
+        let keptRoute = try await library.createNamedBoard("Manter")
+        let kept = try #require(tabs.open(keptRoute))
+        let doomed = try #require(tabs.open(doomedRoute))
+        await waitUntil("o mural carregar") { doomed.session.model != nil }
+
+        try await tabs.deleteBoard(doomedRoute)
+
+        #expect(tabs.tabs.map(\.id) == [kept.id])
+        #expect(tabs.selectedID == kept.id)
+        #expect(await tabs.registry.session(for: doomed.boardID) == nil, "nenhuma sessão viva recria o pacote")
+        #expect(try await library.listSaved().map(\.manifest.name) == ["Manter"])
+        #expect(cleared == [doomed.boardID], "as prévias de link do mural saem junto")
+
+        try await tabs.deleteBoard(keptRoute)
+        #expect(tabs.tabs.isEmpty)
+        #expect(closes.count == 0, "excluir a última aba não fecha a janela")
+        #expect(tabs.isSidebarVisible)
+    }
+
+    @Test("Excluir um mural que não está aberto não mexe nas abas")
+    func deletingClosedBoardKeepsTabs() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        tabs.removeBoardCaches = { _ in }
+        let open = try #require(tabs.open(try await library.createNamedBoard("Aberto")))
+        let closedRoute = try await library.createNamedBoard("Fechado")
+
+        try await tabs.deleteBoard(closedRoute)
+
+        #expect(tabs.tabs.map(\.id) == [open.id])
+        #expect(try await library.listSaved().map(\.manifest.name) == ["Aberto"])
+        await tabs.closeAll()
+    }
+
+    @Test("Pedir para excluir guarda o pedido e abre a janela; Arquivo › Excluir usa a aba ativa")
+    func deletionRequestsWaitForConfirmation() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        var opened = 0
+        tabs.openMainWindow = { opened += 1 }
+        let route = try await library.createNamedBoard("Pedido")
+        _ = tabs.open(route, title: "Pedido")
+
+        tabs.requestDeleteSelected()
+        #expect(tabs.deletionRequest == BoardDeletionRequest(route: route, name: "Pedido"))
+        #expect(opened == 1)
+        tabs.requestDelete(.library, name: "Murais")
+        #expect(tabs.deletionRequest?.route == route, "a biblioteca não se exclui")
+        #expect(try await library.listSaved().count == 1, "nada é excluído antes da confirmação")
+        await tabs.closeAll()
+    }
+
+    @Test("Excluir o rascunho de exemplo o descarta e desliga Retomar rascunho")
+    func deletingDraftDiscardsIt() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        tabs.removeBoardCaches = { _ in }
+        let state = try await library.bootstrap()
+        await tabs.resumeDraft()
+        #expect(tabs.resumeDraftAvailable)
+
+        try await tabs.deleteBoard(.welcomeDraft(state.stableWelcomeID))
+
+        #expect(tabs.tabs.isEmpty)
+        #expect(!tabs.resumeDraftAvailable)
+        #expect(try await library.lifecycleState()?.lifecycle == .discarded)
+    }
+
+    @Test("Dentro do app, mover para o Lixo funciona e diz onde o item foi parar")
+    func trashWorksInsideTheSandbox() throws {
+        let item = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuralLixo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: item, withIntermediateDirectories: true)
+        var resulting: NSURL?
+        try FileManager.default.trashItem(at: item, resultingItemURL: &resulting)
+        let trashed = try #require(resulting as URL?)
+        defer { try? FileManager.default.removeItem(at: trashed) }
+        #expect(!FileManager.default.fileExists(atPath: item.path))
+        #expect(FileManager.default.fileExists(atPath: trashed.path))
     }
 }
 

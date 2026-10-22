@@ -25,6 +25,15 @@ enum MuralWindowRequest: Equatable, Sendable {
     case openPackage
 }
 
+/// Pedido de excluir um mural, à espera da confirmação na janela.
+struct BoardDeletionRequest: Identifiable, Equatable, Sendable {
+    let route: BoardRoute
+    let name: String
+
+    var id: BoardRoute { route }
+    var isDraft: Bool { route.isDraft }
+}
+
 /// As abas abertas e o que se lembra delas entre aberturas do app.
 struct MuralTabsSnapshot: Codable, Equatable, Sendable {
     struct Entry: Codable, Equatable, Sendable {
@@ -70,6 +79,8 @@ final class MuralTabs {
     var isSidebarVisible = false
     /// Pedido esperando a janela (que pode ainda não existir).
     var request: MuralWindowRequest?
+    /// Mural a excluir, esperando a confirmação na janela.
+    var deletionRequest: BoardDeletionRequest?
     /// Há um rascunho de exemplo para retomar.
     private(set) var resumeDraftAvailable = false
     /// Muda quando a lista de murais pode ter mudado: a barra lateral relê.
@@ -86,6 +97,10 @@ final class MuralTabs {
     /// Uma folha (nome, ⌘V, painel de arquivos, confirmação) está aberta na janela.
     @ObservationIgnored var isShowingSheet: @MainActor () -> Bool = { false }
     @ObservationIgnored var closeWindow: @MainActor () -> Void = {}
+    /// Apaga o que o app guarda de um mural fora do pacote dele (as prévias de link).
+    @ObservationIgnored var removeBoardCaches: @MainActor (BoardID) -> Void = { boardID in
+        try? FileManager.default.removeItem(at: LaunchConfiguration.linkPreviewsDirectory(for: boardID))
+    }
     @ObservationIgnored private var loadStarted: Set<UUID> = []
 
     init(
@@ -138,20 +153,10 @@ final class MuralTabs {
 
     /// Fecha a aba e grava o mural dela; a vizinha da direita (ou da esquerda) assume. Sem abas, fecha a janela.
     func close(_ id: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         if id == selectedID, isShowingSheet() { return }
-        let closing = tabs.remove(at: index)
-        loadStarted.remove(closing.id)
-        if id == selectedID {
-            selectedID = nil
-            if let next = tabs.indices.contains(index) ? tabs[index] : tabs.last {
-                activate(next)
-            }
-        }
-        libraryRevision &+= 1
+        guard let closing = removeTab(id) else { return }
         Task { await closing.session.handleWindowWillClose() }
         if tabs.isEmpty {
-            isSidebarVisible = true
             closeWindow()
         }
     }
@@ -310,7 +315,54 @@ final class MuralTabs {
         libraryRevision &+= 1
     }
 
+    // MARK: Excluir mural
+
+    /// Pede a confirmação para excluir o mural (a janela pergunta).
+    func requestDelete(_ route: BoardRoute, name: String) {
+        guard Self.boardID(of: route) != nil else { return }
+        deletionRequest = BoardDeletionRequest(route: route, name: name)
+        showWindow()
+    }
+
+    /// Arquivo › Excluir Mural…: o mural da aba ativa.
+    func requestDeleteSelected() {
+        guard let selected else { return }
+        requestDelete(selected.route, name: selected.title)
+    }
+
+    /// Exclui o mural: fecha a aba dele gravando o que faltava, aposenta a sessão (nenhuma gravação tardia
+    /// recria o pacote) e manda o pacote para o Lixo. A janela continua aberta, mesmo sem abas.
+    func deleteBoard(_ route: BoardRoute) async throws {
+        guard let boardID = Self.boardID(of: route) else { throw BoardLibraryError.unavailableRoute(route) }
+        if let tab = tab(for: boardID), let closing = removeTab(tab.id) {
+            await closing.session.handleWindowWillClose()
+        }
+        await registry.close(boardID)
+        try await registry.library.deleteBoard(route)
+        removeBoardCaches(boardID)
+        libraryRevision &+= 1
+        await refreshDraftAvailability()
+    }
+
     // MARK: Interno
+
+    /// Tira a aba da lista e escolhe a vizinha da direita (ou da esquerda). Não grava nem fecha a janela.
+    private func removeTab(_ id: UUID) -> BoardTab? {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        let removed = tabs.remove(at: index)
+        loadStarted.remove(removed.id)
+        if id == selectedID {
+            selectedID = nil
+            if let next = tabs.indices.contains(index) ? tabs[index] : tabs.last {
+                activate(next)
+            }
+        }
+        if tabs.isEmpty {
+            isSidebarVisible = true
+        }
+        libraryRevision &+= 1
+        return removed
+    }
 
     /// Pausa a aba que sai e mostra a que entra (carregando-a na primeira vez).
     private func activate(_ tab: BoardTab) {

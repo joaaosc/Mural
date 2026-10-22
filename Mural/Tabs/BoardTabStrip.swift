@@ -24,7 +24,8 @@ struct BoardTabStrip: View {
                         canCloseOthers: count > 1,
                         onSelect: { tabs.select(tab.id) },
                         onClose: { tabs.close(tab.id) },
-                        onCloseOthers: { tabs.closeOthers(tab.id) }
+                        onCloseOthers: { tabs.closeOthers(tab.id) },
+                        onDelete: { tabs.requestDelete(tab.route, name: tab.title) }
                     )
                     .frame(width: tabWidth, height: Self.height)
                 }
@@ -51,6 +52,7 @@ struct BoardTabButton: View {
     var onSelect: () -> Void
     var onClose: () -> Void
     var onCloseOthers: () -> Void = {}
+    var onDelete: () -> Void = {}
 
     @State private var isHovering = false
 
@@ -87,6 +89,8 @@ struct BoardTabButton: View {
             Button("Fechar aba", action: onClose)
             Button("Fechar outras abas", action: onCloseOthers)
                 .disabled(!canCloseOthers)
+            Divider()
+            Button("Excluir Mural…", role: .destructive, action: onDelete)
         }
         .help(title)
         .accessibilityIdentifier("board-tab")

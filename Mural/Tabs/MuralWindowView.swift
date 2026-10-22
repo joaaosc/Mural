@@ -116,6 +116,21 @@ struct MuralWindowView: View {
         } message: { alert in
             Text(alert.message)
         }
+        .confirmationDialog(
+            tabs.deletionRequest.map { "Excluir “\($0.name)”?" } ?? "",
+            isPresented: Binding(
+                get: { tabs.deletionRequest != nil }, set: { if !$0 { tabs.deletionRequest = nil } }),
+            titleVisibility: .visible,
+            presenting: tabs.deletionRequest
+        ) { request in
+            Button(request.isDraft ? "Descartar" : "Mover para o Lixo", role: .destructive) { delete(request) }
+            Button("Cancelar", role: .cancel) {}
+        } message: { request in
+            Text(
+                request.isDraft
+                    ? "O rascunho de exemplo será descartado e não poderá ser recuperado."
+                    : "O mural e os arquivos guardados nele vão para o Lixo do Mac.")
+        }
         .onChange(of: tabs.request) { _, _ in consumeRequest() }
         .onChange(of: tabs.snapshot) { _, snapshot in storedTabs = snapshot.storage }
         .onChange(of: tabs.isSidebarVisible) { _, visible in storedSidebar = visible }
@@ -189,6 +204,17 @@ struct MuralWindowView: View {
             } catch {
                 alert = WindowAlert(
                     title: "Não foi possível criar o mural", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func delete(_ request: BoardDeletionRequest) {
+        tabs.deletionRequest = nil
+        Task {
+            do {
+                try await tabs.deleteBoard(request.route)
+            } catch {
+                alert = WindowAlert(title: "Não foi possível excluir o mural", message: error.localizedDescription)
             }
         }
     }
