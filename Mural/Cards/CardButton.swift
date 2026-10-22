@@ -16,6 +16,8 @@ struct CardButton: View {
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
     var onSetColorTag: ((UUID, TagColor?) -> Void)? = nil
     var onMoveUp: ((UUID) -> Void)? = nil
+    /// Marca ou reabre o lembrete; `nil` onde a bolinha não é clicável (a prévia de pasta).
+    var onToggleReminder: ((UUID) -> Void)? = nil
     /// `nil` onde não há seletor (a prévia de pasta que aparece ao passar o ponteiro).
     var selection: CardSelection? = nil
 
@@ -45,6 +47,7 @@ struct CardButton: View {
                         .allowsHitTesting(false)
                 }
             }
+            .overlay(alignment: .topLeading) { reminderToggle }
             .accessibilityLabel(item.title)
             .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -64,6 +67,23 @@ struct CardButton: View {
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: model.descendantCount(of: item.id)))
             }
+        }
+    }
+
+    /// Botão sobre a bolinha do lembrete, fora do botão do cartão (botão dentro de botão não recebe o clique).
+    /// Com o seletor de ⌘ aberto some, e o clique marca o cartão.
+    @ViewBuilder
+    private var reminderToggle: some View {
+        if item.kind == .reminder, let reminder = item.reminder, let onToggleReminder, selection?.isActive != true {
+            Button {
+                onToggleReminder(item.id)
+            } label: {
+                Color.clear.frame(width: 22, height: 22).contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .padding(4)
+            .accessibilityLabel(reminder.isCompleted ? "Reabrir" : "Marcar como concluído")
+            .accessibilityIdentifier("reminder-toggle")
         }
     }
 

@@ -18,6 +18,7 @@ struct BoardCanvasView: View {
     var onMoveToBoard: ((UUID) -> Void)? = nil
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
     var onSetColorTag: ((UUID, TagColor?) -> Void)? = nil
+    var onToggleReminder: ((UUID) -> Void)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
     /// Seletor de ⌘ dos cartões soltos; a prévia de pasta fica de fora.
     var selection: CardSelection? = nil
@@ -182,6 +183,7 @@ struct BoardCanvasView: View {
             onMoveToBoard: onMoveToBoard,
             onMoveIntoFolder: onMoveIntoFolder,
             onSetColorTag: onSetColorTag,
+            onToggleReminder: onToggleReminder,
             selection: selection)
     }
 

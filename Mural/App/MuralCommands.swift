@@ -49,6 +49,8 @@ struct MuralCommands: Commands {
             Button("Adicionar Arquivos…", action: { actions?.addFiles() })
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(!(actions?.canAddFiles ?? false))
+            Button("Adicionar Lembretes…", action: { actions?.addReminders() })
+                .disabled(!(actions?.canCreateContent ?? false))
         }
         CommandGroup(replacing: .saveItem) {
             // Este grupo também traz o "Fechar" do macOS; ao substituí-lo, o ⌘W sumia.

@@ -703,4 +703,33 @@ final class MuralUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: .command)
         XCTAssertTrue(app.images["Imagem colada"].waitForExistence(timeout: 5), "a imagem colada aparece na leitura")
     }
+
+    /// A folha de lembretes cria os cartões e a bolinha do cartão marca como concluído.
+    @MainActor
+    func testRemindersSheetAddsCardsAndToggles() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Lembretes…"].firstMatch.click()
+
+        let list = app.staticTexts["Casa"].firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+        list.click()
+        let first = app.checkBoxes["Comprar pão"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        first.click()
+        // "Pagar a luz" é concluído: aparece só com "Mostrar concluídos".
+        app.checkBoxes["Mostrar concluídos"].click()
+        let second = app.checkBoxes["Pagar a luz"]
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        second.click()
+        app.buttons["Adicionar (2)"].click()
+
+        XCTAssertTrue(app.buttons["Comprar pão"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Pagar a luz"].firstMatch.exists)
+
+        let toggle = app.buttons["Marcar como concluído"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.click()
+        XCTAssertTrue(app.buttons["Reabrir"].firstMatch.waitForExistence(timeout: 5))
+    }
 }

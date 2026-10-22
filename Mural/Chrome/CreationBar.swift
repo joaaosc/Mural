@@ -12,6 +12,7 @@ struct CreationBar: View {
     /// `nil` quando não dá para criar pasta ali (por exemplo, no último nível de pastas).
     var onNewFolder: (() -> Void)? = nil
     var onAddFiles: () -> Void
+    var onAddReminders: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 2) {
@@ -25,6 +26,8 @@ struct CreationBar: View {
             }
             Button("Arquivos…", systemImage: "paperclip", action: onAddFiles)
                 .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
+            Button("Lembretes…", systemImage: "checklist.checked", action: onAddReminders)
+                .help("Adicionar lembretes do app Lembretes")
         }
         .labelStyle(.titleAndIcon)
         .buttonStyle(CreationBarButtonStyle())

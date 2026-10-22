@@ -67,6 +67,19 @@ struct ItemDetailView: View {
                     })
             }
         }
+        if let session, item.kind == .reminder, let reminder = item.reminder {
+            actions.append(
+                PillAction(
+                    title: reminder.isCompleted ? "Reabrir" : "Marcar como concluído",
+                    symbol: reminder.isCompleted ? "arrow.uturn.backward.circle" : "checkmark.circle"
+                ) {
+                    Task { await session.toggleReminder(item.id) }
+                })
+            actions.append(
+                PillAction(title: "Abrir no Lembretes", symbol: "arrow.up.forward.app") {
+                    session.openReminder(item.id)
+                })
+        }
         actions.append(PillAction(title: "Copiar", symbol: "square.on.square") { PasteboardExporter.copy(item, from: model) })
         if let url = model.fileURL(for: item) {
             actions.append(

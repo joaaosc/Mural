@@ -29,6 +29,7 @@ private struct LoadedRootView: View {
     @State private var isRenamePresented = false
     @State private var boardNameDraft = ""
     @State private var isNewFolderPresented = false
+    @State private var isReminderPickerPresented = false
     @State private var folderNameDraft = ""
     @State private var isConfirmingSelectionDelete = false
     /// Espera curta antes de abrir o seletor ao segurar ⌘: some se o ⌘ era de um atalho.
@@ -76,7 +77,37 @@ private struct LoadedRootView: View {
     }
 
     var body: some View {
-        withDialogs(withSelection(boardContent))
+        withReminderSync(withDialogs(withSelection(boardContent)))
+    }
+
+    /// O mural livre, com tudo o que os cartões chamam.
+    private var canvas: some View {
+        BoardCanvasView(
+            model: model,
+            hero: hero,
+            filter: filter,
+            colorFilter: session.colorFilter,
+            zoom: session.zoom,
+            onOpen: open,
+            boardID: session.boardID,
+            // Identidade da apresentação, não a geração do autosave.
+            generation: session.presentationGeneration,
+            // Chamado a cada quadro de rolagem: só conduz a restauração e nota resize.
+            // A posição é gravada em `.idle`, no assentamento do zoom e após resize.
+            onCanvasGeometryReady: { boardID, generation, metrics in
+                session.restoreCanvas(boardID: boardID, generation: generation, metrics: metrics)
+            },
+            onCanvasChange: { boardID, generation, state in
+                session.recordCanvas(boardID: boardID, generation: generation, state: state)
+            },
+            onDelete: session.delete,
+            onMoveToBoard: session.moveToBoard,
+            onMoveIntoFolder: session.moveIntoFolder,
+            onSetColorTag: { session.setColorTag($1, for: $0) },
+            onToggleReminder: toggleReminder,
+            onMove: session.move,
+            selection: canvasSelection
+        )
     }
 
     /// O mural, os níveis abertos e o que age sobre eles. Folhas e avisos ficam em
@@ -88,33 +119,9 @@ private struct LoadedRootView: View {
         let operationID = session.exportTransfer?.operationID
         ZStack {
             // Níveis cobertos não recebem cliques nem aparecem para a leitura de tela.
-            BoardCanvasView(
-                model: model,
-                hero: hero,
-                filter: filter,
-                colorFilter: session.colorFilter,
-                zoom: session.zoom,
-                onOpen: open,
-                boardID: session.boardID,
-                // Identidade da apresentação, não a geração do autosave.
-                generation: session.presentationGeneration,
-                // Chamado a cada quadro de rolagem: só conduz a restauração e nota resize.
-                // A posição é gravada em `.idle`, no assentamento do zoom e após resize.
-                onCanvasGeometryReady: { boardID, generation, metrics in
-                    session.restoreCanvas(boardID: boardID, generation: generation, metrics: metrics)
-                },
-                onCanvasChange: { boardID, generation, state in
-                    session.recordCanvas(boardID: boardID, generation: generation, state: state)
-                },
-                onDelete: session.delete,
-                onMoveToBoard: session.moveToBoard,
-                onMoveIntoFolder: session.moveIntoFolder,
-                onSetColorTag: { session.setColorTag($1, for: $0) },
-                onMove: session.move,
-                selection: canvasSelection
-            )
-            .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
-            .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
+            canvas
+                .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
+                .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
 
             ForEach(Array(path.enumerated()), id: \.element.id) { index, destination in
                 pageBackground(for: destination)
@@ -272,6 +279,32 @@ private struct LoadedRootView: View {
         .onDisappear { linkPreviewCoordinator?.cancelAll() }
     }
 
+    // MARK: Lembretes
+
+    private func toggleReminder(_ id: UUID) {
+        Task { await session.toggleReminder(id) }
+    }
+
+    /// Confere os cartões de lembrete com o app Lembretes ao ficar pronto, ao mudar e ao voltar ao app.
+    private func withReminderSync(_ content: some View) -> some View {
+        content
+            .task(id: session.restorationPhase == .ready) {
+                guard session.restorationPhase == .ready, !model.reminderItems.isEmpty else { return }
+                await session.refreshReminders()
+            }
+            // Mudanças no app Lembretes chegam em rajada: espera um instante e confere uma vez só.
+            .task(id: session.reminders.changeCount) {
+                guard session.restorationPhase == .ready else { return }
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, !model.reminderItems.isEmpty else { return }
+                await session.refreshReminders()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                guard session.restorationPhase == .ready, !model.reminderItems.isEmpty else { return }
+                Task { await session.refreshReminders() }
+            }
+    }
+
     // MARK: Seletor de ⌘
 
     /// Segurar ⌘ abre o seletor; ⌫ apaga o que está marcado, com confirmação.
@@ -326,7 +359,8 @@ private struct LoadedRootView: View {
                         onNewNote: { createCard(.text) },
                         onNewSticky: { createCard(.sticky) },
                         onNewFolder: newFolderAction,
-                        onAddFiles: { session.beginFileImport(folderID: currentFolderID) })
+                        onAddFiles: { session.beginFileImport(folderID: currentFolderID) },
+                        onAddReminders: { isReminderPickerPresented = true })
                 }
             }
             .padding(.bottom, 18)
@@ -370,6 +404,9 @@ private struct LoadedRootView: View {
                 nameSheet(title: "Nova pasta", placeholder: "Nome da pasta", text: $folderNameDraft, actionTitle: "Criar") {
                     createFolder(named: folderNameDraft)
                 }
+            }
+            .sheet(isPresented: $isReminderPickerPresented) {
+                ReminderPickerSheet(session: session)
             }
             .alert(
                 "Importação concluída",
@@ -437,6 +474,8 @@ private struct LoadedRootView: View {
             beginNewFolder()
         case .tileBoard:
             tileBoard()
+        case .addReminders:
+            if session.acceptsNewContent { isReminderPickerPresented = true }
         }
     }
 

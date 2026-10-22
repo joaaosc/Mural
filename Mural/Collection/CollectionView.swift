@@ -99,6 +99,7 @@ struct CollectionView: View {
             onMoveIntoFolder: session?.moveIntoFolder,
             onSetColorTag: { session?.setColorTag($1, for: $0) },
             onMoveUp: session?.moveUp,
+            onToggleReminder: { id in Task { await session?.toggleReminder(id) } },
             selection: selection
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)

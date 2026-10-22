@@ -8,6 +8,7 @@ enum FocusedBoardActionRequest: Equatable, Sendable {
     case promoteDraft
     case newFolder
     case tileBoard
+    case addReminders
 }
 
 /// Comandos que pertencem à cena focada, nunca a um estado global de aplicativo.
@@ -49,6 +50,11 @@ final class FocusedBoardActions {
     /// A cena focada organiza: ela conhece o formato da janela e a pilha de desfazer.
     func tileBoard() {
         request = .tileBoard
+    }
+
+    /// A cena focada abre a folha de escolha de lembretes.
+    func addReminders() {
+        request = .addReminders
     }
 
     func retryFlush() {
