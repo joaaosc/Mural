@@ -62,6 +62,38 @@ public struct ItemImporter: Sendable {
         return item
     }
 
+    /// Guarda uma imagem colada numa nota como `<UUID>.<extensão>` em `Items/` e lê o tamanho.
+    /// Se os dados não forem uma imagem legível, o arquivo gravado é apagado.
+    public func importNoteImage(data: Data, fileExtension: String) throws -> NoteAttachment {
+        let (fileName, destination) = try noteImageDestination(fileExtension: fileExtension)
+        try data.write(to: destination, options: .atomic)
+        return try readAttachment(fileName: fileName, at: destination, extension: fileExtension)
+    }
+
+    /// Copia um arquivo de imagem do disco para `Items/` como anexo de nota.
+    public func importNoteImage(fileAt url: URL) throws -> NoteAttachment {
+        guard fileManager.fileExists(atPath: url.path) else { throw ImportError.fileNotFound(url) }
+        guard ContentClassifier.kind(forFileAt: url) == .image else { throw ImportError.unsupportedType(url.pathExtension) }
+        let (fileName, destination) = try noteImageDestination(fileExtension: url.pathExtension)
+        try fileManager.copyItem(at: url, to: destination)
+        return try readAttachment(fileName: fileName, at: destination, extension: url.pathExtension)
+    }
+
+    private func noteImageDestination(fileExtension: String) throws -> (name: String, url: URL) {
+        let fileName = "\(UUID().uuidString).\(fileExtension.lowercased())"
+        guard NoteImageMarkup.isAttachmentName(fileName) else { throw ImportError.unsupportedType(fileExtension) }
+        try fileManager.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
+        return (fileName, itemsDirectory.appendingPathComponent(fileName))
+    }
+
+    private func readAttachment(fileName: String, at url: URL, extension fileExtension: String) throws -> NoteAttachment {
+        guard let metadata = ImageInspector.inspect(url), metadata.pixelWidth > 0, metadata.pixelHeight > 0 else {
+            try? fileManager.removeItem(at: url)
+            throw ImportError.unsupportedType(fileExtension)
+        }
+        return NoteAttachment(fileName: fileName, pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight)
+    }
+
     /// Transforma texto colado em post-it, lista ou nota, pelo classificador.
     public func importText(_ text: String, parentID: UUID? = nil) throws -> BoardItem {
         try importText(text, as: ContentClassifier.kind(forText: text), parentID: parentID)
@@ -117,5 +149,11 @@ public struct ItemImporter: Sendable {
     public func removeFile(of item: BoardItem) {
         guard let url = fileURL(for: item) else { return }
         try? fileManager.removeItem(at: url)
+    }
+
+    /// Apaga um arquivo de `Items/` pelo nome. Só nomes simples: sem barra, `..` nem vazio.
+    public func removeFile(named name: String) {
+        guard !name.isEmpty, name != ".", !name.contains("/"), !name.contains("..") else { return }
+        try? fileManager.removeItem(at: itemsDirectory.appendingPathComponent(name))
     }
 }

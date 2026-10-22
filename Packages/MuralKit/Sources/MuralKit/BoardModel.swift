@@ -23,7 +23,7 @@ public final class BoardModel {
     @ObservationIgnored let store: BoardStore
     @ObservationIgnored let importer: ItemImporter
     @ObservationIgnored let persistence: Persistence
-    @ObservationIgnored private var deferredDeletions: [BoardItem] = []
+    @ObservationIgnored private var deferredDeletions: Set<String> = []
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
     public init(store: BoardStore, seedIfEmpty: Bool = true, persistence: Persistence = .immediate) {
@@ -138,6 +138,17 @@ public final class BoardModel {
             data, fileExtension: fileExtension, kind: kind, title: title, parentID: parentID, importer: importer)
     }
 
+    /// Grava uma imagem colada numa nota (dados em memória) fora do Main Actor.
+    /// O arquivo fica em `Items/` sem ser citado: `addNoteAttachment` o liga à nota e `discardNoteImage` o apaga.
+    public func prepareNoteImage(data: Data, fileExtension: String) async -> NoteAttachment? {
+        await Self.writeNoteImage(data: data, fileExtension: fileExtension, importer: importer)
+    }
+
+    /// Copia uma imagem do disco para `Items/` fora do Main Actor, para colar numa nota.
+    public func prepareNoteImage(fileAt url: URL) async -> NoteAttachment? {
+        await Self.copyNoteImage(fileAt: url, importer: importer)
+    }
+
     /// Insere no board os cartões preparados. A pasta de destino é conferida de novo:
     /// se ela sumiu durante a cópia, o conteúdo vai para o mural em vez de ficar órfão.
     @discardableResult
@@ -161,6 +172,22 @@ public final class BoardModel {
         for item in prepared.items {
             importer.removeFile(of: item)
         }
+    }
+
+    @concurrent
+    private nonisolated static func writeNoteImage(
+        data: Data, fileExtension: String, importer: ItemImporter
+    ) async -> NoteAttachment? {
+        let signpost = MuralSignposts.importing.beginInterval("Gravar imagem da nota")
+        defer { MuralSignposts.importing.endInterval("Gravar imagem da nota", signpost) }
+        return try? importer.importNoteImage(data: data, fileExtension: fileExtension)
+    }
+
+    @concurrent
+    private nonisolated static func copyNoteImage(fileAt url: URL, importer: ItemImporter) async -> NoteAttachment? {
+        let signpost = MuralSignposts.importing.beginInterval("Copiar imagem da nota")
+        defer { MuralSignposts.importing.endInterval("Copiar imagem da nota", signpost) }
+        return try? importer.importNoteImage(fileAt: url)
     }
 
     @concurrent
@@ -263,8 +290,30 @@ public final class BoardModel {
         if item.text != body { item.keySentences = nil }
         item.title = resolvedTitle
         item.text = body
+        let dropped = reconcileAttachments(of: &item)
+        board.update(item)
+        releaseFiles(named: dropped, saved: persist())
+    }
+
+    /// Liga uma imagem já gravada à nota e grava o mural: o arquivo fica citado na hora, então
+    /// uma queda antes de a nota ser concluída não deixa arquivo órfão.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe ou não é uma nota.
+    @discardableResult
+    public func addNoteAttachment(_ attachment: NoteAttachment, to itemID: UUID) -> Bool {
+        guard var item = board.item(id: itemID), item.kind == .text else { return false }
+        var attachments = item.attachments ?? []
+        guard !attachments.contains(where: { $0.fileName == attachment.fileName }) else { return true }
+        attachments.append(attachment)
+        item.attachments = attachments
         board.update(item)
         persist()
+        return true
+    }
+
+    /// Apaga o arquivo de uma imagem preparada que não entrou na nota, se nenhum cartão o cita.
+    public func discardNoteImage(_ attachment: NoteAttachment) {
+        guard !isPersistenceSuspended, !citedFileNames(in: board).contains(attachment.fileName) else { return }
+        importer.removeFile(named: attachment.fileName)
     }
 
     /// Grava texto e cor de um post-it. O título acompanha a primeira linha.
@@ -381,9 +430,10 @@ public final class BoardModel {
         var candidate = board
         let removed = candidate.remove(id: itemID)
         guard !removed.isEmpty else { return }
+        let names = removed.flatMap(\.assetFileNames)
         if persistence == .deferred {
             board = candidate
-            deferredDeletions.append(contentsOf: removed)
+            deferredDeletions.formUnion(names)
             return
         }
         do {
@@ -396,33 +446,33 @@ public final class BoardModel {
         }
 
         board = candidate
-        for item in removed {
-            importer.removeFile(of: item)
+        let cited = citedFileNames(in: candidate)
+        for name in names where !cited.contains(name) {
+            importer.removeFile(named: name)
         }
     }
 
     /// Finaliza a remoção de arquivos somente depois de a sessão ter publicado
     /// com sucesso o snapshot transacional do novo board.
     public func finalizeDeferredDeletions() {
-        guard persistence == .deferred else { return }
-        let removed = deferredDeletions
-        deferredDeletions.removeAll(keepingCapacity: true)
-        for item in removed {
-            importer.removeFile(of: item)
-        }
+        finalizeDeferredDeletions(persistedBoard: board)
     }
 
-    /// Apaga só a mídia dos itens que a versão gravada (`persistedBoard`) já não contém.
+    /// Apaga só os arquivos que a versão gravada (`persistedBoard`) já não cita em nenhum cartão.
     /// Uma exclusão feita enquanto a gravação acontecia continua adiada até a próxima,
     /// para que o disco nunca tenha um board apontando para um arquivo já apagado.
+    /// Um nome que o mural atual voltou a citar sai da fila sem ser apagado.
     public func finalizeDeferredDeletions(persistedBoard: Board) {
-        guard persistence == .deferred else { return }
-        var pending: [BoardItem] = []
-        for item in deferredDeletions {
-            if persistedBoard.item(id: item.id) == nil {
-                importer.removeFile(of: item)
+        guard persistence == .deferred, !deferredDeletions.isEmpty else { return }
+        let persisted = citedFileNames(in: persistedBoard)
+        let current = citedFileNames(in: board)
+        var pending = Set<String>()
+        for name in deferredDeletions {
+            if current.contains(name) { continue }
+            if persisted.contains(name) {
+                pending.insert(name)
             } else {
-                pending.append(item)
+                importer.removeFile(named: name)
             }
         }
         deferredDeletions = pending
@@ -445,12 +495,48 @@ public final class BoardModel {
         return placed
     }
 
-    func persist() {
-        guard persistence == .immediate, !isPersistenceSuspended else { return }
+    @discardableResult
+    func persist() -> Bool {
+        guard persistence == .immediate, !isPersistenceSuspended else { return false }
         do {
             try store.save(board)
+            return true
         } catch {
             lastError = "Não foi possível salvar o mural: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Nomes de arquivo citados por algum cartão do mural.
+    private func citedFileNames(in board: Board) -> Set<String> {
+        Set(board.items.flatMap(\.assetFileNames))
+    }
+
+    /// Ajusta os anexos da nota ao texto: fica quem o texto cita, e um nome citado cujo arquivo existe entra
+    /// com o tamanho lido do arquivo.
+    /// - Returns: os nomes que deixaram de ser anexos da nota.
+    private func reconcileAttachments(of item: inout BoardItem) -> [String] {
+        let referenced = NoteImageMarkup.referencedFileNames(in: item.text ?? "")
+        let old = item.attachments ?? []
+        var kept = old.filter { referenced.contains($0.fileName) }
+        for name in referenced where !kept.contains(where: { $0.fileName == name }) {
+            let url = importer.itemsDirectory.appendingPathComponent(name)
+            guard let metadata = ImageInspector.inspect(url) else { continue }
+            kept.append(NoteAttachment(fileName: name, pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight))
+        }
+        item.attachments = kept.isEmpty ? nil : kept
+        return old.map(\.fileName).filter { name in !kept.contains { $0.fileName == name } }
+    }
+
+    /// Manda para a remoção os arquivos que saíram de uma nota: no modo imediato, apaga os que o mural
+    /// gravado já não cita; no adiado, espera a gravação da sessão.
+    private func releaseFiles(named names: [String], saved: Bool) {
+        guard !names.isEmpty else { return }
+        if persistence == .deferred {
+            deferredDeletions.formUnion(names)
+        } else if saved {
+            let cited = citedFileNames(in: board)
+            for name in names where !cited.contains(name) { importer.removeFile(named: name) }
         }
     }
 }

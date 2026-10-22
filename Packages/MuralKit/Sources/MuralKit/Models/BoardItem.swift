@@ -27,6 +27,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var link: LinkInfo?
     /// Cor escolhida pela pessoa no menu do cartão, como as tags do Finder.
     public var colorTag: TagColor?
+    /// Imagens coladas no corpo, quando `kind == .text`. Murais antigos não têm o campo.
+    public var attachments: [NoteAttachment]?
 
     public init(
         id: UUID = UUID(),
@@ -43,7 +45,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         tag: String? = nil,
         keySentences: KeySentenceRecord? = nil,
         link: LinkInfo? = nil,
-        colorTag: TagColor? = nil
+        colorTag: TagColor? = nil,
+        attachments: [NoteAttachment]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -60,6 +63,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.keySentences = keySentences
         self.link = link
         self.colorTag = colorTag
+        self.attachments = attachments
     }
 }
 
@@ -80,5 +84,27 @@ extension BoardItem {
     /// Lista do cartão; uma lista sem conteúdo vira um documento vazio com o título.
     public var checklistDocument: ChecklistDocument {
         checklist ?? ChecklistDocument(title: title, sections: [])
+    }
+}
+
+extension BoardItem {
+    /// Arquivos que precisam existir em `Items/`: o do cartão e os dos anexos, sem repetição.
+    public var requiredAssetFileNames: [String] {
+        var names: [String] = []
+        if let fileName { names.append(fileName) }
+        names.append(contentsOf: (attachments ?? []).map(\.fileName))
+        return Self.unique(names)
+    }
+
+    /// Todos os arquivos de `Items/` ligados ao cartão: os obrigatórios e, numa nota, os que o texto cita.
+    public var assetFileNames: [String] {
+        var names = requiredAssetFileNames
+        if kind == .text, let text { names.append(contentsOf: NoteImageMarkup.referencedFileNames(in: text)) }
+        return Self.unique(names)
+    }
+
+    private static func unique(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
     }
 }

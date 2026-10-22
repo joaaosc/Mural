@@ -1,4 +1,5 @@
 import Foundation
+import StretchText
 import UniformTypeIdentifiers
 
 /// Decide que tipo de cartão um arquivo ou texto deve virar.
@@ -32,7 +33,11 @@ public enum ContentClassifier {
 
     /// Título sugerido para um texto: a primeira linha, encurtada.
     public static func title(forText text: String, limit: Int = 48) -> String {
-        let first = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Nota"
+        // Linhas de imagem (e o marcador provisório) não servem de título.
+        let first =
+            text.split(whereSeparator: \.isNewline)
+            .first { MarkdownImage.parse($0) == nil && !NoteImageMarkup.isPendingLine($0) }
+            .map(String.init) ?? "Nota"
         let clean = first.trimmingCharacters(in: CharacterSet(charactersIn: "#-*• ").union(.whitespaces))
         if clean.count <= limit { return clean.isEmpty ? "Nota" : clean }
         return String(clean.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…"
