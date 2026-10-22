@@ -112,6 +112,8 @@ extension BoardModel {
         }
 
         guard changed else { return }
+        // Como em `Board.update(_:)`: toda alteração de fato grava a versão atual do formato.
+        updated.formatVersion = Board.currentFormatVersion
         board = updated
         persist()
     }

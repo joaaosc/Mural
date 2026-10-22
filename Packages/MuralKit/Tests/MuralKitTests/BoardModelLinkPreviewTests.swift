@@ -47,6 +47,25 @@ struct BoardModelLinkPreviewTests {
             previewImageFile: imageFile, iconFile: iconFile, replacesContent: replaces, state: .ready(fetchedAt: date))
     }
 
+    // MARK: Versão do formato
+
+    @Test("Prévia que muda o cartão grava a versão atual do formato; a que não muda nada, não")
+    func appliedPreviewWritesTheCurrentFormat() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+        let card = try addLink(model)
+        let update = ready(card.id, title: "Mac - Apple", site: "Apple")
+
+        model.board.formatVersion = 0
+        model.applyLinkPreviews([update])
+        #expect(model.board.formatVersion == Board.currentFormatVersion)
+
+        model.board.formatVersion = 0
+        model.applyLinkPreviews([update])
+        #expect(model.board.formatVersion == 0, "a mesma prévia de novo não é uma alteração")
+    }
+
     // MARK: Sucesso
 
     @Test("Busca bem-sucedida preenche o cartão e troca o título provisório pelo título da página, aparado")
