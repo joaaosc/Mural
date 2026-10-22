@@ -42,10 +42,6 @@ public actor BoardLibrary {
         self.bootstrapTask = nil
     }
 
-    public static func defaultRootDirectory() -> URL {
-        BoardStore.defaultDirectory()
-    }
-
     public func bootstrap() async throws -> LibraryState {
         if let bootstrapTask {
             return try await bootstrapTask.value
@@ -313,8 +309,6 @@ public actor BoardLibrary {
             }
         }
     }
-
-    public func stateURL() -> URL { libraryStateURL }
 
     public func repository(for route: BoardRoute) throws -> BoardRepository {
         switch route {

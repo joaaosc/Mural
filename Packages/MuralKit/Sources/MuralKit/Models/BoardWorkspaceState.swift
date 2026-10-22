@@ -37,11 +37,6 @@ public struct BoardWorkspaceState: Codable, Equatable, Sendable {
 
     public static let `default` = BoardWorkspaceState()
 
-    public var canvasState: CanvasWorkspaceState {
-        get { canvas }
-        set { canvas = newValue }
-    }
-
     public var destinations: [WorkspaceDestination] {
         get { path }
         set { path = newValue }

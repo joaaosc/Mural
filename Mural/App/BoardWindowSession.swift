@@ -745,14 +745,6 @@ final class BoardWindowSession {
         await finishSaveCopy(nil, operationID: operationID)
     }
 
-    func requestDraftPromotion() {
-        guard case .welcomeDraft = route else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            _ = await self.promoteDraft(named: self.title)
-        }
-    }
-
     @discardableResult
     func promoteDraft(named requestedName: String) async -> BoardRoute? {
         guard case .welcomeDraft = route else { return nil }
@@ -894,32 +886,6 @@ final class BoardWindowSession {
             workspace.readingPositions[position.targetItemID] = position
         }
         readingPositions[position.targetItemID] = workspace.readingPositions[position.targetItemID]
-    }
-
-    func setReadingPosition(
-        _ position: ReadingPosition,
-        boardID callbackBoardID: BoardID,
-        generation callbackGeneration: UInt64,
-        navigationGeneration callbackNavigationGeneration: UInt64? = nil
-    ) {
-        recordReadingPosition(
-            position,
-            boardID: callbackBoardID,
-            generation: callbackGeneration,
-            navigationGeneration: callbackNavigationGeneration)
-    }
-
-    func removeReadingPosition(
-        for itemID: UUID,
-        boardID callbackBoardID: BoardID? = nil,
-        generation callbackGeneration: UInt64? = nil
-    ) {
-        guard callbackBoardID.map({ $0 == boardID }) ?? true,
-            callbackGeneration.map({ $0 == presentationGeneration }) ?? true
-        else { return }
-        guard readingPositions[itemID] != nil else { return }
-        updateWorkspace { $0.readingPositions.removeValue(forKey: itemID) }
-        readingPositions.removeValue(forKey: itemID)
     }
 
     // MARK: Parágrafos abertos

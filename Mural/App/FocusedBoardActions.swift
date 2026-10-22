@@ -119,10 +119,6 @@ final class FocusedBoardActions {
         session?.retryFlush()
     }
 
-    var currentBoardInfo: String {
-        session?.title ?? "Nenhum mural focado"
-    }
-
     var canSaveDraft: Bool {
         guard let session else { return false }
         switch session.route {

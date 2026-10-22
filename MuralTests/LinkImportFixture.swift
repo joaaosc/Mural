@@ -70,15 +70,6 @@ final class LinkImportFixture {
 
     // MARK: Arquivos de apoio
 
-    /// Cria um arquivo fora do mural, na pasta temporária do teste.
-    func makeFile(named name: String, contents: Data) throws -> URL {
-        let folder = directory.appendingPathComponent("Origem", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent(name)
-        try contents.write(to: url)
-        return url
-    }
-
     /// Imagem 40×30 gerada no teste: nenhum arquivo de imagem é versionado.
     static func imageData(_ type: NSBitmapImageRep.FileType) throws -> Data {
         let rep = try #require(

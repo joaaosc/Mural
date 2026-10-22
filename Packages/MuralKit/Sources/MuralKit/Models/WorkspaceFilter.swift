@@ -15,6 +15,4 @@ public enum WorkspaceFilter: String, Codable, CaseIterable, Equatable, Sendable 
     }
 }
 
-/// Nome mais explícito para integrações que não usam a palavra Workspace.
-public typealias PersistedBoardFilter = WorkspaceFilter
 public typealias BoardFilter = WorkspaceFilter
