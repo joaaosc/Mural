@@ -143,6 +143,14 @@ private struct LoadedRootView: View {
             .containerCornerOffset(.top)
             .disabled(session.restorationPhase != .ready)
         }
+        .overlay(alignment: .topTrailing) {
+            // Informações da pasta aberta, abaixo da barra da janela: o canto dela é do + das abas.
+            if case .collection(let id)? = path.last, let folder = model.item(id: id) {
+                FolderInfoButton(folder: folder, children: model.children(of: id), isPresented: $isFolderInfoPresented)
+                    .padding(12)
+                    .containerCornerOffset(.top)
+            }
+        }
         .overlay(alignment: .bottom) {
             bottomBar
         }
@@ -168,7 +176,11 @@ private struct LoadedRootView: View {
         .focused($isCanvasFocused)
         .onAppear { isCanvasFocused = true }
         // Depois de escolher o mural na barra lateral, o teclado volta para ele (⌘V, Esc).
-        .onChange(of: tabs?.boardFocusRequest) { _, _ in isCanvasFocused = true }
+        .onChange(of: tabs?.boardFocusRequest) { _, _ in
+            // Já marcado como focado, o SwiftUI não tiraria o teclado da lista: desliga e liga de novo.
+            isCanvasFocused = false
+            Task { @MainActor in isCanvasFocused = true }
+        }
         .onKeyPress(.escape) {
             if !session.currentSelection.isEmpty {
                 session.clearSelection()
@@ -454,7 +466,7 @@ private struct LoadedRootView: View {
         case .collection(let id):
             if let folder = model.item(id: id) {
                 CollectionView(
-                    folder: folder, model: model, session: session, hero: hero, filter: filter, isInfoPresented: $isFolderInfoPresented
+                    folder: folder, model: model, session: session, hero: hero, filter: filter
                 ) {
                     childID in
                     // Pasta abre outro nível de pasta; o resto abre a página do item.

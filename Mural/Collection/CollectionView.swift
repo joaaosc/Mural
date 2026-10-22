@@ -9,7 +9,6 @@ struct CollectionView: View {
     let session: BoardWindowSession?
     let hero: HeroContext
     let filter: BoardFilter?
-    @Binding var isInfoPresented: Bool
     var onOpenItem: (UUID) -> Void
 
     @State private var scrollPosition = ScrollPosition(idType: UUID.self)
@@ -73,11 +72,6 @@ struct CollectionView: View {
         .onScrollPhaseChange { _, phase in
             guard phase == .idle else { return }
             captureReadingPosition()
-        }
-        .overlay(alignment: .topTrailing) {
-            FolderInfoButton(folder: folder, children: children, isPresented: $isInfoPresented)
-                .padding(12)
-                .containerCornerOffset(.top)
         }
         .task(id: folder.id) { beginRestore() }
         .onChange(of: children.map(\.id), initial: true) { _, ids in

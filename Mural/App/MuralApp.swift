@@ -26,7 +26,6 @@ struct MuralApp: App {
         .defaultSize(width: 1240, height: 800)
         .commands {
             MuralCommands(tabs: tabs)
-            SidebarCommands()
         }
     }
 }

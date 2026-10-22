@@ -17,7 +17,7 @@ struct MuralWindowView: View {
     @SceneStorage("mural.tabs") private var storedTabs = ""
     @SceneStorage("mural.sidebar") private var storedSidebar = false
     @State private var role = WindowRole.pending
-    @State private var detailWidth: CGFloat = 800
+    @State private var windowWidth: CGFloat = 1240
     @State private var isNewBoardPresented = false
     @State private var boardNameDraft = ""
     @State private var isPackageImporterPresented = false
@@ -27,17 +27,15 @@ struct MuralWindowView: View {
         case pending, primary, extra
     }
 
-    /// Espaço da barra da janela que não é da faixa de abas: semáforos e botão da barra lateral à
-    /// esquerda (só eles ficam no detalhe quando a barra lateral está fechada) e o "+" à direita.
-    private var stripWidth: CGFloat {
-        let leading: CGFloat = tabs.isSidebarVisible ? 60 : 150
-        return max(0, detailWidth - leading - 70)
+    /// Largura do item da faixa na barra da janela: tudo menos os semáforos e o botão da barra lateral à
+    /// esquerda e o "+" à direita. Um item da barra não estica sozinho; ele usa a largura pedida.
+    private var stripItemWidth: CGFloat {
+        max(0, windowWidth - 150 - 70)
     }
 
-    private var columnVisibility: Binding<NavigationSplitViewVisibility> {
-        Binding(
-            get: { tabs.isSidebarVisible ? .all : .detailOnly },
-            set: { tabs.isSidebarVisible = $0 != .detailOnly })
+    /// Com a barra lateral aberta, as abas começam depois dela, como no Safari.
+    private var stripLeadingInset: CGFloat {
+        tabs.isSidebarVisible ? max(0, MuralsSidebar.width + 8 - 150) : 0
     }
 
     var body: some View {
@@ -60,21 +58,35 @@ struct MuralWindowView: View {
         }
     }
 
+    /// Barra lateral e mural lado a lado numa view só, e não num `NavigationSplitView`: dentro da coluna de
+    /// conteúdo dele, o mural não recebe o teclado ao aparecer, e o ⌘V logo depois de abrir não chegaria.
     private var window: some View {
-        NavigationSplitView(columnVisibility: columnVisibility) {
-            MuralsSidebar(tabs: tabs)
-        } detail: {
+        HStack(spacing: 0) {
+            if tabs.isSidebarVisible {
+                MuralsSidebar(tabs: tabs)
+                    .transition(.move(edge: .leading))
+                Divider()
+                    .ignoresSafeArea()
+            }
             detail
-                .onGeometryChange(for: CGFloat.self) {
-                    $0.size.width
-                } action: {
-                    detailWidth = $0
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.smooth(duration: 0.25), value: tabs.isSidebarVisible)
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+        } action: {
+            windowWidth = $0
         }
         .toolbar(removing: .title)
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button("Murais", systemImage: "sidebar.left") { tabs.isSidebarVisible.toggle() }
+                    .help(tabs.isSidebarVisible ? "Ocultar os murais (⌃⌘S)" : "Mostrar todos os murais (⌃⌘S)")
+                    .accessibilityIdentifier("murals-sidebar-button")
+            }
             ToolbarItem(placement: .principal) {
-                BoardTabStrip(tabs: tabs, width: stripWidth)
+                BoardTabStrip(tabs: tabs, width: stripItemWidth - stripLeadingInset)
+                    .padding(.leading, stripLeadingInset)
             }
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .primaryAction) {

@@ -68,6 +68,12 @@ struct MuralCommands: Commands {
             Button("Retomar Rascunho de Exemplo") { Task { await tabs.resumeDraft() } }
                 .disabled(!tabs.resumeDraftAvailable)
         }
+        CommandGroup(replacing: .sidebar) {
+            Button(tabs.isSidebarVisible ? "Ocultar Barra Lateral" : "Mostrar Barra Lateral") {
+                tabs.isSidebarVisible.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
+        }
         CommandGroup(after: .toolbar) {
             // Como "Mostrar Todas as Abas" do Safari: a janela com a barra lateral de murais.
             Button("Mostrar Todos os Murais") { tabs.showAllMurals() }

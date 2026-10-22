@@ -115,8 +115,7 @@ enum PreviewLinks {
     let model = BoardModel.preview()
     let folder = model.rootItems.first { $0.kind == .folder && $0.title == "The Cottage" }!
     CollectionView(
-        folder: folder, model: model, session: nil, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil,
-        isInfoPresented: .constant(false)
+        folder: folder, model: model, session: nil, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil
     ) {
         _ in
     }
