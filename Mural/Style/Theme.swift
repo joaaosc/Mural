@@ -70,9 +70,9 @@ struct SurfaceFill: View {
     let surface: Surface
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    /// Quanto da cor do mural cobre o material da janela: o bastante para os cartões se destacarem
-    /// de qualquer papel de parede.
-    private static let boardTint = 0.72
+    /// Quanto da cor do mural cobre o material da janela: pouco, para o mural parecer vidro e se distinguir
+    /// da barra lateral (mais encorpada); os cartões, opacos e com sombra, continuam se destacando.
+    private static let boardTint = 0.3
     /// Quanto da cor da página cobre o material sobre o mural: o mural vira só um tom por trás.
     private static let pageTint = 0.82
 

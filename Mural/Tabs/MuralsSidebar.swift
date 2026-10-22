@@ -70,7 +70,8 @@ struct MuralsSidebar: View {
         }
         .frame(width: Self.width)
         .background {
-            Rectangle().fill(.thickMaterial).ignoresSafeArea()
+            // Mais encorpada que o mural, que deixa passar mais o fundo da janela (`SurfaceFill.boardTint`).
+            SidebarFill().ignoresSafeArea()
         }
         .task(id: tabs.libraryRevision) { await refresh() }
         .onChange(of: scenePhase) { _, phase in

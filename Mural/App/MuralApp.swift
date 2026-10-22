@@ -24,9 +24,9 @@ struct MuralApp: App {
         // principal, o app sairia ao fechar a janela.
         WindowGroup(id: MuralWindowView.sceneID) {
             MuralWindowView(tabs: tabs)
-                // Material do sistema atrás de tudo: dá profundidade ao mural e acompanha a janela
-                // ativa ou inativa. O mural e as páginas o cobrem em parte (`SurfaceFill`).
-                .containerBackground(Material.regular, for: .window)
+                // Material fino do sistema atrás de tudo: o mural deixa ver o que está atrás da janela, como
+                // vidro, e acompanha a janela ativa ou inativa. O mural e as páginas o cobrem em parte (`SurfaceFill`).
+                .containerBackground(Material.thin, for: .window)
         }
         .restorationBehavior(LaunchConfiguration.isUITesting ? .disabled : .automatic)
         .windowStyle(.hiddenTitleBar)
