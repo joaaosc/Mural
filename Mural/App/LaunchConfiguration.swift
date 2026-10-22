@@ -8,7 +8,7 @@ enum LaunchConfiguration {
         return arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep")
     }
 
-    /// `-uiTesting`: começa do mural de exemplo, apagando a pasta de testes.
+    /// `-uiTesting`: começa do mural de exemplo, apagando a pasta dos testes de interface (só ela).
     /// `-uiTestingKeep`: reabre a pasta de testes sem apagar (teste de persistência).
     static func store(arguments: [String] = ProcessInfo.processInfo.arguments) -> BoardStore {
         let root = libraryRoot(arguments: arguments)
@@ -18,14 +18,22 @@ enum LaunchConfiguration {
         return BoardStore(directory: root)
     }
 
-    /// Raiz da biblioteca: a pasta padrão do app ou, nos testes de interface e na conferência manual
-    /// (`-manualTesting`: pasta de testes, mas prévias e páginas de verdade), a pasta de testes.
-    /// Só calcula o endereço, sem criar nem apagar nada.
+    /// Raiz da biblioteca: a pasta padrão do app, a pasta dos testes de interface ou a da conferência
+    /// manual (`-manualTesting`: prévias e páginas de verdade). Só calcula o endereço, sem criar nem apagar nada.
+    ///
+    /// A conferência manual tem pasta própria porque cada teste de interface apaga a sua ao abrir o app,
+    /// mesmo com outra cópia do Mural aberta nela: as imagens dos murais dessa cópia sumiriam do disco.
     static func libraryRoot(arguments: [String] = ProcessInfo.processInfo.arguments) -> URL {
         let base = BoardStore.defaultDirectory()
-        let usesTestLibrary = ["-uiTesting", "-uiTestingKeep", "-manualTesting"].contains { arguments.contains($0) }
-        guard usesTestLibrary else { return base }
-        return base.deletingLastPathComponent().appendingPathComponent("MuralUITests", isDirectory: true)
+        let folder: String
+        if ["-uiTesting", "-uiTestingKeep"].contains(where: arguments.contains) {
+            folder = "MuralUITests"
+        } else if arguments.contains("-manualTesting") {
+            folder = "MuralManualTests"
+        } else {
+            return base
+        }
+        return base.deletingLastPathComponent().appendingPathComponent(folder, isDirectory: true)
     }
 
     /// Pasta das imagens e dos ícones de prévia dos links de um mural: `<raiz>/LinkPreviews/<uuid do mural>`.

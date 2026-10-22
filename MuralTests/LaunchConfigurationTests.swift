@@ -50,11 +50,16 @@ struct LaunchConfigurationTests {
         }
     }
 
-    @Test("A conferência manual usa a pasta de testes, mas prévias e páginas de verdade, sem apagar nada")
-    func manualTestingUsesTestLibraryWithRealPreviews() {
+    @Test("A conferência manual usa pasta própria, que os testes de interface não apagam, com prévias e páginas de verdade")
+    func manualTestingUsesOwnLibraryWithRealPreviews() {
         let arguments = ["-manualTesting"]
+        let manual = LaunchConfiguration.libraryRoot(arguments: arguments)
+        let wipedByUITests = LaunchConfiguration.libraryRoot(arguments: ["-uiTesting"])
 
-        #expect(LaunchConfiguration.libraryRoot(arguments: arguments).lastPathComponent == "MuralUITests")
+        #expect(manual.lastPathComponent == "MuralManualTests")
+        #expect(manual.deletingLastPathComponent().path == BoardStore.defaultDirectory().deletingLastPathComponent().path)
+        #expect(manual.path != wipedByUITests.path)
+        #expect(manual.path != BoardStore.defaultDirectory().path)
         #expect(LaunchConfiguration.linkPreviewFetcher(arguments: arguments) is SystemLinkPreviewFetcher)
         #expect(LaunchConfiguration.loadsLivePages(arguments: arguments))
     }
