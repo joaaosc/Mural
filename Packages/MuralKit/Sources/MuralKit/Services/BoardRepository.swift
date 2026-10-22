@@ -30,8 +30,8 @@ public actor BoardRepository {
     }
 
     /// Materializes one coherent repository version without an actor suspension
-    /// between reading JSON and copying its assets. Only the media referenced by the
-    /// board is copied: leftovers in `Items/` never reach (nor block) an export.
+    /// between reading JSON and copying its assets. Only the media and note attachments referenced by the
+    /// board are copied: leftovers in `Items/` never reach (nor block) an export.
     func materializePackage(for id: BoardID, to destination: URL) throws {
         guard let loaded = try load(id) else { throw BoardRepositoryError.boardNotFound(id) }
         let package = destination.standardizedFileURL
@@ -51,7 +51,18 @@ public actor BoardRepository {
         } catch {
             throw BoardRepositoryError.io(String(describing: error))
         }
-        let referenced = Set(loaded.snapshot.board.items.compactMap(\.fileName))
+        var required = Set<String>()
+        var optional = Set<String>()
+        for item in loaded.snapshot.board.items {
+            required.formUnion(item.requiredAssetFileNames)
+            optional.formUnion(item.assetFileNames)
+        }
+        // Nome só citado no texto da nota e ausente é ignorado: a nota mostra o texto alternativo.
+        let referenced = required.union(
+            optional.subtracting(required).filter {
+                Self.isSafeAssetName($0)
+                    && FileManager.default.fileExists(atPath: sourceItems.appendingPathComponent($0).path)
+            })
         for name in referenced.sorted() {
             guard Self.isSafeAssetName(name) else { throw BoardRepositoryError.missingAsset(name) }
             let source = sourceItems.appendingPathComponent(name)

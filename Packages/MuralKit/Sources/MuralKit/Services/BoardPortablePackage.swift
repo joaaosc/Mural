@@ -327,6 +327,7 @@ public actor BoardPortablePackageService {
         }
         var referenced = Set<String>()
         for item in board.items {
+            if item.attachments != nil, item.kind != .text { throw BoardPortablePackageError.invalidFileName(item.id) }
             if item.parentID != nil {
                 guard hasValidParentChain(item, in: itemsByID) else {
                     throw BoardPortablePackageError.invalidItemParent(item.id)
@@ -358,6 +359,19 @@ public actor BoardPortablePackageService {
                 throw BoardPortablePackageError.invalidFileName(item.id)
             }
         }
+        let mediaNames = referenced
+        for item in board.items {
+            for attachment in item.attachments ?? [] {
+                try validateAttachment(attachment, of: item, mediaNames: mediaNames, itemsURL: itemsURL)
+                referenced.insert(attachment.fileName)
+            }
+        }
+        // Nomes que o texto da nota cita e existem em `Items/` também são referenciados.
+        for item in board.items where item.kind == .text {
+            for name in item.assetFileNames where isSafeFileName(name) {
+                if fileManager.fileExists(atPath: itemsURL.appendingPathComponent(name).path) { referenced.insert(name) }
+            }
+        }
         for asset in try safeChildren(of: itemsURL) {
             var directory: ObjCBool = false
             guard fileManager.fileExists(atPath: asset.path, isDirectory: &directory), !directory.boolValue else {
@@ -366,6 +380,27 @@ public actor BoardPortablePackageService {
             guard referenced.contains(asset.lastPathComponent) else {
                 throw BoardPortablePackageError.unreferencedAsset(asset.lastPathComponent)
             }
+        }
+    }
+
+    /// Um anexo de nota é uma imagem legível, com nome seguro, tamanho positivo e sem colidir com a mídia de um cartão.
+    private func validateAttachment(
+        _ attachment: NoteAttachment, of item: BoardItem, mediaNames: Set<String>, itemsURL: URL
+    ) throws {
+        let name = attachment.fileName
+        guard NoteImageMarkup.isAttachmentName(name), attachment.pixelWidth > 0, attachment.pixelHeight > 0 else {
+            throw BoardPortablePackageError.invalidFileName(item.id)
+        }
+        guard !mediaNames.contains(name) else { throw BoardPortablePackageError.duplicateAsset(name) }
+        let asset = itemsURL.appendingPathComponent(name)
+        try ensureDescendant(asset, of: itemsURL)
+        guard fileManager.fileExists(atPath: asset.path) else { throw BoardPortablePackageError.missingAsset(name) }
+        try ensureRegularFile(asset)
+        guard ImageInspector.inspect(asset) != nil else {
+            throw BoardPortablePackageError.assetKindMismatch(item.id, expected: .image, actual: nil)
+        }
+        guard try fileSize(asset) <= limits.maximumFileBytes else {
+            throw BoardPortablePackageError.fileTooLarge(asset, limit: limits.maximumFileBytes)
         }
     }
 
