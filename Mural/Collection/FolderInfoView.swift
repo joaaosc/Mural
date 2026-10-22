@@ -12,6 +12,14 @@ struct FolderInfoView: View {
             if let tag = folder.tag {
                 LabeledContent("Etiqueta", value: tag)
             }
+            if let color = folder.colorTag {
+                LabeledContent("Cor") {
+                    HStack(spacing: 6) {
+                        ColorTagDot(color: color)
+                        Text(color.displayName)
+                    }
+                }
+            }
             LabeledContent("Conteúdo", value: ItemKind.summary(of: children))
             LabeledContent("Criada em") {
                 Text(folder.createdAt, format: .dateTime.day().month(.twoDigits).year())

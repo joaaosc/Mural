@@ -4,6 +4,8 @@ import SwiftUI
 /// Lista em miniatura: título e as primeiras linhas com bolinhas de marcação.
 struct ChecklistCard: View {
     let document: ChecklistDocument
+    /// Cor da tag do cartão; tinge o papel sem deixá-lo transparente.
+    var tint: TagColor? = nil
 
     private var previewEntries: [ChecklistEntry] {
         Array(document.sections.flatMap(\.entries).prefix(9))
@@ -29,7 +31,7 @@ struct ChecklistCard: View {
             }
             Spacer(minLength: 0)
         }
-        .paperSheet()
+        .paperSheet(tint: tint?.color)
     }
 }
 
@@ -38,4 +40,27 @@ struct ChecklistCard: View {
         .frame(width: 120, height: 150)
         .padding(40)
         .background(Theme.canvas)
+}
+
+/// Três listas com tag de cor, lado a lado, para conferir quanto a cor tinge o papel.
+private struct TintedChecklistCards: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            ForEach([TagColor.green, .purple, .orange]) { color in
+                ChecklistCard(document: SampleBoard.thingsINeed, tint: color)
+                    .frame(width: 120, height: 150)
+            }
+        }
+        .padding(24)
+        .background(Theme.canvas)
+    }
+}
+
+#Preview("Com cor", traits: .fixedLayout(width: 460, height: 200)) {
+    TintedChecklistCards()
+}
+
+#Preview("Com cor no escuro", traits: .fixedLayout(width: 460, height: 200)) {
+    TintedChecklistCards()
+        .preferredColorScheme(.dark)
 }

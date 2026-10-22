@@ -882,6 +882,37 @@ struct BoardWindowSessionTests {
         #expect(reloaded.path == [.collection(folderID), .collection(innerID)])
     }
 
+    @Test("Cor do cartão escolhida pela sessão é gravada e volta ao reabrir; sem cor, volta sem cor")
+    func colorTagPersists() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Cores")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let note = try #require(session.model?.importText("Cartão colorido"))
+        #expect(session.model?.item(id: note.id)?.colorTag == nil)
+
+        session.setColorTag(.green, for: note.id)
+        #expect(session.model?.item(id: note.id)?.colorTag == .green)
+        await session.flushAndPrepareToLeave()
+
+        let reopened = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reopened)
+        #expect(reopened.model?.item(id: note.id)?.colorTag == .green)
+
+        reopened.setColorTag(nil, for: note.id)
+        #expect(reopened.model?.item(id: note.id)?.colorTag == nil)
+        await reopened.flushAndPrepareToLeave()
+
+        let reopenedAgain = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reopenedAgain)
+        #expect(reopenedAgain.model?.item(id: note.id)?.title == "Cartão colorido")
+        #expect(reopenedAgain.model?.item(id: note.id)?.colorTag == nil)
+    }
+
     @Test("No último nível de pastas não se cria outra")
     func lastFolderLevelRejectsNewFolder() async throws {
         let directory = try root()

@@ -47,6 +47,12 @@ struct FolderCard: View {
             fan
             RoundedRectangle(cornerRadius: Theme.cardCorner)
                 .fill(Theme.paperBack)
+                .overlay {
+                    if let tag = folder.colorTag {
+                        RoundedRectangle(cornerRadius: Theme.cardCorner)
+                            .fill(tag.color.opacity(Theme.tagWashBack))
+                    }
+                }
                 .offset(x: 6)
                 .cardShadow()
             front
@@ -72,7 +78,7 @@ struct FolderCard: View {
     private var front: some View {
         VStack(alignment: .leading, spacing: 2) {
             Capsule()
-                .fill(.quaternary)
+                .fill(folder.colorTag.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.quaternary))
                 .frame(width: 28, height: 8)
             Spacer(minLength: 0)
             Text(folder.tag ?? "Pasta")
@@ -85,7 +91,7 @@ struct FolderCard: View {
                 .font(.system(size: 6))
                 .foregroundStyle(.tertiary)
         }
-        .paperSheet()
+        .paperSheet(tint: folder.colorTag?.color)
     }
 }
 
@@ -139,6 +145,34 @@ private struct FolderCardGallery: View {
 
 #Preview("Leque no escuro", traits: .fixedLayout(width: 860, height: 260)) {
     FolderCardGallery()
+        .preferredColorScheme(.dark)
+}
+
+/// Uma pasta para cada cor de tag, cada uma com uma nota no leque, para ver as duas folhas e a etiqueta tingidas.
+private struct TintedFolderCards: View {
+    var body: some View {
+        let note = FolderPeekItem(id: UUID(), kind: .text, title: "Visita à obra", fileURL: nil, stickyColor: nil)
+        HStack(alignment: .top, spacing: 8 + FolderCard.fanReach) {
+            ForEach(TagColor.allCases) { color in
+                FolderCard(
+                    folder: BoardItem(kind: .folder, title: color.displayName, colorTag: color),
+                    itemCount: 1,
+                    peeks: [note]
+                )
+                .frame(width: 110, height: 150)
+            }
+        }
+        .padding(40)
+        .background(Theme.canvas)
+    }
+}
+
+#Preview("Com cor", traits: .fixedLayout(width: 1_200, height: 240)) {
+    TintedFolderCards()
+}
+
+#Preview("Com cor no escuro", traits: .fixedLayout(width: 1_200, height: 240)) {
+    TintedFolderCards()
         .preferredColorScheme(.dark)
 }
 #endif

@@ -12,6 +12,8 @@ struct PaperCard: View {
     let title: String
     /// O corpo dobrado; `nil` quando a nota não tem corpo.
     let summary: FoldResult?
+    /// Cor da tag do cartão; tinge o papel sem deixá-lo transparente.
+    var tint: TagColor? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -28,7 +30,7 @@ struct PaperCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
-        .paperSheet()
+        .paperSheet(tint: tint?.color)
     }
 }
 
@@ -55,4 +57,31 @@ struct PaperCard: View {
     .frame(width: 270, height: 150)
     .padding(40)
     .background(Theme.canvas)
+}
+
+/// Três notas com tag de cor, lado a lado, para conferir quanto a cor tinge o papel.
+private struct TintedPaperCards: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            ForEach([TagColor.red, .green, .blue]) { color in
+                PaperCard(
+                    title: color.displayName,
+                    summary: NoteFolding.fold("Clarity before ornament. Light before furniture.", record: nil),
+                    tint: color
+                )
+                .frame(width: 130, height: 110)
+            }
+        }
+        .padding(24)
+        .background(Theme.canvas)
+    }
+}
+
+#Preview("Com cor", traits: .fixedLayout(width: 500, height: 160)) {
+    TintedPaperCards()
+}
+
+#Preview("Com cor no escuro", traits: .fixedLayout(width: 500, height: 160)) {
+    TintedPaperCards()
+        .preferredColorScheme(.dark)
 }

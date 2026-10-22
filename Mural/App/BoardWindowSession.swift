@@ -1065,6 +1065,13 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    /// Define a cor do cartão (`nil` tira a cor) e agenda a gravação; escolher a cor que o cartão já tem não faz nada.
+    func setColorTag(_ color: TagColor?, for itemID: UUID) {
+        guard !isClosed else { return }
+        guard model?.setColorTag(color, for: itemID) == true else { return }
+        captureBoardIfNeeded()
+    }
+
     func flushAndPrepareToLeave() async {
         guard !isClosed else { return }
         if let leaveFlushTask {

@@ -11,15 +11,18 @@ struct CardView: View {
     var body: some View {
         switch item.kind {
         case .text:
-            PaperCard(title: item.title, summary: NoteFolding.fold(for: item))
+            PaperCard(title: item.title, summary: NoteFolding.fold(for: item), tint: item.colorTag)
         case .sticky:
             StickyCard(text: item.displayText, color: item.stickyColor)
+                .colorTagDot(item.colorTag)
         case .checklist:
-            ChecklistCard(document: item.checklistDocument)
+            ChecklistCard(document: item.checklistDocument, tint: item.colorTag)
         case .link:
             LinkCard(item: item)
+                .colorTagDot(item.colorTag)
         case .image, .video, .pdf:
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
+                .colorTagDot(item.colorTag)
         case .folder:
             let children = model.children(of: item.id)
             FolderCard(

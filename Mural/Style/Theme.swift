@@ -25,6 +25,11 @@ enum Theme {
     static let cardCorner: CGFloat = 8
     static let mediaCorner: CGFloat = 12
 
+    /// Quanto da cor da tag cobre o papel do cartão; o cartão continua opaco.
+    static let tagWash: Double = 0.18
+    /// Quanto da cor da tag cobre a folha de trás da pasta, que é mais clara que a da frente.
+    static let tagWashBack: Double = 0.26
+
     /// Post-its mantêm o tom pastel nos dois modos, como papel de verdade.
     static func sticky(_ color: StickyColor?) -> Color {
         switch color ?? .yellow {
@@ -101,11 +106,22 @@ extension View {
         shadow(color: .black.opacity(0.10), radius: 6, y: 3)
     }
 
-    /// Folha de papel dos cartões de nota, lista e pasta.
-    func paperSheet() -> some View {
+    /// Folha de papel dos cartões de nota, lista e pasta. Com `tint`, a cor da tag cobre o papel
+    /// em `Theme.tagWash`; o fundo continua opaco.
+    func paperSheet(tint: Color? = nil) -> some View {
         padding(10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Theme.paper, in: .rect(cornerRadius: Theme.cardCorner))
+            .background {
+                // `.continuous` é o canto de `.rect(cornerRadius:)`, que o papel usava antes da cor.
+                RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous)
+                    .fill(Theme.paper)
+                    .overlay {
+                        if let tint {
+                            RoundedRectangle(cornerRadius: Theme.cardCorner, style: .continuous)
+                                .fill(tint.opacity(Theme.tagWash))
+                        }
+                    }
+            }
             .cardShadow()
     }
 }

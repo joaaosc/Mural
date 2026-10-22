@@ -111,6 +111,7 @@ private struct LoadedRootView: View {
                 onDelete: session.delete,
                 onMoveToBoard: session.moveToBoard,
                 onMoveIntoFolder: session.moveIntoFolder,
+                onSetColorTag: { session.setColorTag($1, for: $0) },
                 onMove: session.move,
                 selection: canvasSelection
             )
@@ -515,7 +516,14 @@ private struct LoadedRootView: View {
     @ViewBuilder
     private func pageBackground(for destination: Destination) -> some View {
         switch destination {
-        case .collection: SurfaceFill(.collectionPage)
+        case .collection(let id):
+            // A pasta com cor tinge de leve a própria página; os itens de dentro continuam como estão.
+            SurfaceFill(.collectionPage)
+                .overlay {
+                    if let tag = model.item(id: id)?.colorTag {
+                        tag.color.opacity(0.06)
+                    }
+                }
         case .item: SurfaceFill(.itemPage)
         }
     }

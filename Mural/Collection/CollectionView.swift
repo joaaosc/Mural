@@ -102,6 +102,7 @@ struct CollectionView: View {
             onDelete: session?.delete,
             onMoveToBoard: session?.moveToBoard,
             onMoveIntoFolder: session?.moveIntoFolder,
+            onSetColorTag: { session?.setColorTag($1, for: $0) },
             onMoveUp: session?.moveUp,
             selection: selection
         )

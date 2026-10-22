@@ -26,3 +26,15 @@ struct StickyCard: View {
     .padding(40)
     .background(Theme.canvas)
 }
+
+#Preview("Com cor", traits: .fixedLayout(width: 360, height: 130)) {
+    HStack(spacing: 20) {
+        ForEach([TagColor.red, .blue, .green]) { color in
+            StickyCard(text: "Só luz quente, nada acima de 3000K.", color: .yellow)
+                .colorTagDot(color)
+                .frame(width: 100, height: 90)
+        }
+    }
+    .padding(24)
+    .background(Theme.canvas)
+}
