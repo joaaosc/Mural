@@ -12,6 +12,26 @@ A interface tem três níveis, cada um crescendo a partir do cartão clicado:
 
 Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
+## Abas e murais
+
+- **Uma janela, com abas como as do Safari** (layout compacto): cada mural aberto é uma aba na
+  mesma linha dos botões da janela. Um mural fica em uma aba só; abri-lo de novo leva à aba dele.
+  Trocar de aba não relê o disco, e o mural volta ao mesmo ponto.
+- **Barra lateral** (botão ao lado dos botões da janela, ⌃⌘S): todos os murais; clicar abre a aba.
+  **+** e ⌘N criam um mural novo numa aba.
+- ⌘W fecha a aba; fechar a última fecha a janela, e o app continua aberto. Visualizar › Mostrar
+  Todos os Murais (⇧⌘\) ou o Dock reabrem a janela. ⌃⇥ e ⌃⇧⇥ passam de uma aba para outra.
+- As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app.
+
+## Cores
+
+- **Cor no menu do botão direito**, como as tags do Finder: vermelho, laranja, amarelo, verde, azul,
+  roxo e cinza, uma por cartão. Tocar de novo na cor (ou em "Remover cor") tira a cor.
+- Pasta, nota e lista ficam tingidas de leve (a pasta também ganha a aba na cor cheia, e a página
+  dela, um tom mais leve); post-it, foto, vídeo, PDF e link ganham uma bolinha no canto.
+- Um mural com alguma cor usa a versão 4 do formato: builds anteriores se recusam a abri-lo em vez
+  de perder as cores ao gravar.
+
 ## Texto
 
 - **Card de texto**: título num campo próprio e corpo em Markdown (títulos, listas, tarefas,
@@ -56,7 +76,7 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 | Pasta | Conteúdo |
 | --- | --- |
 | `Packages/MuralKit` | Domínio sem interface: modelos, importação, gravação, paleta, estado observável. |
-| `Mural/` | App: telas organizadas por área (`Board`, `Collection`, `Detail`, `Cards`, `Chrome`, `Navigation`, `Input`, `Media`, `Style`). |
+| `Mural/` | App: telas organizadas por área (`Tabs`, `Board`, `Collection`, `Detail`, `Cards`, `Chrome`, `Navigation`, `Input`, `Media`, `Style`). |
 | `MuralTests/` | Testes do app com Swift Testing. |
 | `MuralUITests/` | Testes de interface que abrem o app com um mural de teste isolado. |
 | `Config/Project.xcconfig` | Configurações de build comuns a todos os alvos. |

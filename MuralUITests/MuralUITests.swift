@@ -29,27 +29,10 @@ final class MuralUITests: XCTestCase {
         let back = app.buttons["Voltar"].firstMatch
         if exampleCard.waitForExistence(timeout: 2) || back.exists { return }
 
-        // A biblioteca costuma ser a janela que abre: com o rascunho já visível, nada de aba ou menu. O menu
-        // Window falha quando a barra de menus do Mac está configurada para se esconder sozinha.
+        // Sem abas, a janela abre com a barra lateral de murais à mostra.
         let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
-        let libraryTab = app.tabs["Murais"].firstMatch
-        if draftEntry.waitForExistence(timeout: 2) {
-            // A biblioteca já está na frente.
-        } else if libraryTab.waitForExistence(timeout: 2) {
-            libraryTab.click()
-        } else {
-            let windowMenu = app.menuBars.menuBarItems["Window"].firstMatch
-            if windowMenu.waitForExistence(timeout: 2) {
-                windowMenu.click()
-                let libraryWindow = app.menuItems["Murais"].firstMatch
-                if libraryWindow.waitForExistence(timeout: 2) {
-                    libraryWindow.click()
-                }
-            }
-        }
-
-        XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "o rascunho de exemplo deveria aparecer na biblioteca")
-        draftEntry.doubleClick()
+        XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "o rascunho de exemplo deveria aparecer na barra lateral")
+        draftEntry.click()
         let openedBoard = NSPredicate { _, _ in exampleCard.exists || back.exists }
         let expectation = XCTNSPredicateExpectation(predicate: openedBoard, object: nil)
         XCTAssertEqual(
@@ -57,6 +40,12 @@ final class MuralUITests: XCTestCase {
             .completed,
             "o rascunho de exemplo deveria abrir no mural"
         )
+        // Sem abas, a barra lateral abre sozinha; fechada pelo botão dela, o mural volta a ocupar a janela
+        // inteira, que é o que os testes de posição e zoom medem.
+        let sidebarButton = app.buttons["murals-sidebar-button"].firstMatch
+        XCTAssertTrue(sidebarButton.waitForExistence(timeout: 5), "o botão da barra lateral fica ao lado dos semáforos")
+        sidebarButton.click()
+        XCTAssertTrue(draftEntry.waitForNonExistence(timeout: 5), "o botão fecha a barra lateral")
     }
 
     @MainActor
@@ -74,7 +63,8 @@ final class MuralUITests: XCTestCase {
         let back = app.buttons["Voltar"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Meeting Notes – Andrea and Jasmine"].exists, "cartão de dentro da pasta")
-        XCTAssertFalse(app.buttons["Pastas"].exists, "dentro da pasta não há filtro de pastas")
+        // Pastas também guardam pastas: o filtro existe aqui, mas começa desligado.
+        XCTAssertFalse(app.buttons["Pastas"].firstMatch.isSelected, "o filtro do mural não entra na pasta")
         XCTAssertFalse(app.buttons["Notas"].firstMatch.isSelected, "cada nível começa sem filtro")
 
         // Os detalhes da pasta ficam no botão de informação.
@@ -466,47 +456,75 @@ final class MuralUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "o app continua aberto")
     }
 
-    /// Seletor do mural: cria o mural B, volta ao rascunho pelo seletor sem abrir outra
-    /// janela, e o conteúdo do rascunho continua no mesmo lugar.
+    /// Abas como no Safari: "+" cria o mural B numa aba nova, a aba do rascunho volta com o conteúdo no mesmo
+    /// lugar, tudo numa janela só, e ⌘W fecha a aba ativa.
     @MainActor
-    func testSwitcherCreatesBoardAndReturnsWithoutDuplicatingWindows() throws {
+    func testTabsCreateBoardAndReturnWithoutDuplicatingWindows() throws {
         let app = launch()
         let cottage = app.buttons["The Cottage"].firstMatch
         XCTAssertTrue(cottage.waitForExistence(timeout: 10))
-        XCTAssertTrue(
-            app.buttons["Arquivos…"].firstMatch.waitForExistence(timeout: 5),
-            "o botão de arquivos da barra inferior tem nome visível")
-        let draftWindow = app.windows.containing(.button, identifier: "The Cottage").firstMatch
-        let before = CGPoint(x: cottage.frame.minX - draftWindow.frame.minX, y: cottage.frame.minY - draftWindow.frame.minY)
+        let window = app.windows.containing(.button, identifier: "The Cottage").firstMatch
+        let before = CGPoint(x: cottage.frame.minX - window.frame.minX, y: cottage.frame.minY - window.frame.minY)
+        let tabs = app.buttons.matching(identifier: "board-tab")
+        XCTAssertEqual(tabs.count, 1, "o rascunho abre numa aba")
 
-        let switcher = app.descendants(matching: .any)["board-switcher"].firstMatch
-        XCTAssertTrue(switcher.waitForExistence(timeout: 5), "o seletor Mural: nome deveria estar na barra")
-        switcher.click()
-        let newBoard = app.descendants(matching: .any)["switcher-new-board"].firstMatch
-        XCTAssertTrue(newBoard.waitForExistence(timeout: 5))
+        let newBoard = app.buttons["new-board-button"].firstMatch
+        XCTAssertTrue(newBoard.waitForExistence(timeout: 5), "o + fica na barra da janela")
         newBoard.click()
         let name = app.textFields["Nome do mural"].firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.click()
         name.typeText("Mural B\r")
 
-        // O seletor expõe o nome no título do botão de menu.
-        let switcherB = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier == %@ AND title == %@", "board-switcher", "Mural B"))
-            .firstMatch
-        XCTAssertTrue(switcherB.waitForExistence(timeout: 10), "o mural B deveria abrir numa janela própria")
-        let windowCount = app.windows.count
+        let tabB = tabs.matching(NSPredicate(format: "label == %@", "Mural B")).firstMatch
+        XCTAssertTrue(tabB.waitForExistence(timeout: 10), "o mural B abre numa aba nova")
+        XCTAssertTrue(tabB.isSelected, "a aba nova fica ativa")
+        XCTAssertEqual(tabs.count, 2)
+        XCTAssertEqual(app.windows.count, 1, "abas, não janelas")
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        shot.name = "Duas abas"
+        shot.lifetime = .keepAlways
+        add(shot)
 
-        switcherB.click()
-        let draftEntry = app.descendants(matching: .any)["switcher-entry-Rascunho de exemplo"].firstMatch
-        XCTAssertTrue(draftEntry.waitForExistence(timeout: 5), "o seletor lista o rascunho")
-        draftEntry.click()
-
+        tabs.matching(NSPredicate(format: "label == %@", "Rascunho de exemplo")).firstMatch.click()
         XCTAssertTrue(cottage.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.windows.count, windowCount, "escolher um mural já aberto não cria outra janela")
-        let after = CGPoint(x: cottage.frame.minX - draftWindow.frame.minX, y: cottage.frame.minY - draftWindow.frame.minY)
+        XCTAssertEqual(app.windows.count, 1, "voltar à aba não cria outra janela")
+        let after = CGPoint(x: cottage.frame.minX - window.frame.minX, y: cottage.frame.minY - window.frame.minY)
         XCTAssertEqual(after.x, before.x, accuracy: 4, "o rascunho volta igual")
         XCTAssertEqual(after.y, before.y, accuracy: 4, "o rascunho volta igual")
+
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(cottage.waitForNonExistence(timeout: 5), "⌘W fecha a aba do rascunho")
+        XCTAssertEqual(tabs.count, 1)
+        XCTAssertTrue(tabB.isSelected, "a aba que sobrou fica ativa")
+    }
+
+    /// Cor pelo menu do botão direito, como as tags do Finder: a fileira de cores aparece no menu, a cor
+    /// escolhida vai para o cartão (lida pelo VoiceOver) e "Remover cor" a tira.
+    @MainActor
+    func testContextMenuColorsCard() throws {
+        let app = launch()
+        let cottage = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(cottage.waitForExistence(timeout: 10))
+        cottage.rightClick()
+        let red = app.menuItems["Vermelho"].firstMatch
+        XCTAssertTrue(red.waitForExistence(timeout: 5), "a fileira de cores fica no menu do cartão")
+        let menu = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        menu.name = "Menu com as cores"
+        menu.lifetime = .keepAlways
+        add(menu)
+        red.click()
+        XCTAssertEqual(cottage.value as? String, "Cor: Vermelho")
+        let tinted = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        tinted.name = "Pasta vermelha"
+        tinted.lifetime = .keepAlways
+        add(tinted)
+
+        cottage.rightClick()
+        let remove = app.menuItems["Remover cor"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "com cor, o menu oferece Remover cor")
+        remove.click()
+        XCTAssertNotEqual(cottage.value as? String, "Cor: Vermelho")
     }
 
     /// Fechar a janela logo depois de colar (antes do salvamento automático) não perde o
@@ -525,12 +543,12 @@ final class MuralUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(app.buttons["Fechar sem perder"].waitForExistence(timeout: 5))
         app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.buttons["The Cottage"].waitForNonExistence(timeout: 5), "a janela do mural fecha")
+        XCTAssertTrue(app.buttons["The Cottage"].waitForNonExistence(timeout: 5), "⌘W fecha a última aba e a janela")
 
+        // Como no Safari, o app continua aberto sem janela; ⇧⌘\ reabre com a lista de murais.
+        app.typeKey("\\", modifierFlags: [.command, .shift])
         let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
-        XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "a biblioteca continua aberta")
-        // Um clique abre; com as janelas em abas, o segundo clique de um duplo clique cai na aba
-        // "Murais" que surge sob o ponteiro e deixa o rascunho reaberto atrás.
+        XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "a janela volta com a barra lateral")
         draftEntry.click()
         XCTAssertTrue(
             app.buttons["Fechar sem perder"].waitForExistence(timeout: 10),
