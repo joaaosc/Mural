@@ -221,6 +221,38 @@ struct NoteImagePasteTests {
         #expect(fileExists(attachment.fileName, model: model))
     }
 
+    @Test("A imagem colada na edição continua na nota depois de fechar e reabrir o mural")
+    func pastedImageSurvivesReopening() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Notas")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let id = try #require(session.model?.createNote()).id
+        let source = directory.appendingPathComponent("foto.png")
+        try pngData().write(to: source)
+
+        // O editor põe o marcador no rascunho, grava a imagem (arquivo do Finder) e troca o marcador pela linha final.
+        let token = UUID()
+        session.setNoteDraft(NoteDraft(title: "Com foto", text: "Texto\n\n\(NoteImageMarkup.pendingLine(token: token))"), for: id)
+        let attachment = try #require(await session.prepareNoteImages([.file(source)], for: id).first ?? nil)
+        let line = NoteImageMarkup.line(fileName: attachment.fileName)
+        session.replacePendingImage(token, with: line, in: id)
+        session.commitNoteDrafts()
+        await session.handleWindowWillClose()
+
+        let reopened = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reopened)
+        let model = try #require(reopened.model)
+        let item = try #require(model.item(id: id))
+        #expect(item.text == "Texto\n\n\(line)")
+        #expect(item.attachments?.map(\.fileName) == [attachment.fileName])
+        #expect(fileExists(attachment.fileName, model: model), "o arquivo da imagem continua em Items/")
+        await reopened.handleWindowWillClose()
+    }
+
     @Test("replacePendingImage troca o marcador no texto gravado")
     func replacePending() async throws {
         let directory = try root()
