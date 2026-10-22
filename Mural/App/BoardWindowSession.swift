@@ -119,14 +119,18 @@ final class BoardWindowSession {
     @ObservationIgnored private var restorationWatchdog: Task<Void, Never>?
     /// Tempo máximo tentando alcançar a posição salva antes de liberar o canvas.
     @ObservationIgnored var restorationTimeout: Duration = .seconds(2)
+    /// Janelas abertas que o término do app espera gravar.
+    @ObservationIgnored private let openSessions: OpenBoardSessions
 
     init(
         route: BoardRoute,
         registry: BoardSessionRegistry,
-        cleanupTransfer: (@Sendable (URL) async throws -> Void)? = nil
+        cleanupTransfer: (@Sendable (URL) async throws -> Void)? = nil,
+        openSessions: OpenBoardSessions = .shared
     ) {
         self.route = route
         self.registry = registry
+        self.openSessions = openSessions
         self.cleanupTransferOperation =
             cleanupTransfer ?? { url in
                 try await registry.library.cleanupTransfer(url)
@@ -193,6 +197,7 @@ final class BoardWindowSession {
             filter = Self.filter(from: loadedWorkspace.filter, path: path, board: board)
 
             presentationGeneration &+= 1
+            openSessions.register(self)
             restoration.begin(CanvasRestorationToken(boardID: boardID, generation: presentationGeneration))
             restorationPhase = restoration.phase
             zoom.configure(workspace: loadedWorkspace.canvas)
@@ -843,6 +848,7 @@ final class BoardWindowSession {
     /// Encerra as gravações desta janela: nenhum autosave, captura ou watchdog depois.
     private func markClosed() {
         isClosed = true
+        openSessions.unregister(self)
         pendingAutosaveDebounce?.cancel()
         pendingAutosaveDebounce = nil
         canvasCaptureDebounce?.cancel()

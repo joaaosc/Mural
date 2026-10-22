@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct MuralApp: App {
+    /// Segura o ⌘Q até todas as janelas de mural gravarem.
+    @NSApplicationDelegateAdaptor(MuralAppDelegate.self) private var appDelegate
     @State private var library: BoardLibrary
     @State private var registry: BoardSessionRegistry
     @State private var commandCoordinator: MuralCommandCoordinator
