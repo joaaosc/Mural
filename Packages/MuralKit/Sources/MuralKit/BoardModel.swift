@@ -193,6 +193,22 @@ public final class BoardModel {
         }
     }
 
+    /// Apaga só a mídia dos itens que a versão gravada (`persistedBoard`) já não contém.
+    /// Uma exclusão feita enquanto a gravação acontecia continua adiada até a próxima,
+    /// para que o disco nunca tenha um board apontando para um arquivo já apagado.
+    public func finalizeDeferredDeletions(persistedBoard: Board) {
+        guard persistence == .deferred else { return }
+        var pending: [BoardItem] = []
+        for item in deferredDeletions {
+            if persistedBoard.item(id: item.id) == nil {
+                importer.removeFile(of: item)
+            } else {
+                pending.append(item)
+            }
+        }
+        deferredDeletions = pending
+    }
+
     // MARK: Interno
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.
