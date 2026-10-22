@@ -6,6 +6,8 @@ public enum BoardRepositoryError: Error, Equatable, Sendable {
     case corruptedManifest(String)
     case corruptedBoard(String)
     case futureManifestSchema(Int)
+    /// O `board.json` foi gravado por uma build mais nova (formato maior que `Board.currentFormatVersion`).
+    case futureBoardFormat(Int)
     case futureWorkspaceSchema(Int)
     case staleRevision(currentContent: Int, incomingContent: Int, currentWorkspace: Int, incomingWorkspace: Int)
     case conflictingRevision(content: Int, workspace: Int)

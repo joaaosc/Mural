@@ -3,8 +3,11 @@ import Foundation
 /// O mural inteiro: todos os cartões, soltos ou dentro de pastas.
 public struct Board: Codable, Equatable, Sendable {
     /// Versão do formato gravado em disco, para migrações futuras.
+    /// Uma build recusa abrir um mural de versão maior que a sua (`BoardRepositoryError.futureBoardFormat`).
     public static let currentFormatVersion = 1
 
+    /// Versão do formato em que o mural foi gravado. Toda alteração de fato grava a versão atual:
+    /// um mural antigo só sobe de versão junto com uma mudança real (e, portanto, com uma revisão nova).
     public var formatVersion: Int
     public var items: [BoardItem]
 
@@ -29,11 +32,13 @@ public struct Board: Codable, Equatable, Sendable {
 
     public mutating func add(_ item: BoardItem) {
         items.append(item)
+        formatVersion = Self.currentFormatVersion
     }
 
     public mutating func update(_ item: BoardItem) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[index] = item
+        formatVersion = Self.currentFormatVersion
     }
 
     /// Remove o cartão e, se for pasta, tudo que estiver dentro dela.
@@ -41,7 +46,9 @@ public struct Board: Codable, Equatable, Sendable {
     @discardableResult
     public mutating func remove(id: UUID) -> [BoardItem] {
         let removed = items.filter { $0.id == id || $0.parentID == id }
+        guard !removed.isEmpty else { return [] }
         items.removeAll { $0.id == id || $0.parentID == id }
+        formatVersion = Self.currentFormatVersion
         return removed
     }
 
@@ -53,6 +60,7 @@ public struct Board: Codable, Equatable, Sendable {
         var item = items.remove(at: index)
         item.position = position
         items.append(item)
+        formatVersion = Self.currentFormatVersion
         return true
     }
 
@@ -67,6 +75,7 @@ public struct Board: Codable, Equatable, Sendable {
             items[index].position = position
             changed += 1
         }
+        if changed > 0 { formatVersion = Self.currentFormatVersion }
         return changed
     }
 
@@ -81,6 +90,7 @@ public struct Board: Codable, Equatable, Sendable {
             let folder = item(id: folderID), folder.kind == .folder, folder.parentID == nil
         else { return false }
         items[index].parentID = folderID
+        formatVersion = Self.currentFormatVersion
         return true
     }
 
@@ -93,6 +103,7 @@ public struct Board: Codable, Equatable, Sendable {
         item.parentID = nil
         item.position = position
         items.append(item)
+        formatVersion = Self.currentFormatVersion
         return true
     }
 }

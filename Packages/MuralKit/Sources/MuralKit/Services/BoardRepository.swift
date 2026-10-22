@@ -104,6 +104,11 @@ public actor BoardRepository {
         } catch {
             throw BoardRepositoryError.corruptedBoard(String(describing: error))
         }
+        // Antes de qualquer outro arquivo ser tocado (o view-state ilegível é movido para quarentena
+        // mais abaixo): uma build antiga não abre, e depois sobrescreveria, um mural de formato mais novo.
+        guard board.formatVersion <= Board.currentFormatVersion else {
+            throw BoardRepositoryError.futureBoardFormat(board.formatVersion)
+        }
 
         let viewStateURL = package.appendingPathComponent("view-state.json")
         guard FileManager.default.fileExists(atPath: viewStateURL.path) else {

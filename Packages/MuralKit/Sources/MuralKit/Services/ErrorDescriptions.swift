@@ -30,6 +30,8 @@ extension BoardRepositoryError: LocalizedError {
             "O conteúdo do mural está ilegível."
         case .futureManifestSchema(let version):
             "Este mural foi salvo por uma versão mais nova do Mural (formato \(version))."
+        case .futureBoardFormat(let version):
+            "Este mural foi salvo por uma versão mais nova do Mural (formato \(version)). Nada foi alterado."
         case .futureWorkspaceSchema(let version):
             "O estado visual deste mural vem de uma versão mais nova do Mural (formato \(version))."
         case .staleRevision:
