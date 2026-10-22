@@ -17,7 +17,7 @@ struct SelectionBar: View {
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .padding(.horizontal, 12)
-            colorMenu
+            colorButtons
             Button("Apagar…", systemImage: "trash", role: .destructive, action: onDelete)
                 .foregroundStyle(count == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
                 .disabled(count == 0)
@@ -33,25 +33,42 @@ struct SelectionBar: View {
         .accessibilityIdentifier("selection-bar")
     }
 
-    /// As mesmas sete cores do menu do cartão; escolher uma pinta todos os marcados.
-    private var colorMenu: some View {
-        Menu {
-            Picker("Cor", selection: Binding<TagColor?>(get: { nil }, set: { onColor($0) })) {
-                ForEach(TagColor.allCases) { color in
-                    Label(color.displayName, systemImage: "circle.fill")
-                        .tint(color.color)
-                        .tag(Optional(color))
+    /// As mesmas sete cores do menu do cartão, direto na barra: um clique pinta todos os marcados, e o
+    /// último botão tira a cor.
+    private var colorButtons: some View {
+        HStack(spacing: 4) {
+            ForEach(TagColor.allCases) { color in
+                Button {
+                    onColor(color)
+                } label: {
+                    Circle()
+                        .fill(color.color)
+                        .frame(width: 14, height: 14)
+                        .padding(3)
+                        .contentShape(.circle)
                 }
+                .buttonStyle(.plain)
+                .help(color.displayName)
+                .accessibilityLabel(color.displayName)
             }
-            .pickerStyle(.palette)
-            Button("Remover cor") { onColor(nil) }
-        } label: {
-            Label("Cor", systemImage: "paintpalette")
+            Button {
+                onColor(nil)
+            } label: {
+                Image(systemName: "circle.slash")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .padding(3)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .help("Remover cor")
+            .accessibilityLabel("Remover cor")
         }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
+        .padding(.horizontal, 6)
+        .opacity(count == 0 ? 0.4 : 1)
         .disabled(count == 0)
-        .help("Dar uma cor aos cartões marcados")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Cor dos marcados")
         .accessibilityIdentifier("selection-color")
     }
 
