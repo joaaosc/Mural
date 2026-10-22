@@ -18,12 +18,10 @@ struct CardView: View {
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
         case .folder:
             let children = model.children(of: item.id)
-            let peek = children.first { $0.kind == .image || $0.kind == .video }
             FolderCard(
                 folder: item,
                 itemCount: children.count,
-                peekURL: peek.flatMap(model.fileURL(for:)),
-                peekKind: peek?.kind
+                peeks: FolderPeekItem.latest(children, fileURL: model.fileURL(for:))
             )
         }
     }

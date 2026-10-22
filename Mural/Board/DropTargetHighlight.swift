@@ -32,9 +32,9 @@ private struct DropTargetHighlight: ViewModifier {
 #Preview("Pasta como destino") {
     let folder = BoardItem(kind: .folder, title: "44th Street", tag: "CLIENT 002")
     HStack(spacing: 40) {
-        FolderCard(folder: folder, itemCount: 3, peekURL: nil, peekKind: nil)
+        FolderCard(folder: folder, itemCount: 3, peeks: [])
             .frame(width: 120, height: 160)
-        FolderCard(folder: folder, itemCount: 3, peekURL: nil, peekKind: nil)
+        FolderCard(folder: folder, itemCount: 3, peeks: [])
             .frame(width: 120, height: 160)
             .dropTargetHighlight(true)
     }

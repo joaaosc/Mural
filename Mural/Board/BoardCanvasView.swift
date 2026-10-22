@@ -132,7 +132,8 @@ struct BoardCanvasView: View {
     private func cardGroup(for item: BoardItem) -> some View {
         let size = BoardLayout.cardSize(for: item.kind)
         if item.kind == .folder {
-            HStack(alignment: .top, spacing: 28) {
+            // O leque da pasta sai pela borda direita: a prévia começa depois dele, com a folga de 14 pt de sempre.
+            HStack(alignment: .top, spacing: FolderCard.fanReach + 14) {
                 cardButton(item, open: [.collection(item.id)])
                     .frame(width: size.width, height: size.height)
                     .dropTargetHighlight(focus.dropTarget == item.id)
