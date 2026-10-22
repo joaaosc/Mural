@@ -11,7 +11,9 @@ final class MuralUITests: XCTestCase {
     private func launch(_ argument: String = "-uiTesting") -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
-        app.launchArguments = [argument]
+        // Ignora o estado salvo de execuções anteriores (janelas de testes antigos). O par vem
+        // primeiro: depois de "-uiTesting", o macOS o leria como valor daquele argumento.
+        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", argument]
         app.launch()
         app.activate()
         openExampleBoardIfNeeded(in: app)
@@ -27,8 +29,13 @@ final class MuralUITests: XCTestCase {
         let back = app.buttons["Voltar"].firstMatch
         if exampleCard.waitForExistence(timeout: 2) || back.exists { return }
 
+        // A biblioteca costuma ser a janela que abre: com o rascunho já visível, nada de aba ou menu. O menu
+        // Window falha quando a barra de menus do Mac está configurada para se esconder sozinha.
+        let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
         let libraryTab = app.tabs["Murais"].firstMatch
-        if libraryTab.waitForExistence(timeout: 2) {
+        if draftEntry.waitForExistence(timeout: 2) {
+            // A biblioteca já está na frente.
+        } else if libraryTab.waitForExistence(timeout: 2) {
             libraryTab.click()
         } else {
             let windowMenu = app.menuBars.menuBarItems["Window"].firstMatch
@@ -41,7 +48,6 @@ final class MuralUITests: XCTestCase {
             }
         }
 
-        let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
         XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "o rascunho de exemplo deveria aparecer na biblioteca")
         draftEntry.doubleClick()
         let openedBoard = NSPredicate { _, _ in exampleCard.exists || back.exists }
@@ -333,6 +339,70 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["foto-na-pasta"].waitForExistence(timeout: 5), "a imagem colada entra na pasta aberta")
         XCTAssertTrue(app.buttons["Meeting Notes – Andrea and Jasmine"].exists, "as notas continuam ao lado")
         XCTAssertEqual(app.state, .runningForeground, "o app continua aberto")
+    }
+
+    /// Seletor "Mural: nome": cria o mural B, volta ao rascunho pelo seletor sem abrir outra
+    /// janela, e o conteúdo do rascunho continua no mesmo lugar.
+    @MainActor
+    func testSwitcherCreatesBoardAndReturnsWithoutDuplicatingWindows() throws {
+        let app = launch()
+        let cottage = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(cottage.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Adicionar arquivos"].firstMatch.exists, "o botão inferior tem nome visível")
+        let draftWindow = app.windows.containing(.button, identifier: "The Cottage").firstMatch
+        let before = CGPoint(x: cottage.frame.minX - draftWindow.frame.minX, y: cottage.frame.minY - draftWindow.frame.minY)
+
+        let switcher = app.descendants(matching: .any)["board-switcher"].firstMatch
+        XCTAssertTrue(switcher.waitForExistence(timeout: 5), "o seletor Mural: nome deveria estar na barra")
+        switcher.click()
+        let newBoard = app.descendants(matching: .any)["switcher-new-board"].firstMatch
+        XCTAssertTrue(newBoard.waitForExistence(timeout: 5))
+        newBoard.click()
+        let name = app.textFields["Nome do mural"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click()
+        name.typeText("Mural B\r")
+
+        // O seletor expõe o nome no título do botão de menu.
+        let switcherB = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND title == %@", "board-switcher", "Mural: Mural B"))
+            .firstMatch
+        XCTAssertTrue(switcherB.waitForExistence(timeout: 10), "o mural B deveria abrir numa janela própria")
+        let windowCount = app.windows.count
+
+        switcherB.click()
+        let draftEntry = app.descendants(matching: .any)["switcher-entry-Rascunho de exemplo"].firstMatch
+        XCTAssertTrue(draftEntry.waitForExistence(timeout: 5), "o seletor lista o rascunho")
+        draftEntry.click()
+
+        XCTAssertTrue(cottage.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.windows.count, windowCount, "escolher um mural já aberto não cria outra janela")
+        let after = CGPoint(x: cottage.frame.minX - draftWindow.frame.minX, y: cottage.frame.minY - draftWindow.frame.minY)
+        XCTAssertEqual(after.x, before.x, accuracy: 4, "o rascunho volta igual")
+        XCTAssertEqual(after.y, before.y, accuracy: 4, "o rascunho volta igual")
+    }
+
+    /// Fechar a janela logo depois de colar (antes do salvamento automático) não perde o
+    /// conteúdo: o fechamento real da janela grava, e a biblioteca reabre o mural do disco.
+    @MainActor
+    func testClosingWindowRightAfterPasteKeepsContent() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("Fechar sem perder", forType: .string)
+        app.typeKey("v", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["Fechar sem perder"].waitForExistence(timeout: 5))
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["The Cottage"].waitForNonExistence(timeout: 5), "a janela do mural fecha")
+
+        let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
+        XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "a biblioteca continua aberta")
+        draftEntry.doubleClick()
+        XCTAssertTrue(
+            app.buttons["Fechar sem perder"].waitForExistence(timeout: 10),
+            "o post-it colado antes de fechar deveria voltar")
     }
 
     /// Arrasta o elemento a partir do centro: segura um instante e solta `dx`, `dy` pontos adiante.

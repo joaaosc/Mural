@@ -21,10 +21,13 @@ struct BoardSwitcherMenu: View {
                     entry.manifest.name,
                     isOn: Binding(
                         get: { entry.route == currentRoute },
-                        set: { _ in openWindow(value: entry.route) }))
+                        set: { _ in openWindow(value: entry.route) })
+                )
+                .accessibilityIdentifier("switcher-entry-\(entry.manifest.name)")
             }
             if !entries.isEmpty { Divider() }
             Button("Novo Mural…", action: onNewBoard)
+                .accessibilityIdentifier("switcher-new-board")
             Button("Mostrar Todos os Murais") { openWindow(value: BoardRoute.library) }
         } label: {
             Text("Mural: \(currentName)")
@@ -34,6 +37,7 @@ struct BoardSwitcherMenu: View {
         .menuIndicator(.visible)
         .fixedSize()
         .help("Trocar de mural")
+        .accessibilityIdentifier("board-switcher")
         .accessibilityLabel("Mural: \(currentName)")
         .accessibilityHint("Abre a lista de murais")
         .task(id: currentName) { await refresh() }
