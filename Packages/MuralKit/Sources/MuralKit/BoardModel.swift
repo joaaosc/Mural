@@ -116,6 +116,82 @@ public final class BoardModel {
         }
     }
 
+    // MARK: Entrada de conteúdo fora do Main Actor
+
+    /// Cartões já copiados para `Items/`, ainda fora do board, e os nomes que falharam.
+    public struct PreparedImport: Sendable {
+        public let items: [BoardItem]
+        public let failures: [String]
+    }
+
+    /// Copia os arquivos e inspeciona as imagens fora do Main Actor: um vídeo grande
+    /// não congela a janela. Nada entra no board até `commit(_:into:)`.
+    public func prepareFiles(_ urls: [URL], parentID: UUID? = nil) async -> PreparedImport {
+        await Self.copyFiles(urls, parentID: parentID, importer: importer)
+    }
+
+    /// Grava dados colados (imagem, PDF) fora do Main Actor.
+    public func prepareData(
+        _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID? = nil
+    ) async -> PreparedImport {
+        await Self.writeData(
+            data, fileExtension: fileExtension, kind: kind, title: title, parentID: parentID, importer: importer)
+    }
+
+    /// Insere no board os cartões preparados. A pasta de destino é conferida de novo:
+    /// se ela sumiu durante a cópia, o conteúdo vai para o mural em vez de ficar órfão.
+    @discardableResult
+    public func commit(_ prepared: PreparedImport, into parentID: UUID? = nil) -> [BoardItem] {
+        let folderExists = parentID.map { board.item(id: $0)?.kind == .folder } ?? true
+        var created: [BoardItem] = []
+        for var item in prepared.items {
+            if !folderExists { item.parentID = nil }
+            created.append(insert(item))
+        }
+        if !prepared.failures.isEmpty {
+            lastError = "Não foi possível importar: \(prepared.failures.joined(separator: ", "))."
+        }
+        if !created.isEmpty { persist() }
+        return created
+    }
+
+    /// Apaga os arquivos de uma importação que não vai mais entrar no board (a janela
+    /// fechou ou mudou durante a cópia), para não deixar órfãos em `Items/`.
+    public func discard(_ prepared: PreparedImport) {
+        for item in prepared.items {
+            importer.removeFile(of: item)
+        }
+    }
+
+    @concurrent
+    private nonisolated static func copyFiles(
+        _ urls: [URL], parentID: UUID?, importer: ItemImporter
+    ) async -> PreparedImport {
+        var items: [BoardItem] = []
+        var failures: [String] = []
+        for url in urls {
+            do {
+                items.append(try importer.importFile(at: url, parentID: parentID))
+            } catch {
+                failures.append(url.lastPathComponent)
+            }
+        }
+        return PreparedImport(items: items, failures: failures)
+    }
+
+    @concurrent
+    private nonisolated static func writeData(
+        _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID?, importer: ItemImporter
+    ) async -> PreparedImport {
+        do {
+            let item = try importer.importData(
+                data, fileExtension: fileExtension, kind: kind, title: title, parentID: parentID)
+            return PreparedImport(items: [item], failures: [])
+        } catch {
+            return PreparedImport(items: [], failures: [title])
+        }
+    }
+
     // MARK: Alterações
 
     public func toggleChecklistEntry(_ entryID: UUID, in itemID: UUID) {
