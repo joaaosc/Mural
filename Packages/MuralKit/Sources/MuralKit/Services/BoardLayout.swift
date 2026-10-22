@@ -9,6 +9,7 @@ public enum BoardLayout {
         case .text, .checklist, .pdf: (120, 150)
         case .sticky: (110, 110)
         case .link: (150, 170)
+        case .reminder: (160, 96)
         case .folder: (120, 160)
         }
     }
@@ -25,6 +26,7 @@ public enum BoardLayout {
         case .text, .checklist, .folder: 0.72
         case .sticky: 1.25
         case .link: 0.85
+        case .reminder: 1.6
         }
     }
 

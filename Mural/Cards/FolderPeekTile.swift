@@ -41,7 +41,7 @@ extension FolderPeekItem {
 }
 
 /// Miniatura de um cartão que espia pela borda da pasta: foto, vídeo e PDF pela imagem; link pela imagem
-/// de prévia; nota, lista e link sem imagem como papelzinho com o título; post-it na própria cor.
+/// de prévia; nota, lista, lembrete e link sem imagem como papelzinho com o título; post-it na própria cor.
 struct FolderPeekTile: View {
     let item: FolderPeekItem
     let size: CGSize
@@ -68,7 +68,7 @@ struct FolderPeekTile: View {
                 .background(Theme.sticky(item.stickyColor))
         case .link where item.fileURL != nil:
             ThumbnailView(url: item.fileURL, kind: .image, maxPixelSize: 240)
-        case .text, .checklist, .folder, .link:
+        case .text, .checklist, .folder, .link, .reminder:
             label(ink: .secondary, design: .default)
         }
     }

@@ -256,6 +256,55 @@ public final class BoardModel {
         return placed
     }
 
+    // MARK: Lembretes
+
+    /// Todos os cartões de lembrete do mural, de qualquer nível.
+    public var reminderItems: [BoardItem] { board.items.filter { $0.kind == .reminder } }
+
+    /// Cria um cartão para cada lembrete e grava uma vez ao final. O título do cartão é o do lembrete.
+    @discardableResult
+    public func addReminders(_ snapshots: [ReminderSnapshot], into parentID: UUID? = nil) -> [BoardItem] {
+        let now = Date.now
+        var created: [BoardItem] = []
+        for (index, snapshot) in snapshots.enumerated() {
+            let item = BoardItem(
+                kind: .reminder,
+                title: snapshot.title,
+                createdAt: now.addingTimeInterval(Double(index) * 0.001),
+                parentID: parentID,
+                reminder: snapshot
+            )
+            created.append(insert(item))
+        }
+        if !created.isEmpty { persist() }
+        return created
+    }
+
+    /// Troca o estado guardado do lembrete; o título do cartão acompanha.
+    /// - Returns: `false`, sem gravar, se o cartão não é um lembrete ou nada mudou.
+    @discardableResult
+    public func updateReminder(_ itemID: UUID, with snapshot: ReminderSnapshot) -> Bool {
+        guard var item = board.item(id: itemID), item.kind == .reminder,
+            item.reminder != snapshot || item.title != snapshot.title
+        else { return false }
+        item.reminder = snapshot
+        item.title = snapshot.title
+        board.update(item)
+        persist()
+        return true
+    }
+
+    /// Marca o lembrete como apagado no Lembretes, mantendo o último estado conhecido.
+    public func markReminderMissing(_ itemID: UUID) {
+        guard var item = board.item(id: itemID), item.kind == .reminder, var snapshot = item.reminder,
+            !snapshot.isMissing
+        else { return }
+        snapshot.isMissing = true
+        item.reminder = snapshot
+        board.update(item)
+        persist()
+    }
+
     // MARK: Pastas
 
     /// Pasta vazia, solta no mural numa posição livre. Sem nome, vira "Nova pasta".

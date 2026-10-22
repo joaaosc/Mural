@@ -12,6 +12,7 @@ extension ItemKind {
         case .pdf: "PDF"
         case .folder: "Pasta"
         case .link: "Link"
+        case .reminder: "Lembrete"
         }
     }
 
@@ -26,6 +27,7 @@ extension ItemKind {
         case .pdf: "richtext.page"
         case .folder: "folder"
         case .link: "link"
+        case .reminder: "checklist.checked"
         }
     }
 }

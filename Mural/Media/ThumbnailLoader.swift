@@ -27,7 +27,7 @@ enum ThumbnailLoader {
             let scale = CGFloat(maxPixelSize) / max(bounds.width, bounds.height, 1)
             let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
             return page.thumbnail(of: size, for: .mediaBox).cgImage(forProposedRect: nil, context: nil, hints: nil)
-        case .text, .checklist, .sticky, .link, .folder:
+        case .text, .checklist, .sticky, .link, .reminder, .folder:
             return nil
         }
     }

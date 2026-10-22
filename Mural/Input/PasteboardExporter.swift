@@ -16,6 +16,8 @@ enum PasteboardExporter {
             entry.setString(item.title, forType: urlNameType)
             entry.setString(address, forType: .string)
             pasteboard.writeObjects([entry])
+        } else if item.kind == .reminder, let reminder = item.reminder {
+            pasteboard.setString(text(of: reminder), forType: .string)
         } else if let url = model.fileURL(for: item) {
             pasteboard.writeObjects([url as NSURL])
         } else if let checklist = item.checklist {
@@ -25,6 +27,11 @@ enum PasteboardExporter {
         } else {
             pasteboard.setString(item.displayText, forType: .string)
         }
+    }
+
+    /// Título do lembrete e, se houver, a data, uma por linha.
+    static func text(of reminder: ReminderSnapshot) -> String {
+        [reminder.title, reminder.dueDescription()?.text].compactMap { $0 }.joined(separator: "\n")
     }
 
     /// Nota em Markdown com o título como `#`, no formato que o colar lê de volta.

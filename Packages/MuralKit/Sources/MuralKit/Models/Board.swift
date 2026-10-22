@@ -8,7 +8,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 3: cartão de link.
     /// - 4: cor nos cartões (`BoardItem.colorTag`).
     /// - 5: imagem colada em nota (`BoardItem.attachments`).
-    public static let currentFormatVersion = 5
+    /// - 6: cartão de lembrete.
+    public static let currentFormatVersion = 6
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -35,6 +36,7 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.kind == .link }) { version = max(version, 3) }
         if items.contains(where: { $0.colorTag != nil }) { version = max(version, 4) }
         if items.contains(where: { !($0.attachments ?? []).isEmpty }) { version = max(version, 5) }
+        if items.contains(where: { $0.kind == .reminder }) { version = max(version, 6) }
         return version
     }
 

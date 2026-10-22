@@ -12,6 +12,7 @@ extension ItemKind {
         case .checklist: ("lista", "listas")
         case .sticky: ("post-it", "post-its")
         case .link: ("link", "links")
+        case .reminder: ("lembrete", "lembretes")
         case .folder: ("pasta", "pastas")
         }
     }
@@ -36,6 +37,9 @@ extension ItemKind {
     static func deleteWarning(for item: BoardItem, childCount: Int) -> String {
         if item.kind == .link {
             return "O cartão e a prévia guardada pelo Mural serão removidos. A página original não é afetada."
+        }
+        if item.kind == .reminder {
+            return "O cartão será removido. O lembrete no app Lembretes não é afetado."
         }
         guard item.kind == .folder else {
             return "O cartão e o arquivo guardado pelo Mural serão removidos. O arquivo original não é tocado."

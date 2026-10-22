@@ -28,7 +28,7 @@ enum BoardFilter: String, CaseIterable, Identifiable {
         switch self {
         case .notes: kind == .text || kind == .sticky
         case .folders: kind == .folder
-        case .tasks: kind == .checklist
+        case .tasks: kind == .checklist || kind == .reminder
         }
     }
 

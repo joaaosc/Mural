@@ -22,6 +22,11 @@ struct CardView: View {
         case .link:
             LinkCard(item: item)
                 .colorTagDot(item.colorTag)
+        case .reminder:
+            if let reminder = item.reminder {
+                ReminderCard(reminder: reminder)
+                    .colorTagDot(item.colorTag)
+            }
         case .image, .video, .pdf:
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
                 .colorTagDot(item.colorTag)

@@ -51,6 +51,7 @@ public enum BoardPortablePackageError: Error, Equatable, Sendable {
     case invalidItemParent(UUID)
     case invalidItemPosition(UUID)
     case invalidFileName(UUID)
+    case invalidReminder(UUID)
     case missingAsset(String)
     case duplicateAsset(String)
     case unreferencedAsset(String)
@@ -335,6 +336,7 @@ public actor BoardPortablePackageService {
             } else if item.kind == .folder, item.fileName != nil {
                 throw BoardPortablePackageError.invalidFileName(item.id)
             }
+            try validateReminder(of: item)
             if item.kind.storesFile {
                 guard let fileName = item.fileName else {
                     throw BoardPortablePackageError.missingAsset("\(item.id.uuidString):fileName")
@@ -381,6 +383,17 @@ public actor BoardPortablePackageService {
                 throw BoardPortablePackageError.unreferencedAsset(asset.lastPathComponent)
             }
         }
+    }
+
+    /// Cartão de lembrete leva o estado do lembrete e nenhum arquivo; os textos têm tamanho razoável.
+    private func validateReminder(of item: BoardItem) throws {
+        guard item.kind == .reminder else {
+            if item.reminder != nil { throw BoardPortablePackageError.invalidReminder(item.id) }
+            return
+        }
+        guard let reminder = item.reminder, item.fileName == nil,
+            item.title.count <= 1_000, reminder.title.count <= 1_000, (reminder.notes?.count ?? 0) <= 100_000
+        else { throw BoardPortablePackageError.invalidReminder(item.id) }
     }
 
     /// Um anexo de nota é uma imagem legível, com nome seguro, tamanho positivo e sem colidir com a mídia de um cartão.

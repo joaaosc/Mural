@@ -43,6 +43,8 @@ struct ItemDetailView: View {
             TextDetailView(item: item, model: model, session: session)
         case .link:
             LinkDetailView(item: item, model: model) { isConfirmingDelete = true }
+        case .reminder:
+            ReminderDetailView(item: item)
         case .checklist:
             ChecklistDetailView(item: item, model: model, session: session)
         case .folder:
