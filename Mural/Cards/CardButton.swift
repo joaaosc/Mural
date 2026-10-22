@@ -48,7 +48,7 @@ struct CardButton: View {
             .overlay(alignment: .topLeading) {
                 if selection?.isActive == true {
                     SelectionBadge(isSelected: isSelected)
-                        .padding(8)
+                        .offset(x: -SelectionBadge.outset, y: -SelectionBadge.outset)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }

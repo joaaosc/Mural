@@ -2,7 +2,8 @@ import MuralKit
 import SwiftUI
 
 /// Barra do seletor, no lugar da barra de criação enquanto a seleção está aberta: quantos
-/// cartões estão marcados, Cor, Apagar… e Cancelar. Mesmo vidro e botões da barra de criação.
+/// cartões estão marcados, as cores, Apagar… e Cancelar. Compacta: só a contagem tem texto;
+/// Apagar e Cancelar mostram o ícone, com o nome na dica e na leitura de tela.
 struct SelectionBar: View {
     let count: Int
     /// Dá a cor (ou tira, com `nil`) aos cartões marcados.
@@ -10,13 +11,17 @@ struct SelectionBar: View {
     var onDelete: () -> Void
     var onCancel: () -> Void
 
+    private static let dotSize: CGFloat = 10
+
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             Text(title)
-                .font(.body.weight(.medium))
+                .font(.callout)
+                .bold()
                 .monospacedDigit()
                 .contentTransition(.numericText())
-                .padding(.horizontal, 12)
+                .padding(.leading, 10)
+                .padding(.trailing, 4)
             colorButtons
             Button("Apagar…", systemImage: "trash", role: .destructive, action: onDelete)
                 .foregroundStyle(count == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
@@ -25,9 +30,9 @@ struct SelectionBar: View {
             Button("Cancelar", systemImage: "xmark", action: onCancel)
                 .help("Desmarcar tudo (Esc)")
         }
-        .labelStyle(.titleAndIcon)
-        .buttonStyle(CreationBarButtonStyle())
-        .padding(4)
+        .labelStyle(.iconOnly)
+        .buttonStyle(CreationBarButtonStyle(horizontalPadding: 8))
+        .padding(3)
         .glassEffect(.regular, in: .capsule)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("selection-bar")
@@ -36,14 +41,14 @@ struct SelectionBar: View {
     /// As mesmas sete cores do menu do cartão, direto na barra: um clique pinta todos os marcados, e o
     /// último botão tira a cor.
     private var colorButtons: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(TagColor.allCases) { color in
                 Button {
                     onColor(color)
                 } label: {
                     Circle()
                         .fill(color.color)
-                        .frame(width: 14, height: 14)
+                        .frame(width: Self.dotSize, height: Self.dotSize)
                         .padding(3)
                         .contentShape(.circle)
                 }
@@ -55,7 +60,7 @@ struct SelectionBar: View {
                 onColor(nil)
             } label: {
                 Image(systemName: "circle.slash")
-                    .font(.system(size: 14))
+                    .font(.system(size: Self.dotSize + 1))
                     .foregroundStyle(.secondary)
                     .padding(3)
                     .contentShape(.circle)
@@ -64,7 +69,7 @@ struct SelectionBar: View {
             .help("Remover cor")
             .accessibilityLabel("Remover cor")
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
         .opacity(count == 0 ? 0.4 : 1)
         .disabled(count == 0)
         .accessibilityElement(children: .contain)
@@ -74,7 +79,7 @@ struct SelectionBar: View {
 
     private var title: String {
         switch count {
-        case 0: "Clique nos cartões para marcar"
+        case 0: "Marque cartões"
         case 1: "1 selecionado"
         default: "\(count) selecionados"
         }

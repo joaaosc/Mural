@@ -16,19 +16,25 @@ extension CardSelection {
     }
 }
 
-/// Marca de seleção no canto do cartão: círculo vazio com o seletor aberto, preenchido
-/// com a cor de destaque do sistema quando o cartão está marcado.
+/// Marca de seleção sobre o canto do cartão: círculo vazio com o seletor aberto, preenchido
+/// com a cor de destaque do sistema quando o cartão está marcado. Pequena e sólida, e não de vidro:
+/// dezenas de vidros dentro do mural com zoom pesavam e refletiam a cor do cartão de baixo.
 struct SelectionBadge: View {
     let isSelected: Bool
 
+    static let size: CGFloat = 18
+    /// Quanto a marca sai para fora do canto do cartão, para não cobrir o título.
+    static let outset: CGFloat = 6
+
     var body: some View {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.title2)
+            .font(.system(size: Self.size - 2))
             .symbolRenderingMode(.palette)
             .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary), AnyShapeStyle(.tint))
             .contentTransition(.symbolEffect(.replace))
-            .padding(2)
-            .glassEffect(.regular, in: .circle)
+            .frame(width: Self.size, height: Self.size)
+            .background(Theme.paper, in: .circle)
+            .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
             .accessibilityHidden(true)
     }
 }

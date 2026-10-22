@@ -686,7 +686,8 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(first.waitForNonExistence(timeout: 5), "os cartões marcados saem do mural")
         XCTAssertFalse(second.exists)
         XCTAssertTrue(app.buttons["The Cottage"].exists, "o resto do mural continua")
-        XCTAssertFalse(bar.exists, "sem nada marcado, a barra de criação volta")
+        // A barra sai com uma animação curta: espera em vez de conferir na hora.
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 3), "sem nada marcado, a barra de criação volta")
     }
 
     /// Visualizar › Organizar Mural (⌃⌘O) arruma os cartões soltos sem sobreposição; ⌘Z devolve.
