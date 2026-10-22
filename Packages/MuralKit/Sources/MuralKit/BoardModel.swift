@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import StretchText
 
 /// Estado vivo do mural: carrega do disco, aplica mudanças e grava após cada uma.
 ///
@@ -361,6 +362,23 @@ public final class BoardModel {
         let dropped = reconcileAttachments(of: &item)
         board.update(item)
         releaseFiles(named: dropped, saved: persist())
+    }
+
+    /// Marca ou desmarca a tarefa do bloco `segment` da nota. `source` é o texto que a página mostrava:
+    /// se a nota mudou desde então, nada muda. As frases curtas guardadas continuam valendo, porque só a caixa muda.
+    /// - Returns: `false`, sem alterar nada, se o cartão não é uma nota, o texto não é mais `source` ou o bloco não é tarefa.
+    @discardableResult
+    public func toggleNoteTask(_ itemID: UUID, segment: Int, in source: String) -> Bool {
+        guard var item = board.item(id: itemID), item.kind == .text, item.text == source,
+            let toggled = TextSegmenter.segment(source).togglingTask(inSegment: segment)
+        else { return false }
+        if let record = item.keySentences, record.matches(source) {
+            item.keySentences = record.rehashed(for: toggled)
+        }
+        item.text = toggled
+        board.update(item)
+        persist()
+        return true
     }
 
     /// Liga uma imagem já gravada à nota e grava o mural: o arquivo fica citado na hora, então

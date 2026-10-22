@@ -50,6 +50,13 @@ public struct KeySentenceRecord: Codable, Hashable, Sendable {
         segmenterVersion == TextSegmenter.version && sourceHash == Self.hash(of: source)
     }
 
+    /// As mesmas escolhas, falhas e versão do segmentador, com o hash de `source`.
+    /// Só vale para um texto com os mesmos blocos e frases (como depois de marcar uma tarefa).
+    public func rehashed(for source: String) -> KeySentenceRecord {
+        KeySentenceRecord(
+            source: source, choices: choices, failures: failures, segmenterVersion: segmenterVersion)
+    }
+
     /// Alguma escolha caiu na primeira frase por um motivo que pode passar
     /// (modelo indisponível, ocupado, sem tempo). Vale tentar de novo depois.
     public var needsRetry: Bool {
