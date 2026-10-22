@@ -56,6 +56,20 @@ public struct Board: Codable, Equatable, Sendable {
         return true
     }
 
+    /// Muda a posição de vários cartões soltos de uma vez (organizar), sem mexer na ordem da lista:
+    /// quem estava por cima continua por cima. Ids desconhecidos e cartões de pasta são ignorados.
+    /// - Returns: quantos cartões mudaram de lugar.
+    @discardableResult
+    public mutating func setPositions(_ positions: [UUID: BoardPoint]) -> Int {
+        var changed = 0
+        for index in items.indices where items[index].parentID == nil {
+            guard let position = positions[items[index].id], items[index].position != position else { continue }
+            items[index].position = position
+            changed += 1
+        }
+        return changed
+    }
+
     /// Guarda um cartão solto numa pasta solta. A posição do cartão e a ordem da lista não mudam.
     /// - Returns: `false`, sem alterar nada, se o cartão não existe, já está numa pasta ou é uma pasta
     ///   (pasta não entra em pasta), ou se o destino não é uma pasta solta.

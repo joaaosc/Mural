@@ -299,6 +299,20 @@ public final class BoardModel {
         persist()
     }
 
+    /// Muda a posição de vários cartões soltos de uma vez (organizar), sem mexer em quem fica por cima.
+    /// - Returns: onde estavam os cartões que mudaram de lugar, para desfazer.
+    @discardableResult
+    public func arrange(_ positions: [UUID: BoardPoint]) -> [UUID: BoardPoint] {
+        let previous = Dictionary(
+            uniqueKeysWithValues: board.rootItems.compactMap { item -> (UUID, BoardPoint)? in
+                guard let position = positions[item.id], position != item.position else { return nil }
+                return (item.id, item.position)
+            })
+        guard board.setPositions(positions) > 0 else { return [:] }
+        persist()
+        return previous
+    }
+
     /// Guarda um cartão solto dentro de uma pasta.
     public func moveIntoFolder(_ itemID: UUID, folderID: UUID) {
         guard board.moveIntoFolder(id: itemID, folderID: folderID) else { return }
