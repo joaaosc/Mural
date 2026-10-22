@@ -956,6 +956,66 @@ struct BoardWindowSessionTests {
                 .hasPrefix("Inclui 2 pastas com 3 itens dentro"))
     }
 
+    @Test("Organizar Mural arruma e grava; desfazer devolve só quem não foi mexido; refazer arruma de novo")
+    func tileBoardAndRevert() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Mosaico")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let note = model.createNote()
+        let sticky = model.createSticky()
+        let folder = model.createFolder(named: "Caixa")
+        model.move(note.id, to: BoardPoint(x: 700, y: 500))
+        model.move(sticky.id, to: BoardPoint(x: 90, y: 900))
+        session.captureBoardIfNeeded()
+        let scattered = Dictionary(uniqueKeysWithValues: model.rootItems.map { ($0.id, $0.position) })
+        let tiled = BoardTiling.bsp(model.rootItems, aspect: 1.6)
+        #expect(session.canTileBoard)
+
+        let arrangement = try #require(session.tileBoard(aspect: 1.6))
+        #expect(model.rootItems.allSatisfy { $0.position == tiled[$0.id] })
+        #expect(session.tileBoard(aspect: 1.6) == nil, "já organizado, nada muda")
+
+        // Movido depois de organizar: o desfazer respeita onde a pessoa deixou.
+        session.move(sticky.id, to: BoardPoint(x: 1000, y: 1000))
+        let redo = try #require(session.revert(arrangement))
+        #expect(model.item(id: note.id)?.position == scattered[note.id])
+        #expect(model.item(id: folder.id)?.position == scattered[folder.id])
+        #expect(model.item(id: sticky.id)?.position == BoardPoint(x: 1000, y: 1000))
+
+        #expect(session.revert(redo) != nil)
+        #expect(model.item(id: note.id)?.position == tiled[note.id])
+        await session.flushAndPrepareToLeave()
+
+        let reloaded = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        #expect(reloaded.model?.item(id: note.id)?.position == tiled[note.id])
+    }
+
+    @Test("Organizar Mural não age dentro de uma pasta nem com um cartão só")
+    func tileBoardOnlyOnBoard() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Mosaico")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let folder = model.createFolder(named: "Caixa")
+        session.captureBoardIfNeeded()
+        #expect(!session.canTileBoard)
+
+        _ = model.createNote()
+        session.captureBoardIfNeeded()
+        session.setNavigation(path: [.collection(folder.id)], filter: nil)
+        #expect(!session.canTileBoard)
+        #expect(session.tileBoard(aspect: 1.6) == nil)
+    }
+
     @Test("Sem o modelo ligado, nenhuma fila é criada e a nota dobra pela primeira frase")
     func sessionWithoutModel() async throws {
         let directory = try root()

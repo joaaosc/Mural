@@ -10,6 +10,7 @@ enum FocusedBoardActionRequest: Equatable, Sendable {
     case resumeDraft
     case promoteDraft
     case newFolder
+    case tileBoard
 }
 
 enum MuralCommandIntent: Equatable, Sendable {
@@ -109,6 +110,11 @@ final class FocusedBoardActions {
         request = .newFolder
     }
 
+    /// A cena focada organiza: ela conhece o formato da janela e a pilha de desfazer.
+    func tileBoard() {
+        request = .tileBoard
+    }
+
     func retryFlush() {
         session?.retryFlush()
     }
@@ -146,6 +152,10 @@ final class FocusedBoardActions {
     /// Nova pasta só no mural, com nada aberto por cima (pastas não entram em pastas).
     var canCreateFolder: Bool {
         session?.acceptsNewFolder ?? false
+    }
+
+    var canTileBoard: Bool {
+        session?.canTileBoard ?? false
     }
 
     var canRename: Bool {

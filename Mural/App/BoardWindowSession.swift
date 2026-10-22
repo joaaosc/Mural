@@ -967,6 +967,54 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    // MARK: Organizar
+
+    /// Organizar Mural vale no mural, com nada aberto por cima e ao menos dois cartões soltos.
+    var canTileBoard: Bool {
+        acceptsNewFolder && (model?.rootItems.count ?? 0) >= 2
+    }
+
+    /// Arruma os cartões soltos em mosaico BSP no formato `aspect` (largura ÷ altura da janela).
+    /// - Returns: o caminho de volta para desfazer; `nil` se nenhum cartão mudou de lugar.
+    @discardableResult
+    func tileBoard(aspect: Double) -> BoardArrangement? {
+        guard restoration.acceptsPersistence, !isClosed, path.isEmpty, let model else { return nil }
+        let positions = BoardTiling.bsp(model.rootItems, aspect: aspect)
+        let previous = model.arrange(positions)
+        guard !previous.isEmpty else { return nil }
+        captureBoardIfNeeded()
+        return BoardArrangement(previous: previous, arranged: positions.filter { previous[$0.key] != nil })
+    }
+
+    /// Devolve a `previous` só os cartões que continuam onde a organização os pôs: um cartão movido
+    /// depois fica onde a pessoa o deixou.
+    /// - Returns: o caminho inverso (refazer); `nil` se nenhum cartão pôde voltar.
+    @discardableResult
+    func revert(_ arrangement: BoardArrangement) -> BoardArrangement? {
+        guard restoration.acceptsPersistence, !isClosed, let model else { return nil }
+        let restorable = arrangement.previous.filter { itemID, _ in
+            guard let item = model.item(id: itemID), item.parentID == nil else { return false }
+            return item.position == arrangement.arranged[itemID]
+        }
+        guard !restorable.isEmpty else { return nil }
+        model.arrange(restorable)
+        captureBoardIfNeeded()
+        return BoardArrangement(
+            previous: restorable, arranged: arrangement.arranged.filter { restorable[$0.key] != nil }
+        ).reversed
+    }
+
+    /// Põe a organização na pilha de desfazer da janela; desfazer registra o refazer, e assim por diante.
+    func registerUndo(of arrangement: BoardArrangement, in undoManager: UndoManager, animation: Animation?) {
+        undoManager.registerUndo(withTarget: self) { [weak undoManager] session in
+            var reverse: BoardArrangement?
+            withAnimation(animation) { reverse = session.revert(arrangement) }
+            guard let reverse, let undoManager else { return }
+            session.registerUndo(of: reverse, in: undoManager, animation: animation)
+        }
+        undoManager.setActionName("Organizar Mural")
+    }
+
     // MARK: Seleção
 
     /// Cartões do nível aberto, os únicos que entram na seleção; a página de um item não tem.
@@ -1492,7 +1540,7 @@ private struct BoardLibraryView: View {
                     actions.resumeDraftAvailable = true
                     openWindow(value: draft.route)
                 }
-            case .rename, .promoteDraft, .newFolder:
+            case .rename, .promoteDraft, .newFolder, .tileBoard:
                 break
             }
         }

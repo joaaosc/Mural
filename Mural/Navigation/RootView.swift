@@ -43,6 +43,7 @@ private struct LoadedRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.undoManager) private var undoManager
 
     private var path: [Destination] { session.path }
     private var filter: BoardFilter? { session.filter }
@@ -441,6 +442,8 @@ private struct LoadedRootView: View {
             }
         case .newFolder:
             beginNewFolder()
+        case .tileBoard:
+            tileBoard()
         }
     }
 
@@ -550,6 +553,25 @@ private struct LoadedRootView: View {
     private func cancelPaste() {
         pendingPaste = nil
         isCanvasFocused = true
+    }
+
+    /// Organizar Mural: mosaico no formato da janela, com desfazer, e depois "Ajustar à janela".
+    private func tileBoard() {
+        let viewport = session.zoom.viewport
+        let aspect = viewport.height > 0 ? viewport.width / viewport.height : BoardTiling.defaultAspect
+        let animation: Animation? = reduceMotion ? nil : .smooth(duration: 0.5)
+        var arrangement: BoardArrangement?
+        withAnimation(animation) {
+            arrangement = session.tileBoard(aspect: aspect)
+        }
+        guard let arrangement else { return }
+        if let undoManager {
+            session.registerUndo(of: arrangement, in: undoManager, animation: animation)
+        }
+        // O mural ainda não mediu a extensão nova: atualiza antes de ajustar o zoom.
+        let extent = BoardLayout.extent(of: model.rootItems)
+        session.zoom.contentExtent = CGSize(width: extent.width, height: extent.height)
+        session.zoom.fitToWindow()
     }
 
     /// Botão Pasta da barra: só no mural, com nada aberto por cima.

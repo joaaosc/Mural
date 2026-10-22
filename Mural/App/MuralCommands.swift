@@ -83,6 +83,12 @@ struct MuralCommands: Commands {
                     .keyboardShortcut("9", modifiers: .command)
             }
             .disabled(zoom == nil)
+            Section {
+                // Mosaico como num gerenciador de janelas; ⌘Z devolve os cartões.
+                Button("Organizar Mural", systemImage: "rectangle.split.2x2", action: { actions?.tileBoard() })
+                    .keyboardShortcut("o", modifiers: [.command, .control])
+                    .disabled(!(actions?.canTileBoard ?? false))
+            }
             Button("Tentar novamente", action: { actions?.retryFlush() })
                 .disabled(actions == nil)
         }

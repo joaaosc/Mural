@@ -493,6 +493,44 @@ final class MuralUITests: XCTestCase {
         XCTAssertFalse(bar.exists, "sem nada marcado, a barra de criação volta")
     }
 
+    /// Visualizar › Organizar Mural (⌃⌘O) arruma os cartões soltos sem sobreposição; ⌘Z devolve.
+    @MainActor
+    func testOrganizeBoardTilesCardsAndUndoes() throws {
+        let app = launch()
+        let note = app.buttons["Design Philosophy"].firstMatch
+        let sticky = app.buttons["The idea is this"].firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
+        XCTAssertTrue(sticky.exists)
+        XCTAssertTrue(note.frame.intersects(sticky.frame), "no exemplo, o sticker cobre parte da nota")
+        XCTAssertTrue(app.menuItems["Organizar Mural"].exists, "o menu Visualizar oferece Organizar Mural")
+
+        app.typeKey("o", modifierFlags: [.command, .control])
+        let separated = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !note.frame.intersects(sticky.frame) }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [separated], timeout: 5), .completed, "organizado, o sticker sai de cima da nota")
+        // Títulos que só existem soltos no mural (os de dentro das pastas podem aparecer na prévia).
+        let titles = [
+            "Design Philosophy", "Alpha", "44th Street", "ACME Premises", "Today", "Running list of stuff",
+            "The idea is this", "Don't forget",
+        ]
+        let frames = titles.map { app.buttons[$0].firstMatch.frame }
+        for (index, frame) in frames.enumerated() {
+            for other in frames.indices where other > index {
+                XCTAssertFalse(frame.intersects(frames[other]), "\(titles[index]) cobre \(titles[other])")
+            }
+        }
+        // Evidência visual do mosaico, guardada no .xcresult mesmo quando o teste passa.
+        let organized = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        organized.name = "Mural organizado"
+        organized.lifetime = .keepAlways
+        add(organized)
+
+        app.typeKey("z", modifierFlags: .command)
+        let restored = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in note.frame.intersects(sticky.frame) }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 5), .completed, "⌘Z devolve os cartões")
+    }
+
     /// Arrasta o elemento a partir do centro: segura um instante e solta `dx`, `dy` pontos adiante.
     @MainActor
     private func drag(_ element: XCUIElement, dx: CGFloat, dy: CGFloat) {
