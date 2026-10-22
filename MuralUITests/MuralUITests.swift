@@ -690,6 +690,79 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(bar.waitForNonExistence(timeout: 3), "sem nada marcado, a barra de criação volta")
     }
 
+    /// Shift + arrastar no vazio do mural marca os cartões que o retângulo cruza; dá para colorir e apagar de uma vez.
+    @MainActor
+    func testShiftDragSelectsColorsAndDeletesCards() throws {
+        let app = launch()
+        let window = app.windows.firstMatch
+        let first = app.buttons["Design Philosophy"].firstMatch
+        let second = app.buttons["Alpha"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(second.exists)
+
+        // Do vão logo abaixo de "Alpha" até o meio de "Design Philosophy": cruza os dois e mais nenhum.
+        let start = point(in: window, x: second.frame.midX, y: second.frame.maxY + 8)
+        let end = point(in: window, x: first.frame.midX, y: first.frame.minY + 20)
+        XCUIElement.perform(withKeyModifiers: .shift) {
+            start.click(forDuration: 0.3, thenDragTo: end)
+        }
+
+        let bar = app.descendants(matching: .any)["selection-bar"].firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "o retângulo marca e a barra do seletor aparece")
+        XCTAssertTrue(first.isSelected, "o retângulo cruzou o primeiro cartão")
+        XCTAssertTrue(second.isSelected, "e o segundo")
+        XCTAssertFalse(app.buttons["The Cottage"].firstMatch.isSelected, "a pasta fora do retângulo fica de fora")
+        XCTAssertFalse(app.buttons["Voltar"].exists, "o arrasto não abre nenhum cartão")
+
+        app.descendants(matching: .any)["selection-color"].firstMatch.buttons["Verde"].firstMatch.click()
+        XCTAssertEqual(first.value as? String, "Cor: Verde")
+        XCTAssertEqual(second.value as? String, "Cor: Verde")
+
+        app.buttons["Apagar…"].firstMatch.click()
+        let confirm = app.buttons["Apagar"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "apagar vários pede confirmação")
+        confirm.click()
+        XCTAssertTrue(first.waitForNonExistence(timeout: 5), "os cartões marcados saem do mural")
+        XCTAssertFalse(second.exists)
+        XCTAssertTrue(app.buttons["The Cottage"].exists, "o resto do mural continua")
+    }
+
+    /// Dentro da pasta, Shift + arrastar também marca: um retângulo pequeno que cruza só o cartão mais à esquerda.
+    @MainActor
+    func testShiftDragSelectsInsideFolder() throws {
+        let app = launch()
+        let window = app.windows.firstMatch
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        let titles = ["Meeting Notes – Andrea and Jasmine", "Thoughts", "Chairs and their Surroundings", "This week"]
+        let cards = titles.map { app.buttons[$0].firstMatch }
+        XCTAssertTrue(cards[0].waitForExistence(timeout: 5))
+        // Espera a pasta terminar de abrir (os cartões param de se mover).
+        Thread.sleep(forTimeInterval: 1)
+        let leftmost = try XCTUnwrap(cards.filter(\.exists).min { $0.frame.minX < $1.frame.minX })
+
+        let start = point(in: window, x: leftmost.frame.minX - 6, y: leftmost.frame.midY)
+        let end = point(in: window, x: leftmost.frame.minX + 30, y: leftmost.frame.midY + 20)
+        XCUIElement.perform(withKeyModifiers: .shift) {
+            start.click(forDuration: 0.3, thenDragTo: end)
+        }
+
+        let bar = app.descendants(matching: .any)["selection-bar"].firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "o retângulo marca dentro da pasta")
+        XCTAssertTrue(leftmost.isSelected, "o cartão cruzado fica marcado")
+        XCTAssertEqual(cards.filter { $0.exists && $0.isSelected }.count, 1, "só ele")
+        XCTAssertTrue(app.buttons["Voltar"].exists, "o arrasto não abre o cartão")
+    }
+
+    /// Ponto da janela em coordenadas de tela (as de `frame`).
+    @MainActor
+    private func point(in window: XCUIElement, x: CGFloat, y: CGFloat) -> XCUICoordinate {
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: x - window.frame.minX, dy: y - window.frame.minY))
+    }
+
     /// Visualizar › Organizar Mural (⌃⌘O) arruma os cartões soltos sem sobreposição; ⌘Z devolve.
     @MainActor
     func testOrganizeBoardTilesCardsAndUndoes() throws {

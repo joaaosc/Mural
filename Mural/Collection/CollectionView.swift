@@ -58,6 +58,8 @@ struct CollectionView: View {
             .padding(.trailing, 64)
             .padding(.top, 70)
             .padding(.bottom, 90)
+            // Shift + arrastar no vazio marca os cartões cruzados, medidos no mesmo espaço do conteúdo.
+            .marqueeSelecting(in: "collection-content", selection: selection) { itemFrames }
             // O espaço de coordenadas pertence ao conteúdo, não ao viewport.
             .coordinateSpace(name: "collection-content")
             .scrollTargetLayout()

@@ -30,6 +30,8 @@ struct BoardCanvasView: View {
     @State private var drag: CardDrag?
     /// Cartão encolhendo em direção à pasta onde está sendo guardado; sai do mural no fim.
     @State private var storing: UUID?
+    /// Retângulo de Shift + arrastar aberto: a prévia de pasta não aparece enquanto ele existe.
+    @State private var isMarqueeActive = false
     /// O binding bidirecional do scroll pertence à identidade desta view. Mantê-lo
     /// fora do controlador observável impede um ciclo AttributeGraph → setter →
     /// nova avaliação durante restaurações programáticas.
@@ -76,6 +78,12 @@ struct BoardCanvasView: View {
                 }
             }
             .frame(width: contentSize.width, height: contentSize.height, alignment: .topLeading)
+            // Shift + arrastar no vazio marca os cartões cruzados; o contorno fica com um ponto na tela.
+            .marqueeSelecting(
+                in: Self.space, selection: selection, lineWidth: 1 / zoom.zoom, isActive: $isMarqueeActive
+            ) {
+                Self.cardFrames(of: model.rootItems)
+            }
             // Os arrastos medem neste espaço, em pontos do mural, sem o zoom.
             .coordinateSpace(.named(Self.space))
             .scaleEffect(zoom.zoom, anchor: .topLeading)
@@ -128,6 +136,9 @@ struct BoardCanvasView: View {
         }
         // O menu Visualizar só age no mural quando ele está na frente.
         .focusedSceneValue(hero.presented.isEmpty ? zoom : nil)
+        .onChange(of: isMarqueeActive) { _, active in
+            if active { hoveredFolder = nil }
+        }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: hoveredFolder)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: filter)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: colorFilter)
@@ -299,7 +310,16 @@ struct BoardCanvasView: View {
     /// Atualiza a pasta sob o ponteiro; fora de um arrasto, ela vira o foco na hora.
     private func pointerMoved(over folderID: UUID, inside: Bool) {
         pointerFolder = inside ? folderID : (pointerFolder == folderID ? nil : pointerFolder)
-        if drag == nil && !isDragging { hoveredFolder = pointerFolder }
+        if drag == nil && !isDragging && !isMarqueeActive { hoveredFolder = pointerFolder }
+    }
+
+    /// Quadro de cada cartão solto, em pontos do mural; a pasta conta só o cartão, sem o leque.
+    private static func cardFrames(of items: [BoardItem]) -> [UUID: CGRect] {
+        Dictionary(
+            uniqueKeysWithValues: items.map { item in
+                let size = BoardLayout.cardSize(for: item.kind)
+                return (item.id, CGRect(x: item.position.x, y: item.position.y, width: size.width, height: size.height))
+            })
     }
 }
 

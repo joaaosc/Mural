@@ -1205,6 +1205,13 @@ final class BoardWindowSession {
         selectedItemIDs = []
     }
 
+    /// Marca exatamente estes cartões (o retângulo de Shift + arrastar); os que não são do nível aberto ficam de fora.
+    func select(_ itemIDs: Set<UUID>) {
+        guard !isClosed else { return }
+        let selection = itemIDs.intersection(selectableItemIDs)
+        if selection != selectedItemIDs { selectedItemIDs = selection }
+    }
+
     /// Apaga de uma vez os cartões marcados; uma pasta leva o conteúdo junto, como ao apagar um só.
     func deleteSelection() {
         let itemIDs = currentSelection

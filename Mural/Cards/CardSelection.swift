@@ -6,13 +6,17 @@ struct CardSelection {
     var isActive: Bool
     var selected: Set<UUID>
     var toggle: @MainActor (UUID) -> Void
+    /// Troca a marcação inteira (o retângulo de Shift + arrastar).
+    var select: @MainActor (Set<UUID>) -> Void = { _ in }
 }
 
 extension CardSelection {
     /// Seleção do nível aberto na janela.
     @MainActor
     init(session: BoardWindowSession) {
-        self.init(isActive: session.isSelecting, selected: session.currentSelection, toggle: session.toggleSelection)
+        self.init(
+            isActive: session.isSelecting, selected: session.currentSelection, toggle: session.toggleSelection,
+            select: session.select)
     }
 }
 
