@@ -223,6 +223,18 @@ public final class BoardModel {
         return placed
     }
 
+    // MARK: Pastas
+
+    /// Pasta vazia, solta no mural numa posição livre (pastas não entram em pastas).
+    /// Sem nome, vira "Nova pasta".
+    @discardableResult
+    public func createFolder(named name: String) -> BoardItem {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let placed = insert(BoardItem(kind: .folder, title: trimmed.isEmpty ? "Nova pasta" : trimmed))
+        persist()
+        return placed
+    }
+
     /// Grava título e corpo (Markdown) de uma nota. Sem título, usa a primeira linha do corpo.
     /// Corpo novo descarta as frases curtas escolhidas para o anterior.
     public func updateNote(_ itemID: UUID, title: String, text: String) {
