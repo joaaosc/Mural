@@ -2,6 +2,13 @@ import Foundation
 
 /// Repositório isolado por mural. Todas as operações passam pelo mesmo actor e
 /// nenhum caminho global ou "mural atual" participa da leitura ou gravação.
+///
+/// Um package existente é atualizado no lugar: a mídia em `Items/` é imutável e tem
+/// nome único (o importador grava o arquivo antes de o board referenciá-lo, e a
+/// exclusão só apaga o arquivo depois da gravação que deixou de referenciá-lo), então
+/// só os JSON mudam. Cada JSON é substituído atomicamente e o `manifest.json` vai por
+/// último, como marcador de commit. Packages novos (criação, promoção, importação,
+/// migração) são montados em staging e publicados com uma renomeação.
 public actor BoardRepository {
     public let rootDirectory: URL
     public let packageName: String?
@@ -23,7 +30,8 @@ public actor BoardRepository {
     }
 
     /// Materializes one coherent repository version without an actor suspension
-    /// between reading JSON and copying its assets.
+    /// between reading JSON and copying its assets. Only the media referenced by the
+    /// board is copied: leftovers in `Items/` never reach (nor block) an export.
     func materializePackage(for id: BoardID, to destination: URL) throws {
         guard let loaded = try load(id) else { throw BoardRepositoryError.boardNotFound(id) }
         let package = destination.standardizedFileURL
@@ -36,13 +44,26 @@ public actor BoardRepository {
                 try? FileManager.default.removeItem(at: package)
             }
         }
-        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
         let items = package.appendingPathComponent("Items", isDirectory: true)
-        try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
         let sourceItems = packageURL(for: id).appendingPathComponent("Items", isDirectory: true)
-        if FileManager.default.fileExists(atPath: sourceItems.path) {
-            try FileManager.default.removeItem(at: items)
-            try FileManager.default.copyItem(at: sourceItems, to: items)
+        do {
+            try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
+        } catch {
+            throw BoardRepositoryError.io(String(describing: error))
+        }
+        let referenced = Set(loaded.snapshot.board.items.compactMap(\.fileName))
+        for name in referenced.sorted() {
+            guard Self.isSafeAssetName(name) else { throw BoardRepositoryError.missingAsset(name) }
+            let source = sourceItems.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw BoardRepositoryError.missingAsset(name)
+            }
+            do {
+                // Num volume APFS a cópia é um clone: não duplica os bytes.
+                try FileManager.default.copyItem(at: source, to: items.appendingPathComponent(name))
+            } catch {
+                throw BoardRepositoryError.io(String(describing: error))
+            }
         }
         do {
             try encode(loaded.snapshot.manifest).write(to: package.appendingPathComponent("manifest.json"), options: .atomic)
@@ -204,60 +225,24 @@ public actor BoardRepository {
                 if manifest.name == existingManifest.name { return }
             }
         }
-        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
 
-        let staging = rootDirectory.appendingPathComponent(
-            ".\(id.rawValue.uuidString).mural-staging-\(UUID().uuidString)", isDirectory: true)
-        let backup = rootDirectory.appendingPathComponent(".\(id.rawValue.uuidString).mural-backup-\(UUID().uuidString)", isDirectory: true)
-        var hadExisting = false
-        var didSwap = false
-        defer {
-            if FileManager.default.fileExists(atPath: staging.path) { try? FileManager.default.removeItem(at: staging) }
-            if FileManager.default.fileExists(atPath: backup.path) {
-                if !FileManager.default.fileExists(atPath: package.path) {
-                    try? FileManager.default.moveItem(at: backup, to: package)
-                } else {
-                    try? FileManager.default.removeItem(at: backup)
-                }
-            }
-        }
-        do {
-            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-            let items = staging.appendingPathComponent("Items", isDirectory: true)
-            try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
-            let oldItems = package.appendingPathComponent("Items", isDirectory: true)
-            let itemsSource = sourceItems ?? oldItems
-            if FileManager.default.fileExists(atPath: itemsSource.path) {
-                try FileManager.default.removeItem(at: items)
-                try FileManager.default.copyItem(at: itemsSource, to: items)
-            }
-            try copyKnownDiagnostics(from: package, to: staging)
-            if let diagnostic {
-                let diagnosticURL = staging.appendingPathComponent(".view-state-corrupt-\(UUID().uuidString).json")
-                try diagnostic.write(to: diagnosticURL, options: .atomic)
-            }
-            try encode(manifest).write(to: staging.appendingPathComponent("manifest.json"), options: .atomic)
-            try encode(snapshot.board).write(to: staging.appendingPathComponent("board.json"), options: .atomic)
-            try encode(workspace).write(to: staging.appendingPathComponent("view-state.json"), options: .atomic)
-
-            hadExisting = FileManager.default.fileExists(atPath: package.path)
-            try await inject(.beforeSwap)
-            if hadExisting { try FileManager.default.moveItem(at: package, to: backup) }
-            try FileManager.default.moveItem(at: staging, to: package)
-            didSwap = true
-            try await inject(.afterSwap)
-        } catch let error as BoardRepositoryError {
-            if didSwap { try? FileManager.default.removeItem(at: package) }
-            if hadExisting, FileManager.default.fileExists(atPath: backup.path) {
-                try? FileManager.default.moveItem(at: backup, to: package)
-            }
-            throw error
-        } catch {
-            if didSwap { try? FileManager.default.removeItem(at: package) }
-            if hadExisting, FileManager.default.fileExists(atPath: backup.path) {
-                try? FileManager.default.moveItem(at: backup, to: package)
-            }
-            throw BoardRepositoryError.io(String(describing: error))
+        if sourceItems == nil, Self.isUpdatablePackage(package) {
+            try await updateInPlace(
+                package: package,
+                manifest: manifest,
+                existingManifest: existingManifest,
+                board: snapshot.board,
+                workspace: workspace,
+                diagnostic: diagnostic)
+        } else {
+            try await publishPackage(
+                id: id,
+                package: package,
+                manifest: manifest,
+                board: snapshot.board,
+                workspace: workspace,
+                sourceItems: sourceItems,
+                diagnostic: diagnostic)
         }
     }
 
@@ -269,6 +254,168 @@ public actor BoardRepository {
         resolved.id = id
         try await save(BoardRepositorySnapshot(manifest: resolved, board: board, workspace: workspace))
     }
+
+    // MARK: Atualização no lugar
+
+    /// Substitui só os JSON que mudaram, cada um de forma atômica, e o manifest por
+    /// último. `Items/` não é copiada nem tocada. Em erro lançado, os arquivos já
+    /// substituídos voltam ao conteúdo anterior a partir de hard links de backup.
+    private func updateInPlace(
+        package: URL,
+        manifest: BoardManifest,
+        existingManifest: BoardManifest?,
+        board: Board,
+        workspace: BoardWorkspaceState,
+        diagnostic: Data?
+    ) async throws {
+        let fileManager = FileManager.default
+        let boardURL = package.appendingPathComponent("board.json")
+        let workspaceURL = package.appendingPathComponent("view-state.json")
+        let manifestURL = package.appendingPathComponent("manifest.json")
+
+        let boardData: Data
+        let workspaceData: Data
+        let manifestData: Data
+        do {
+            boardData = try encode(board)
+            workspaceData = try encode(workspace)
+            manifestData = try encode(manifest)
+        } catch {
+            throw BoardRepositoryError.io(String(describing: error))
+        }
+
+        let contentChanged = existingManifest.map { $0.contentRevision != manifest.contentRevision } ?? true
+        let workspaceChanged = existingManifest.map { $0.workspaceRevision != manifest.workspaceRevision } ?? true
+        var dataWrites: [(url: URL, data: Data)] = []
+        if contentChanged || !fileManager.fileExists(atPath: boardURL.path) {
+            dataWrites.append((boardURL, boardData))
+        }
+        // `contentRevision` também vive dentro do workspace.
+        if contentChanged || workspaceChanged || !fileManager.fileExists(atPath: workspaceURL.path) {
+            dataWrites.append((workspaceURL, workspaceData))
+        }
+
+        var transaction = InPlaceTransaction()
+        defer { transaction.finish() }
+        do {
+            try fileManager.createDirectory(
+                at: package.appendingPathComponent("Items", isDirectory: true),
+                withIntermediateDirectories: true)
+            try await inject(.beforeSwap)
+            for write in dataWrites {
+                try transaction.replace(write.url, with: write.data)
+            }
+            if let diagnostic {
+                try transaction.create(
+                    package.appendingPathComponent(".view-state-corrupt-\(UUID().uuidString).json"),
+                    with: diagnostic)
+            }
+            try await inject(.afterSwap)
+            try transaction.replace(manifestURL, with: manifestData)
+            transaction.commit()
+        } catch let error as BoardRepositoryError {
+            throw error
+        } catch {
+            throw BoardRepositoryError.io(String(describing: error))
+        }
+    }
+
+    /// Package existente que pode ser atualizado no lugar: diretório com `board.json`.
+    private static func isUpdatablePackage(_ package: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: package.path, isDirectory: &isDirectory),
+            isDirectory.boolValue
+        else { return false }
+        var boardIsDirectory: ObjCBool = false
+        return FileManager.default.fileExists(
+            atPath: package.appendingPathComponent("board.json").path, isDirectory: &boardIsDirectory)
+            && !boardIsDirectory.boolValue
+    }
+
+    // MARK: Publicação de package novo
+
+    /// Monta o package em staging e o publica com uma renomeação. Se já houver algo no
+    /// caminho (package incompleto), ele vai para um backup que só é apagado depois
+    /// do sucesso; em qualquer erro o backup volta ao lugar e o que ocupava o caminho é
+    /// guardado à parte, nunca apagado.
+    private func publishPackage(
+        id: BoardID,
+        package: URL,
+        manifest: BoardManifest,
+        board: Board,
+        workspace: BoardWorkspaceState,
+        sourceItems: URL?,
+        diagnostic: Data?
+    ) async throws {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        } catch {
+            throw BoardRepositoryError.io(String(describing: error))
+        }
+
+        let staging = rootDirectory.appendingPathComponent(
+            ".\(id.rawValue.uuidString).mural-staging-\(UUID().uuidString)", isDirectory: true)
+        let backup = rootDirectory.appendingPathComponent(
+            ".\(id.rawValue.uuidString).mural-backup-\(UUID().uuidString)", isDirectory: true)
+        var movedToBackup = false
+        var didSwap = false
+        var committed = false
+        defer {
+            if fileManager.fileExists(atPath: staging.path) { try? fileManager.removeItem(at: staging) }
+            if movedToBackup, fileManager.fileExists(atPath: backup.path) {
+                if committed {
+                    try? fileManager.removeItem(at: backup)
+                } else {
+                    if fileManager.fileExists(atPath: package.path) {
+                        // Algo recriou o caminho no meio da troca: guarda à parte, nunca apaga.
+                        let intruder = rootDirectory.appendingPathComponent(
+                            ".\(id.rawValue.uuidString).mural-intruder-\(UUID().uuidString)", isDirectory: true)
+                        try? fileManager.moveItem(at: package, to: intruder)
+                    }
+                    try? fileManager.moveItem(at: backup, to: package)
+                }
+            }
+        }
+        do {
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+            let items = staging.appendingPathComponent("Items", isDirectory: true)
+            try fileManager.createDirectory(at: items, withIntermediateDirectories: true)
+            let oldItems = package.appendingPathComponent("Items", isDirectory: true)
+            let itemsSource = sourceItems ?? oldItems
+            if fileManager.fileExists(atPath: itemsSource.path) {
+                try fileManager.removeItem(at: items)
+                try fileManager.copyItem(at: itemsSource, to: items)
+            }
+            try copyKnownDiagnostics(from: package, to: staging)
+            if let diagnostic {
+                let diagnosticURL = staging.appendingPathComponent(".view-state-corrupt-\(UUID().uuidString).json")
+                try diagnostic.write(to: diagnosticURL, options: .atomic)
+            }
+            try encode(manifest).write(to: staging.appendingPathComponent("manifest.json"), options: .atomic)
+            try encode(board).write(to: staging.appendingPathComponent("board.json"), options: .atomic)
+            try encode(workspace).write(to: staging.appendingPathComponent("view-state.json"), options: .atomic)
+
+            try await inject(.beforeSwap)
+            if fileManager.fileExists(atPath: package.path) {
+                try fileManager.moveItem(at: package, to: backup)
+                movedToBackup = true
+            }
+            injectIntruderIfRequested(at: package)
+            try fileManager.moveItem(at: staging, to: package)
+            didSwap = true
+            try await inject(.afterSwap)
+            committed = true
+        } catch let error as BoardRepositoryError {
+            if didSwap, !committed { try? fileManager.removeItem(at: package) }
+            throw error
+        } catch {
+            if didSwap, !committed { try? fileManager.removeItem(at: package) }
+            throw BoardRepositoryError.io(String(describing: error))
+        }
+    }
+
+    // MARK: Interno
 
     private func existingManifest(at package: URL) throws -> BoardManifest? {
         let url = package.appendingPathComponent("manifest.json")
@@ -320,6 +467,20 @@ public actor BoardRepository {
         }
     }
 
+    /// Só para testes: recria o caminho do package como faria um importador concorrente.
+    private func injectIntruderIfRequested(at package: URL) {
+        guard faultInjection.consume(.intruderBeforeMove) else { return }
+        try? FileManager.default.createDirectory(
+            at: package.appendingPathComponent("Items", isDirectory: true),
+            withIntermediateDirectories: true)
+    }
+
+    /// Nome de arquivo de mídia aceito: um único componente, sem ocultos nem `..`.
+    static func isSafeAssetName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains(":")
+            && name == (name as NSString).lastPathComponent
+    }
+
     private func encode<T: Encodable>(_ value: T) throws -> Data {
         let encoder = JSONEncoder()
         // ISO-8601 sem frações perde os nanossegundos de Date e quebra o
@@ -340,5 +501,54 @@ public actor BoardRepository {
             return Date(timeIntervalSinceReferenceDate: try container.decode(Double.self))
         }
         return try decoder.decode(type, from: data)
+    }
+}
+
+/// Substituições atômicas de arquivos dentro de um package, com desfazer.
+///
+/// Antes de substituir um arquivo existente, cria um hard link de backup (custo
+/// constante, sem copiar bytes). `finish()` desfaz tudo se `commit()` não foi chamado e
+/// sempre apaga os backups.
+private struct InPlaceTransaction {
+    private var replaced: [(original: URL, backup: URL)] = []
+    private var created: [URL] = []
+    private var committed = false
+
+    mutating func replace(_ url: URL, with data: Data) throws {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: url.path) {
+            let backup = url.deletingLastPathComponent()
+                .appendingPathComponent(".\(url.lastPathComponent).backup-\(UUID().uuidString)")
+            try fileManager.linkItem(at: url, to: backup)
+            replaced.append((url, backup))
+        } else {
+            created.append(url)
+        }
+        try data.write(to: url, options: .atomic)
+    }
+
+    mutating func create(_ url: URL, with data: Data) throws {
+        created.append(url)
+        try data.write(to: url, options: .atomic)
+    }
+
+    mutating func commit() {
+        committed = true
+    }
+
+    func finish() {
+        let fileManager = FileManager.default
+        if !committed {
+            for entry in replaced.reversed() where fileManager.fileExists(atPath: entry.backup.path) {
+                // A troca atômica devolve o conteúdo anterior sem deixar o caminho vazio.
+                _ = try? fileManager.replaceItemAt(entry.original, withItemAt: entry.backup)
+            }
+            for url in created.reversed() {
+                try? fileManager.removeItem(at: url)
+            }
+        }
+        for entry in replaced where fileManager.fileExists(atPath: entry.backup.path) {
+            try? fileManager.removeItem(at: entry.backup)
+        }
     }
 }

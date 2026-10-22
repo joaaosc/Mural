@@ -11,5 +11,7 @@ public enum BoardRepositoryError: Error, Equatable, Sendable {
     case conflictingRevision(content: Int, workspace: Int)
     case identityMismatch(expected: BoardID, actual: BoardID)
     case injectedFailure(BoardRepositoryFaultPoint)
+    /// Arquivo de mídia referenciado pelo board que não existe em `Items/`.
+    case missingAsset(String)
     case io(String)
 }

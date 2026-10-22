@@ -1,8 +1,13 @@
 import Foundation
 
 public enum BoardRepositoryFaultPoint: String, Codable, Equatable, Hashable, Sendable {
+    /// Antes de substituir qualquer arquivo (ou de trocar o diretório, num package novo).
     case beforeSwap
+    /// Depois dos dados (board/workspace) e antes do manifest, que é o marcador de commit.
     case afterSwap
+    /// Simula outro escritor recriando o caminho do package entre as duas renomeações da
+    /// publicação de um package novo. Não lança erro: só cria o intruso.
+    case intruderBeforeMove
 }
 
 public actor BoardRepositoryFaultGate {
