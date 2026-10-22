@@ -185,9 +185,9 @@ final class BoardWindowSession {
         return true
     }
 
-    /// Pastas só existem soltas no mural: criar uma vale apenas com nada aberto por cima.
+    /// Pasta nova vale no mural e dentro de pastas, até o último nível permitido pelo domínio.
     var acceptsNewFolder: Bool {
-        acceptsNewContent && path.isEmpty
+        acceptsNewContent && (model?.canCreateFolder(in: currentFolderID) ?? false)
     }
 
     private var workspaceTitle: String {
@@ -600,14 +600,20 @@ final class BoardWindowSession {
         return item.id
     }
 
-    /// Cria uma pasta no mural e a abre, vazia, por cima dele. Dentro de uma pasta ou na
-    /// página de um item nada é criado.
+    /// Cria uma pasta na pasta aberta (ou solta no mural) e a abre, vazia, por cima do caminho
+    /// atual. Na página de um item ou no último nível de pastas nada é criado.
     @discardableResult
     func createFolder(named name: String) -> UUID? {
-        guard restoration.acceptsPersistence, !isClosed, path.isEmpty, let model else { return nil }
-        let folder = model.createFolder(named: name)
+        guard restoration.acceptsPersistence, !isClosed, acceptsNewFolder, let model else { return nil }
+        let folder: BoardItem
+        if let parentID = currentFolderID {
+            guard let created = model.createFolder(named: name, into: parentID) else { return nil }
+            folder = created
+        } else {
+            folder = model.createFolder(named: name)
+        }
         captureBoardIfNeeded()
-        setNavigation(path: [.collection(folder.id)], filter: nil)
+        setNavigation(path: path + [.collection(folder.id)], filter: nil)
         return folder.id
     }
 
@@ -945,7 +951,7 @@ final class BoardWindowSession {
 
     /// Organizar Mural vale no mural, com nada aberto por cima e ao menos dois cartões soltos.
     var canTileBoard: Bool {
-        acceptsNewFolder && (model?.rootItems.count ?? 0) >= 2
+        acceptsNewContent && path.isEmpty && (model?.rootItems.count ?? 0) >= 2
     }
 
     /// Arruma os cartões soltos em mosaico BSP no formato `aspect` (largura ÷ altura da janela).
@@ -1047,6 +1053,14 @@ final class BoardWindowSession {
     func moveToBoard(_ itemID: UUID) {
         guard !isClosed else { return }
         model?.moveToBoard(itemID)
+        canonicalizeWorkspaceAfterContentMutation()
+        captureBoardIfNeeded()
+    }
+
+    /// Sobe o cartão para a pasta que contém a pasta dele (ou para o mural, se não houver).
+    func moveUp(_ itemID: UUID) {
+        guard !isClosed else { return }
+        model?.moveUp(itemID)
         canonicalizeWorkspaceAfterContentMutation()
         captureBoardIfNeeded()
     }

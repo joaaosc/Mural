@@ -102,6 +102,7 @@ struct CollectionView: View {
             onDelete: session?.delete,
             onMoveToBoard: session?.moveToBoard,
             onMoveIntoFolder: session?.moveIntoFolder,
+            onMoveUp: session?.moveUp,
             selection: selection
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)

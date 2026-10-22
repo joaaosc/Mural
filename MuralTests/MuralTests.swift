@@ -24,10 +24,10 @@ struct MuralTests {
         #expect(!LaunchConfiguration.usesOnDeviceModel(), "esta execução é de teste")
     }
 
-    @Test("Dentro da pasta não há filtro de pastas; num item, não há filtros")
+    @Test("Dentro da pasta também há filtro de pastas; num item, não há filtros")
     func filtersPerLevel() {
         #expect(Mural.BoardFilter.available(at: .board) == Mural.BoardFilter.allCases)
-        #expect(!Mural.BoardFilter.available(at: .folder).contains(.folders))
+        #expect(Mural.BoardFilter.available(at: .folder).contains(.folders))
         #expect(Mural.BoardFilter.available(at: .item).isEmpty)
     }
 

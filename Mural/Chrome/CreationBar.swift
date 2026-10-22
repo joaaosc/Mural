@@ -9,7 +9,7 @@ import SwiftUI
 struct CreationBar: View {
     var onNewNote: () -> Void
     var onNewSticky: () -> Void
-    /// `nil` dentro de uma pasta: pastas só existem soltas no mural.
+    /// `nil` quando não dá para criar pasta ali (por exemplo, no último nível de pastas).
     var onNewFolder: (() -> Void)? = nil
     var onAddFiles: () -> Void
 

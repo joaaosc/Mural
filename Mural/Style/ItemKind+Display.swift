@@ -32,7 +32,7 @@ extension ItemKind {
             .joined(separator: ", ")
     }
 
-    /// Aviso mostrado antes de apagar um cartão.
+    /// Aviso mostrado antes de apagar um cartão. `childCount` conta os itens de todos os níveis da pasta.
     static func deleteWarning(for item: BoardItem, childCount: Int) -> String {
         if item.kind == .link {
             return "O cartão e a prévia guardada pelo Mural serão removidos. A página original não é afetada."

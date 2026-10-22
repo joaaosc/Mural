@@ -142,7 +142,9 @@ struct BoardCanvasView: View {
                 // com o mesmo id de transição, e o SwiftUI não saberia qual é a origem.
                 if hoveredFolder == item.id && !hero.presented.contains(item.id) {
                     FolderPeek(folder: item, model: model, hero: hero) { child in
-                        open([.collection(item.id), .item(child)])
+                        // Subpasta abre como outro nível de pasta; o resto, como página de item.
+                        let isFolder = model.item(id: child)?.kind == .folder
+                        open([.collection(item.id), isFolder ? .collection(child) : .item(child)])
                     }
                     // A prévia sai de dentro da pasta: cresce a partir da borda dela enquanto
                     // uma borda suave (Metal) revela os cartões da esquerda para a direita.
@@ -213,7 +215,8 @@ struct BoardCanvasView: View {
 
     /// Arrasto de um cartão solto. O clique simples continua abrindo: o gesto só começa depois
     /// de 4 pontos de movimento e, por ter prioridade sobre o botão, impede que o arrasto abra o cartão.
-    /// Soltar sobre uma pasta guarda o cartão nela (pastas não entram em pastas).
+    /// Soltar sobre uma pasta guarda o cartão nela; pastas também podem ser guardadas, mas só nas
+    /// que o domínio aceita (não nela mesma, nas de dentro dela nem além do último nível).
     private func moveGesture(for item: BoardItem) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDragging) { _, isDragging, _ in isDragging = true }
@@ -221,14 +224,20 @@ struct BoardCanvasView: View {
                 // Outro cartão ainda está entrando numa pasta: espera a animação terminar.
                 guard storing == nil else { return }
                 // No começo do arrasto, anota a pasta que já estava sob o ponteiro.
-                var current =
-                    drag.flatMap { $0.id == item.id ? $0 : nil }
-                    ?? CardDrag(
+                var current: CardDrag
+                if let existing = drag, existing.id == item.id {
+                    current = existing
+                } else {
+                    let accepted = Set(model.board.folderDestinations(for: item.id).map(\.id))
+                    current = CardDrag(
                         id: item.id, translation: .zero,
-                        tracker: item.kind == .folder
-                            ? nil : FolderDropTracker(startFolder: folderID(at: value.startLocation, excluding: item.id)))
+                        tracker: FolderDropTracker(
+                            startFolder: folderID(at: value.startLocation, excluding: item.id, accepting: accepted)),
+                        acceptedFolders: accepted)
+                }
                 current.translation = value.translation
-                current.tracker?.update(folderUnderPointer: folderID(at: value.location, excluding: item.id))
+                current.tracker?.update(
+                    folderUnderPointer: folderID(at: value.location, excluding: item.id, accepting: current.acceptedFolders))
                 drag = current
             }
             .onEnded { value in
@@ -236,7 +245,8 @@ struct BoardCanvasView: View {
                 // Decide pelo ponto em que o botão foi solto: num arrasto rápido ele pode não ter
                 // chegado num `onChanged`, e o destino anotado estaria atrasado.
                 final.translation = value.translation
-                final.tracker?.update(folderUnderPointer: folderID(at: value.location, excluding: item.id))
+                final.tracker?.update(
+                    folderUnderPointer: folderID(at: value.location, excluding: item.id, accepting: final.acceptedFolders))
                 if let folderID = final.tracker?.target {
                     drag = final
                     store(item, in: folderID)
@@ -270,9 +280,11 @@ struct BoardCanvasView: View {
         hoveredFolder = pointerFolder
     }
 
-    /// Pasta solta sob um ponto do mural, sem contar o cartão arrastado.
-    private func folderID(at point: CGPoint, excluding id: UUID) -> UUID? {
-        BoardLayout.folderID(at: BoardPoint(x: point.x, y: point.y), among: model.rootItems, excluding: id)
+    /// Pasta solta sob um ponto do mural, sem contar o cartão arrastado e só entre as que o
+    /// domínio aceita como destino: o soltar nunca é recusado em silêncio.
+    private func folderID(at point: CGPoint, excluding id: UUID, accepting accepted: Set<UUID>) -> UUID? {
+        let candidates = model.rootItems.filter { accepted.contains($0.id) }
+        return BoardLayout.folderID(at: BoardPoint(x: point.x, y: point.y), among: candidates, excluding: id)
     }
 
     /// Atualiza a pasta sob o ponteiro; fora de um arrasto, ela vira o foco na hora.
@@ -286,6 +298,8 @@ struct BoardCanvasView: View {
 private struct CardDrag: Equatable {
     var id: UUID
     var translation: CGSize
-    /// Pasta que receberia o cartão; `nil` quando o cartão é uma pasta, que não pode ser guardada.
+    /// Acompanha a pasta que receberia o cartão (pastas também podem ser guardadas).
     var tracker: FolderDropTracker?
+    /// Pastas que o domínio aceita como destino, fixadas no começo do arrasto.
+    var acceptedFolders: Set<UUID>
 }

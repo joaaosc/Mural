@@ -13,6 +13,7 @@ struct CardButton: View {
     var onDelete: ((UUID) -> Void)? = nil
     var onMoveToBoard: ((UUID) -> Void)? = nil
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
+    var onMoveUp: ((UUID) -> Void)? = nil
     /// `nil` onde não há seletor (a prévia de pasta que aparece ao passar o ponteiro).
     var selection: CardSelection? = nil
 
@@ -57,7 +58,7 @@ struct CardButton: View {
                     withAnimation(reduceMotion ? nil : .smooth) { onDelete?(item.id) ?? model.delete(item.id) }
                 }
             } message: {
-                Text(ItemKind.deleteWarning(for: item, childCount: model.children(of: item.id).count))
+                Text(ItemKind.deleteWarning(for: item, childCount: model.descendantCount(of: item.id)))
             }
         }
     }
@@ -82,23 +83,28 @@ struct CardButton: View {
         }
     }
 
-    /// Alternativa ao arrasto: guardar um cartão solto numa pasta ou devolver ao mural um cartão
-    /// de dentro da pasta.
+    /// Alternativa ao arrasto: devolver ao mural (ou à pasta de cima) um cartão guardado e levar
+    /// qualquer cartão, pasta inclusive, a outra pasta, de qualquer nível.
     @ViewBuilder
     private var moveMenu: some View {
-        if item.parentID != nil {
+        if let parentID = item.parentID {
             Button("Mover para o mural") {
                 withAnimation(reduceMotion ? nil : .smooth) { onMoveToBoard?(item.id) ?? model.moveToBoard(item.id) }
             }
-        } else if item.kind != .folder {
-            let folders = model.rootItems.filter { $0.kind == .folder }
-            if !folders.isEmpty {
-                Menu("Mover para a pasta") {
-                    ForEach(folders) { folder in
-                        Button(folder.title) {
-                            withAnimation(reduceMotion ? nil : .smooth) {
-                                onMoveIntoFolder?(item.id, folder.id) ?? model.moveIntoFolder(item.id, folderID: folder.id)
-                            }
+            if model.item(id: parentID)?.parentID != nil {
+                Button("Mover para a pasta de cima") {
+                    withAnimation(reduceMotion ? nil : .smooth) { onMoveUp?(item.id) ?? model.moveUp(item.id) }
+                }
+            }
+        }
+        let destinations = model.board.folderDestinations(for: item.id)
+        if !destinations.isEmpty {
+            Menu("Mover para a pasta") {
+                ForEach(destinations, id: \.id) { destination in
+                    Button(destination.title) {
+                        withAnimation(reduceMotion ? nil : .smooth) {
+                            onMoveIntoFolder?(item.id, destination.id)
+                                ?? model.moveIntoFolder(item.id, folderID: destination.id)
                         }
                     }
                 }

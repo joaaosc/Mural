@@ -145,7 +145,7 @@ final class FocusedBoardActions {
         session?.acceptsNewContent ?? false
     }
 
-    /// Nova pasta só no mural, com nada aberto por cima (pastas não entram em pastas).
+    /// Nova pasta no mural ou dentro de uma pasta, até o último nível permitido.
     var canCreateFolder: Bool {
         session?.acceptsNewFolder ?? false
     }

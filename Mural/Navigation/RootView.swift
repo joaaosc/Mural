@@ -339,7 +339,7 @@ private struct LoadedRootView: View {
 
     private var selectionDeleteWarning: String {
         let items = session.currentSelection.compactMap { model.item(id: $0) }
-        return ItemKind.deleteWarning(forSelection: items) { model.children(of: $0).count }
+        return ItemKind.deleteWarning(forSelection: items) { model.descendantCount(of: $0) }
     }
 
     private func deleteSelection() {
@@ -529,7 +529,9 @@ private struct LoadedRootView: View {
                     folder: folder, model: model, session: session, hero: hero, filter: filter, isInfoPresented: $isFolderInfoPresented
                 ) {
                     childID in
-                    open([.item(childID)])
+                    // Pasta abre outro nível de pasta; o resto abre a página do item.
+                    let isFolder = model.item(id: childID)?.kind == .folder
+                    open([isFolder ? .collection(childID) : .item(childID)])
                 }
             }
         case .item(let id):

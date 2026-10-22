@@ -268,6 +268,32 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Alpha"].waitForExistence(timeout: 5), "o cartão aparece dentro da pasta")
     }
 
+    /// O menu de contexto também leva uma pasta para dentro de outra, e a pasta guardada abre como pasta.
+    @MainActor
+    func testContextMenuMovesFolderIntoFolder() throws {
+        let app = launch()
+        let acme = app.buttons["ACME Premises"].firstMatch
+        XCTAssertTrue(acme.waitForExistence(timeout: 10))
+        acme.rightClick()
+        app.menuItems["Mover para a pasta"].hover()
+        app.menuItems["44th Street"].click()
+
+        // Afasta o ponteiro das pastas, para nenhuma prévia mostrar a pasta guardada.
+        app.buttons["Today"].firstMatch.hover()
+        XCTAssertTrue(app.buttons["ACME Premises"].waitForNonExistence(timeout: 3), "a pasta guardada sai do mural")
+
+        app.buttons["44th Street"].firstMatch.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        let inner = app.buttons["ACME Premises"].firstMatch
+        XCTAssertTrue(inner.waitForExistence(timeout: 5), "a pasta aparece dentro da outra")
+        inner.click()
+        // A ACME do exemplo não tem nada dentro: abrir como pasta mostra o aviso de pasta vazia, que a
+        // página de um item não tem.
+        XCTAssertTrue(
+            app.staticTexts["Pasta vazia"].firstMatch.waitForExistence(timeout: 5), "abre como pasta, não como página de item")
+        XCTAssertTrue(app.buttons["Voltar"].exists)
+    }
+
     @MainActor
     func testChecklistEntryToggles() throws {
         let app = launch()
@@ -527,7 +553,18 @@ final class MuralUITests: XCTestCase {
 
         let back = app.buttons["Voltar"].firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5), "a pasta nova abre por cima do mural")
-        XCTAssertFalse(app.buttons["Pasta"].exists, "dentro de uma pasta não se cria outra")
+        XCTAssertTrue(app.buttons["Pasta"].firstMatch.waitForExistence(timeout: 5), "dentro de uma pasta também se cria outra")
+
+        app.buttons["Pasta"].firstMatch.click()
+        let subName = app.textFields["Nome da pasta"].firstMatch
+        XCTAssertTrue(subName.waitForExistence(timeout: 5))
+        subName.click()
+        subName.typeText("Sub\r")
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "a subpasta abre por cima da pasta")
+
+        back.click()
+        XCTAssertTrue(app.buttons["Sub"].firstMatch.waitForExistence(timeout: 5), "a subpasta fica dentro de Viagem")
+        XCTAssertTrue(back.exists, "ainda estamos dentro de Viagem")
         back.click()
         XCTAssertTrue(app.buttons["Viagem"].firstMatch.waitForExistence(timeout: 5), "a pasta fica no mural")
     }

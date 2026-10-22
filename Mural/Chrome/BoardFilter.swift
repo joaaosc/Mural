@@ -37,12 +37,12 @@ enum BoardFilter: String, CaseIterable, Identifiable {
         matches(kind) ? 1 : 0.25
     }
 
-    /// Filtros que fazem sentido em cada nível: dentro de uma pasta não há pastas,
+    /// Filtros que fazem sentido em cada nível: pastas também guardam pastas,
     /// e um item aberto sozinho não tem o que filtrar.
     static func available(at level: NavigationLevel) -> [BoardFilter] {
         switch level {
         case .board: allCases
-        case .folder: [.notes, .tasks]
+        case .folder: [.folders, .notes, .tasks]
         case .item: []
         }
     }

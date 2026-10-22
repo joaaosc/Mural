@@ -851,7 +851,7 @@ struct BoardWindowSessionTests {
         #expect(session.model?.children(of: folder.id).contains { $0.id == note } == true)
     }
 
-    @Test("Pasta nova entra solta no mural, abre vazia e volta igual ao reabrir; dentro dela não há outra")
+    @Test("Pasta nova entra solta no mural, abre vazia e volta igual ao reabrir; dentro dela cabe outra")
     func createFolderOpensIt() async throws {
         let directory = try root()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -866,8 +866,12 @@ struct BoardWindowSessionTests {
         #expect(folder.kind == .folder)
         #expect(folder.parentID == nil)
         #expect(session.path == [.collection(folderID)])
-        #expect(!session.acceptsNewFolder)
-        #expect(session.createFolder(named: "Dentro") == nil)
+        #expect(session.acceptsNewFolder)
+        #expect(session.model?.rootItems.filter { $0.kind == .folder }.map(\.id) == [folderID])
+
+        let innerID = try #require(session.createFolder(named: "Dentro"))
+        #expect(session.model?.item(id: innerID)?.parentID == folderID)
+        #expect(session.path == [.collection(folderID), .collection(innerID)])
         #expect(session.model?.rootItems.filter { $0.kind == .folder }.map(\.id) == [folderID])
         await session.flushAndPrepareToLeave()
 
@@ -875,6 +879,79 @@ struct BoardWindowSessionTests {
             route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
         try await makeReady(reloaded)
         #expect(reloaded.model?.item(id: folderID)?.title == "Referências")
+        #expect(reloaded.path == [.collection(folderID), .collection(innerID)])
+    }
+
+    @Test("No último nível de pastas não se cria outra")
+    func lastFolderLevelRejectsNewFolder() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Fundo")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        var ids = [model.createFolder(named: "Nível 1").id]
+        for level in 2...Board.maximumFolderDepth {
+            let parentID = try #require(ids.last)
+            let next = try #require(model.createFolder(named: "Nível \(level)", into: parentID))
+            ids.append(next.id)
+        }
+        session.captureBoardIfNeeded()
+        session.setNavigation(path: ids.map { .collection($0) }, filter: nil)
+        #expect(session.path.count == Board.maximumFolderDepth)
+        #expect(!session.acceptsNewFolder)
+        #expect(session.createFolder(named: "Além") == nil)
+        #expect(model.board.items.filter { $0.kind == .folder }.count == Board.maximumFolderDepth)
+    }
+
+    @Test("Subir leva o cartão do nível 2 ao 1 e do 1 ao mural")
+    func moveUpClimbsOneLevel() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Subir")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let outer = model.createFolder(named: "A")
+        let inner = try #require(model.createFolder(named: "B", into: outer.id))
+        let note = try #require(model.importText("Texto", as: .text, into: inner.id))
+        session.captureBoardIfNeeded()
+
+        session.moveUp(note.id)
+        #expect(model.item(id: note.id)?.parentID == outer.id)
+        session.moveUp(note.id)
+        #expect(model.item(id: note.id)?.parentID == nil)
+    }
+
+    @Test("Apagar a pasta solta apaga a mídia de uma subpasta, só depois de gravar")
+    func deletingFolderRemovesNestedMediaAfterSave() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Mídia")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let outer = model.createFolder(named: "A")
+        let inner = try #require(model.createFolder(named: "B", into: outer.id))
+        let bitmap = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        let image = try #require(model.importData(png, fileExtension: "png", kind: .image, title: "Foto", into: inner.id))
+        let assetURL = try #require(model.fileURL(for: image))
+        session.captureBoardIfNeeded()
+        await session.flushAndPrepareToLeave()
+        #expect(FileManager.default.fileExists(atPath: assetURL.path))
+
+        session.delete(outer.id)
+        #expect(model.item(id: image.id) == nil)
+        #expect(FileManager.default.fileExists(atPath: assetURL.path))
+        await session.flushAndPrepareToLeave()
+        #expect(!FileManager.default.fileExists(atPath: assetURL.path))
     }
 
     @Test("Seleção apaga vários cartões do mural de uma vez; a pasta leva o conteúdo e o resto fica")
