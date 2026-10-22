@@ -206,6 +206,26 @@ struct MuralTabsTests {
         await tabs.resumeDraft()
         #expect(tabs.tabs.isEmpty)
     }
+    @Test("Arrastar uma aba sobre outra a põe no lugar dela, para os dois lados")
+    func movingTabsReorders() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        let a = try #require(tabs.open(try await library.createNamedBoard("A"), title: "A"))
+        let b = try #require(tabs.open(try await library.createNamedBoard("B"), title: "B"))
+        let c = try #require(tabs.open(try await library.createNamedBoard("C"), title: "C"))
+
+        tabs.moveTab(a.id, to: c.id)
+        #expect(tabs.tabs.map(\.id) == [b.id, c.id, a.id])
+        tabs.moveTab(a.id, to: b.id)
+        #expect(tabs.tabs.map(\.id) == [a.id, b.id, c.id])
+        tabs.moveTab(b.id, to: b.id)
+        #expect(tabs.tabs.map(\.id) == [a.id, b.id, c.id], "sobre ela mesma, nada muda")
+        #expect(tabs.selectedID == c.id, "mudar a ordem não troca a aba ativa")
+        #expect(tabs.snapshot.entries.map(\.title) == ["A", "B", "C"], "a ordem nova vale para a restauração")
+        await tabs.closeAll()
+    }
+
     // MARK: Excluir mural
 
     @Test("Excluir o mural de uma aba fecha a aba, solta a sessão e tira o mural da lista; a janela fica")
