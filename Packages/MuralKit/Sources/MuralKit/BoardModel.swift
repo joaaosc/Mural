@@ -71,6 +71,12 @@ public final class BoardModel {
     public func item(id: UUID) -> BoardItem? { board.item(id: id) }
     public func fileURL(for item: BoardItem) -> URL? { importer.fileURL(for: item) }
 
+    /// URL de uma imagem citada numa nota, em `Items/`; `nil` se o nome não for de anexo seguro.
+    public func noteImageURL(named name: String) -> URL? {
+        guard NoteImageMarkup.isAttachmentName(name) else { return nil }
+        return importer.itemsDirectory.appendingPathComponent(name)
+    }
+
     // MARK: Entrada de conteúdo
 
     /// Copia arquivos para a pasta de itens e cria um cartão para cada um.

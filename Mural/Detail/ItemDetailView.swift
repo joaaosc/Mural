@@ -40,7 +40,7 @@ struct ItemDetailView: View {
         case .pdf:
             PDFDetailView(itemID: item.id, url: model.fileURL(for: item), session: session)
         case .text, .sticky:
-            TextDetailView(item: item, session: session)
+            TextDetailView(item: item, model: model, session: session)
         case .link:
             LinkDetailView(item: item, model: model) { isConfirmingDelete = true }
         case .checklist:

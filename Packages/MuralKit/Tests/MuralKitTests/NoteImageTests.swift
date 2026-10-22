@@ -84,6 +84,8 @@ struct NoteImageMarkupTests {
         let marker = NoteImageMarkup.pendingLine(token: token)
         #expect(marker == "![Colando imagem…](mural-colando:\(token.uuidString))")
         #expect(NoteImageMarkup.isPendingLine(marker))
+        #expect(NoteImageMarkup.isPendingSource("mural-colando:\(token.uuidString)"))
+        #expect(!NoteImageMarkup.isPendingSource(name))
         let text = "antes\n\n\(marker)\n\ndepois"
         #expect(NoteImageMarkup.replacingPending(token, with: "![x](\(name))", in: text) == "antes\n\n![x](\(name))\n\ndepois")
     }

@@ -5,6 +5,7 @@ import SwiftUI
 /// no modo de edição, o editor de cada um.
 struct TextDetailView: View {
     let item: BoardItem
+    let model: BoardModel?
     let session: BoardWindowSession?
 
     @State private var scrollPosition = ScrollPosition()
@@ -37,7 +38,7 @@ struct TextDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                NotePageContent(item: item, session: session)
+                NotePageContent(item: item, model: model, session: session)
                     .frame(maxWidth: 600, alignment: .leading)
                     .padding(.top, 110)
                     .padding(.bottom, 110)

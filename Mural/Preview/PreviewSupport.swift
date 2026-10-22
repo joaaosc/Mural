@@ -113,7 +113,10 @@ enum PreviewLinks {
 #Preview("Coleção", traits: .fixedLayout(width: 1100, height: 720)) {
     @Previewable @Namespace var namespace
     let model = BoardModel.preview()
-    let folder = model.rootItems.first { $0.kind == .folder && $0.title == "The Cottage" }!
+    // Tipos explícitos: o build das prévias não conseguia checar esta busca a tempo.
+    let folder: BoardItem = model.rootItems.first { (item: BoardItem) -> Bool in
+        item.kind == .folder && item.title == "The Cottage"
+    }!
     CollectionView(
         folder: folder, model: model, session: nil, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil
     ) {
@@ -155,6 +158,38 @@ enum PreviewText {
     let note = model.importText(PreviewText.note, as: .text)!
     ItemDetailView(item: note, model: model, session: nil, onClose: {})
         .background(Theme.page)
+}
+
+/// Nota que ganha uma imagem gravada em `Items/` assim que a prévia abre.
+private struct NoteWithImagePreview: View {
+    let model: BoardModel
+    @State private var note: BoardItem
+
+    init(model: BoardModel, note: BoardItem) {
+        self.model = model
+        _note = State(initialValue: note)
+    }
+
+    var body: some View {
+        ItemDetailView(item: note, model: model, session: nil, onClose: {})
+            .background(Theme.page)
+            .task {
+                guard let data = PreviewImages.png(colors: [.teal, .pink], size: CGSize(width: 800, height: 500)),
+                    let attachment = await model.prepareNoteImage(data: data, fileExtension: "png"),
+                    model.addNoteAttachment(attachment, to: note.id)
+                else { return }
+                model.updateNote(
+                    note.id, title: note.title,
+                    text: "Primeira frase. Segunda frase da nota.\n\n![Imagem colada](\(attachment.fileName))")
+                if let updated = model.item(id: note.id) { note = updated }
+            }
+    }
+}
+
+#Preview("Nota com imagem", traits: .fixedLayout(width: 1100, height: 720)) {
+    let model = BoardModel.preview()
+    let note = model.importText("Primeira frase. Segunda frase da nota.", as: .text)!
+    NoteWithImagePreview(model: model, note: note)
 }
 
 #Preview("Lista", traits: .fixedLayout(width: 1100, height: 720)) {

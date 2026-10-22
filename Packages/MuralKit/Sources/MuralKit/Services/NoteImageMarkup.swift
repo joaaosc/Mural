@@ -57,7 +57,12 @@ public enum NoteImageMarkup {
 
     /// Verdadeiro para a linha de um marcador provisório (de qualquer token).
     public static func isPendingLine(_ line: some StringProtocol) -> Bool {
-        MarkdownImage.parse(line)?.source.hasPrefix(pendingScheme) == true
+        MarkdownImage.parse(line).map { isPendingSource($0.source) } == true
+    }
+
+    /// Verdadeiro para a origem de um marcador provisório (`mural-colando:…`), já lida da linha de imagem.
+    public static func isPendingSource(_ source: String) -> Bool {
+        source.hasPrefix(pendingScheme)
     }
 
     /// Troca a linha do marcador por `replacement`; vazio tira a linha sem deixar duas linhas em branco seguidas.

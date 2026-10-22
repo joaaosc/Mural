@@ -677,4 +677,30 @@ final class MuralUITests: XCTestCase {
         try data.write(to: url)
         return url
     }
+
+    /// Colar uma imagem no corpo de uma nota a cita no Markdown e a mostra na leitura.
+    @MainActor
+    func testPastingImageIntoNoteShowsIt() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Card de texto"].firstMatch.click()
+        app.typeText("Nota com foto")
+        app.typeKey(.return, modifierFlags: [])
+
+        let body = app.textViews["Texto da nota em Markdown"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5), "o foco vai para o corpo da nota")
+
+        let url = try Self.makePNG(named: "foto-na-nota")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(try Data(contentsOf: url), forType: .png)
+        app.typeKey("v", modifierFlags: .command)
+
+        let cited = NSPredicate(format: "value CONTAINS %@", "![Imagem colada](")
+        expectation(for: cited, evaluatedWith: body)
+        waitForExpectations(timeout: 5)
+
+        app.typeKey(.return, modifierFlags: .command)
+        XCTAssertTrue(app.images["Imagem colada"].waitForExistence(timeout: 5), "a imagem colada aparece na leitura")
+    }
 }

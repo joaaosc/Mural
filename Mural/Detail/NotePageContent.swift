@@ -8,6 +8,7 @@ import SwiftUI
 /// muda, e não a cada passo da rolagem da página.
 struct NotePageContent: View {
     let item: BoardItem
+    let model: BoardModel?
     let session: BoardWindowSession?
 
     var body: some View {
@@ -20,6 +21,9 @@ struct NotePageContent: View {
                 FoldedTextView(itemID: item.id, result: result, session: session)
                     .stretchMarkdownStyle(.notePage)
                     .lineSpacing(5)
+                    .stretchMarkdownImage {
+                        NoteImageView(image: $0, item: item, model: model, maxPixelSize: 1600)
+                    }
                 FoldStatusLine(itemID: item.id, result: result, session: session)
                     .padding(.top, 8)
             }

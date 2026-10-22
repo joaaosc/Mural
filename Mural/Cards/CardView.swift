@@ -1,4 +1,5 @@
 import MuralKit
+import StretchTextUI
 import SwiftUI
 
 /// Escolhe o visual de um cartão pelo tipo de conteúdo.
@@ -12,6 +13,7 @@ struct CardView: View {
         switch item.kind {
         case .text:
             PaperCard(title: item.title, summary: NoteFolding.fold(for: item), tint: item.colorTag)
+                .stretchMarkdownImage { NoteImageView(image: $0, item: item, model: model, maxPixelSize: 240) }
         case .sticky:
             StickyCard(text: item.displayText, color: item.stickyColor)
                 .colorTagDot(item.colorTag)
