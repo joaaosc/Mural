@@ -232,4 +232,53 @@ struct WindowSessionStabilityTests {
 
         #expect(try await library.open(route)?.manifest.name == "Novo nome")
     }
+
+    @Test("Aba que sai e volta: pausar grava a posição, escondida não grava nada e retomar volta ao mesmo ponto")
+    func suspendAndResumeRestoresCanvas() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let session = BoardWindowSession(
+            route: try await library.createNamedBoard("Abas"), registry: BoardSessionRegistry(library: library))
+        await makeReady(session)
+        let model = session.model
+        drive(session, metrics(offset: CGPoint(x: 800, y: 600)))
+
+        session.suspendPresentation()
+        #expect(session.restorationPhase == .loading)
+        let saved = try #require(session.workspace.canvas.logicalCenter, "pausar grava onde o mural estava")
+        session.recordCanvas(CanvasWorkspaceState(logicalCenter: BoardPoint(x: 1, y: 1)))
+        #expect(session.workspace.canvas.logicalCenter == saved, "escondida, a aba não grava posição")
+
+        let generation = session.presentationGeneration
+        session.resumePresentation()
+        #expect(session.model === model, "voltar não recarrega o mural")
+        #expect(session.presentationGeneration == generation &+ 1)
+        #expect(session.restorationPhase == .awaitingLayout)
+
+        // O canvas recriado começa na origem e é levado de volta ao ponto gravado.
+        drive(session, metrics(offset: .zero))
+        let target = CanvasWorkspaceMath.targetOffset(
+            logicalCenter: CGPoint(x: saved.x, y: saved.y), zoom: session.zoom.zoom, viewport: viewport,
+            contentSize: contentSize)
+        drive(session, metrics(offset: target))
+        #expect(session.restorationPhase == .ready)
+        await session.handleWindowWillClose()
+    }
+
+    @Test("Pausar uma aba que ainda carrega não faz nada; ela restaura normalmente ao aparecer")
+    func suspendBeforeLoadIsHarmless() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let session = BoardWindowSession(
+            route: try await library.createNamedBoard("Carregando"), registry: BoardSessionRegistry(library: library))
+        session.suspendPresentation()
+        session.resumePresentation()
+        #expect(session.presentationGeneration == 0, "sem mural carregado, nada muda")
+
+        await makeReady(session)
+        #expect(session.restorationPhase == .ready)
+        await session.handleWindowWillClose()
+    }
 }

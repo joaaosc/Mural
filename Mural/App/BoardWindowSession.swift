@@ -310,6 +310,41 @@ final class BoardWindowSession {
         }
     }
 
+    // MARK: Aba na frente ou no fundo
+
+    /// A aba saiu da frente: grava onde o mural estava e deixa de aceitar posição até voltar. O modelo, os
+    /// rascunhos de nota e a edição em andamento continuam na sessão e voltam com a aba.
+    func suspendPresentation() {
+        guard model != nil, !isClosed, restorationPhase != .loading else { return }
+        isCommandSelecting = false
+        selectedItemIDs = []
+        if restoration.acceptsPersistence {
+            recordCanvas(zoom.prepareToLeave())
+        }
+        // Respostas atrasadas de painéis abertos para a apresentação que saiu não valem mais.
+        invalidatePresentation()
+        restorationWatchdog?.cancel()
+        restorationWatchdog = nil
+        canvasCaptureDebounce?.cancel()
+        canvasCaptureDebounce = nil
+        if let restorationSignpost {
+            MuralSignposts.restoration.endInterval("Restaurar canvas", restorationSignpost)
+            self.restorationSignpost = nil
+        }
+        restoration = CanvasRestorationStateMachine()
+        restorationPhase = restoration.phase
+    }
+
+    /// A aba voltou para a frente: o canvas novo restaura a posição gravada, como ao abrir o mural.
+    func resumePresentation() {
+        guard model != nil, !isClosed, restorationPhase == .loading else { return }
+        presentationGeneration &+= 1
+        restorationSignpost = MuralSignposts.restoration.beginInterval("Restaurar canvas")
+        restoration.begin(canvasToken)
+        restorationPhase = restoration.phase
+        zoom.configure(workspace: workspace.canvas)
+    }
+
     func restoreCanvas(boardID callbackBoardID: BoardID, generation callbackGeneration: UInt64, metrics: CanvasScrollMetrics) {
         guard self.boardID == callbackBoardID, presentationGeneration == callbackGeneration, !isClosed else { return }
         zoom.apply(metrics)
