@@ -527,6 +527,79 @@ final class MuralUITests: XCTestCase {
         XCTAssertNotEqual(cottage.value as? String, "Cor: Vermelho")
     }
 
+    /// Excluir mural pela barra lateral: o menu do botão direito pede confirmação, e o mural sai da lista e
+    /// das abas (nos testes, apagado; no app, vai para o Lixo).
+    @MainActor
+    func testDeleteBoardFromSidebar() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["new-board-button"].firstMatch.click()
+        let name = app.textFields["Nome do mural"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click()
+        name.typeText("Mural C\r")
+        let tabC = app.buttons.matching(identifier: "board-tab")
+            .matching(NSPredicate(format: "label == %@", "Mural C")).firstMatch
+        XCTAssertTrue(tabC.waitForExistence(timeout: 10))
+
+        app.buttons["murals-sidebar-button"].firstMatch.click()
+        let entry = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "saved-board-entry-", "Mural C"))
+            .firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "o mural novo aparece na barra lateral")
+        entry.rightClick()
+        app.menuItems["Excluir Mural…"].firstMatch.click()
+        let confirm = app.buttons["Mover para o Lixo"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "excluir pede confirmação")
+        confirm.click()
+
+        XCTAssertTrue(entry.waitForNonExistence(timeout: 5), "o mural sai da barra lateral")
+        XCTAssertFalse(tabC.exists, "e a aba dele fecha")
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 5), "a aba do rascunho assume")
+    }
+
+    /// Cor de uma vez nos cartões marcados com ⌘, pelas bolinhas da barra do seletor.
+    @MainActor
+    func testSelectionBarColorsMarkedCards() throws {
+        let app = launch()
+        let first = app.buttons["Design Philosophy"].firstMatch
+        let second = app.buttons["Alpha"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCUIElement.perform(withKeyModifiers: .command) {
+            first.click()
+            second.click()
+        }
+        let colors = app.descendants(matching: .any)["selection-color"].firstMatch
+        XCTAssertTrue(colors.waitForExistence(timeout: 5), "a barra do seletor oferece as cores")
+        colors.buttons["Verde"].firstMatch.click()
+        XCTAssertEqual(first.value as? String, "Cor: Verde")
+        XCTAssertEqual(second.value as? String, "Cor: Verde")
+        XCTAssertTrue(first.isSelected, "a marcação continua depois de dar a cor")
+    }
+
+    /// Filtro por cor: escolher uma cor na barra de filtros a destaca (o resto esmaece) e o botão diz qual.
+    @MainActor
+    func testColorFilterHighlightsChosenColor() throws {
+        let app = launch()
+        let cottage = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(cottage.waitForExistence(timeout: 10))
+        cottage.rightClick()
+        app.menuItems["Vermelho"].firstMatch.click()
+        XCTAssertEqual(cottage.value as? String, "Cor: Vermelho")
+
+        let filter = app.descendants(matching: .any)["color-filter"].firstMatch
+        XCTAssertTrue(filter.waitForExistence(timeout: 5), "a barra de filtros tem o filtro de cor")
+        filter.click()
+        let red = app.menuItems["Vermelho"].firstMatch
+        XCTAssertTrue(red.waitForExistence(timeout: 5))
+        red.click()
+        XCTAssertEqual(filter.value as? String, "Vermelho")
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        shot.name = "Filtro vermelho"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     /// Fechar a janela logo depois de colar (antes do salvamento automático) não perde o
     /// conteúdo: o fechamento real da janela grava, e a biblioteca reabre o mural do disco.
     @MainActor

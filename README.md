@@ -21,12 +21,20 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   **+** e ⌘N criam um mural novo numa aba.
 - ⌘W fecha a aba; fechar a última fecha a janela, e o app continua aberto. Visualizar › Mostrar
   Todos os Murais (⇧⌘\) ou o Dock reabrem a janela. ⌃⇥ e ⌃⇧⇥ passam de uma aba para outra.
-- As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app.
+- As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app. Arrastar uma
+  aba para os lados muda a ordem.
+- **Excluir mural**: botão direito no mural da barra lateral ou na aba, ou Arquivo › Excluir Mural….
+  Depois da confirmação, a aba fecha e o mural vai para o Lixo do Mac; o rascunho de exemplo é
+  descartado.
 
 ## Cores
 
 - **Cor no menu do botão direito**, como as tags do Finder: vermelho, laranja, amarelo, verde, azul,
   roxo e cinza, uma por cartão. Tocar de novo na cor (ou em "Remover cor") tira a cor.
+- **Vários de uma vez**: com cartões marcados com ⌘, as bolinhas da barra do seletor pintam todos
+  (ou tiram a cor).
+- **Filtro por cor**: o botão de cor na barra de filtros destaca uma cor e esmaece o resto, junto
+  com o filtro de tipo; cada nível começa sem filtro.
 - Pasta, nota e lista ficam tingidas de leve (a pasta também ganha a aba na cor cheia, e a página
   dela, um tom mais leve); post-it, foto, vídeo, PDF e link ganham uma bolinha no canto.
 - Um mural com alguma cor usa a versão 4 do formato: builds anteriores se recusam a abri-lo em vez
