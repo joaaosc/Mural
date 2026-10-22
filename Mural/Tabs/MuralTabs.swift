@@ -220,6 +220,11 @@ final class MuralTabs {
         window = nil
     }
 
+    /// Os menus dizem como abrir a janela: só eles têm a ação do SwiftUI mesmo quando não há janela.
+    func registerWindowOpener(_ open: @escaping @MainActor () -> Void) {
+        openMainWindow = open
+    }
+
     /// Traz a janela para a frente ou, sem janela, abre uma.
     func showWindow() {
         if let window {

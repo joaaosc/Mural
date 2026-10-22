@@ -2,35 +2,32 @@ import AppKit
 import MuralKit
 import SwiftUI
 
-/// Itens de menu do Mural. Todas as ações são encaminhadas à cena focada;
-/// nenhuma referência a uma janela ou a um mural fica global no aplicativo.
+/// Itens de menu do Mural. O que é do mural aberto vai à aba focada (`FocusedBoardActions`); abas,
+/// novo mural e importação vão às abas da janela (`MuralTabs`), que existem mesmo sem janela.
 struct MuralCommands: Commands {
+    let tabs: MuralTabs
+
     @FocusedValue(CanvasZoomController.self) private var zoom
     @FocusedValue(FocusedBoardActions.self) private var actions
     @FocusedValue(\.markdownFormatting) private var formatting
-    @Environment(\.muralCommandCoordinator) private var coordinator
     @Environment(\.openWindow) private var openWindow
 
-    private func requestOrOpenLibrary(
-        _ intent: MuralCommandIntent,
-        focusedAction: (FocusedBoardActions) -> Void
-    ) {
-        if let actions {
-            focusedAction(actions)
+    /// ⌘W fecha a aba, como no Safari; fora da janela do Mural (um painel, por exemplo), fecha o que está na frente.
+    private func closeTab() {
+        if let key = NSApp.keyWindow, key !== tabs.window {
+            key.performClose(nil)
         } else {
-            coordinator?.submit(intent)
-            openWindow(value: BoardRoute.library)
+            tabs.closeSelected()
         }
     }
 
     var body: some Commands {
-        // Os comandos existem mesmo sem janelas: daqui o delegate consegue abrir a biblioteca.
-        let _ = LibraryWindowOpener.shared.register { [openWindow] in openWindow(value: BoardRoute.library) }
+        // Os comandos existem mesmo sem janelas: daqui as abas e o delegate conseguem abrir a janela.
+        let _ = tabs.registerWindowOpener { [openWindow] in openWindow(id: MuralWindowView.sceneID) }
+        let _ = LibraryWindowOpener.shared.register { [tabs] in tabs.showWindow() }
         CommandGroup(replacing: .newItem) {
-            Button("Novo Mural…") {
-                requestOrOpenLibrary(.newBoard) { $0.newBoard() }
-            }
-            .keyboardShortcut("n", modifiers: .command)
+            Button("Novo Mural…") { tabs.requestNewBoard() }
+                .keyboardShortcut("n", modifiers: .command)
         }
         CommandGroup(after: .newItem) {
             Section {
@@ -47,18 +44,18 @@ struct MuralCommands: Commands {
             }
         }
         CommandGroup(replacing: .importExport) {
-            Button("Abrir Mural…") {
-                requestOrOpenLibrary(.openMural) { $0.openMural() }
-            }
-            .keyboardShortcut("o", modifiers: .command)
+            Button("Abrir Mural…") { tabs.requestOpenPackage() }
+                .keyboardShortcut("o", modifiers: .command)
             Button("Adicionar Arquivos…", action: { actions?.addFiles() })
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(!(actions?.canAddFiles ?? false))
         }
         CommandGroup(replacing: .saveItem) {
             // Este grupo também traz o "Fechar" do macOS; ao substituí-lo, o ⌘W sumia.
-            Button("Fechar") { NSApp.keyWindow?.performClose(nil) }
+            Button("Fechar Aba", action: closeTab)
                 .keyboardShortcut("w", modifiers: .command)
+            Button("Fechar Janela") { NSApp.keyWindow?.performClose(nil) }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
             Divider()
             Button("Salvar Mural…", action: { actions?.saveDraft() })
                 .keyboardShortcut("s", modifiers: .command)
@@ -68,10 +65,13 @@ struct MuralCommands: Commands {
                 .disabled(!(actions?.canSaveCopy ?? false))
             Button("Renomear Mural…", action: { actions?.rename() })
                 .disabled(!(actions?.canRename ?? false))
-            Button("Retomar Rascunho de Exemplo", action: { actions?.resumeDraft() })
-                .disabled(!(actions?.canResumeDraft ?? false))
+            Button("Retomar Rascunho de Exemplo") { Task { await tabs.resumeDraft() } }
+                .disabled(!tabs.resumeDraftAvailable)
         }
         CommandGroup(after: .toolbar) {
+            // Como "Mostrar Todas as Abas" do Safari: a janela com a barra lateral de murais.
+            Button("Mostrar Todos os Murais") { tabs.showAllMurals() }
+                .keyboardShortcut("\\", modifiers: [.command, .shift])
             Section {
                 Button("Aproximar") { zoom?.zoomIn() }
                     .keyboardShortcut("=", modifiers: .command)
@@ -91,6 +91,15 @@ struct MuralCommands: Commands {
             }
             Button("Tentar novamente", action: { actions?.retryFlush() })
                 .disabled(actions == nil)
+        }
+        CommandGroup(before: .windowArrangement) {
+            Button("Mostrar Aba Seguinte") { tabs.selectNext() }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .disabled(tabs.tabs.count < 2)
+            Button("Mostrar Aba Anterior") { tabs.selectPrevious() }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .disabled(tabs.tabs.count < 2)
+            Divider()
         }
         CommandMenu("Formatar") {
             Section {

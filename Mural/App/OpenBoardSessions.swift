@@ -109,6 +109,12 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     }
     private var isTerminating = false
 
+    /// As abas são do próprio app (`MuralWindowView`), como no Safari: sem isso, com a preferência do
+    /// sistema "Preferir abas: sempre", o macOS juntaria janelas numa barra de abas própria.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     /// O estado salvo pode dizer que havia janelas sem nenhuma restaurável (sessões de teste,
     /// janelas fechadas): o macOS então não cria a janela padrão e o app abre só com a
     /// barra de menus. Depois da restauração, sem nenhuma janela, abre a biblioteca.

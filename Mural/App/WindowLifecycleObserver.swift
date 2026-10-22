@@ -6,10 +6,13 @@ import SwiftUI
 /// instead of installing an `NSWindowDelegate`, so it cannot replace or
 /// interfere with a delegate owned by the scene.
 struct WindowLifecycleObserver: NSViewRepresentable {
+    /// A view entrou numa janela (a cada janela nova que passa a observar).
+    var onAttach: (@MainActor (NSWindow) -> Void)? = nil
     let onWillClose: @MainActor () -> Void
 
     func makeNSView(context: Context) -> WindowLifecycleObserverView {
         let view = WindowLifecycleObserverView()
+        view.onAttach = onAttach
         view.onWillClose = onWillClose
         return view
     }
@@ -18,6 +21,7 @@ struct WindowLifecycleObserver: NSViewRepresentable {
         // Só troca o callback. A janela observada muda em `viewDidMoveToWindow`: o SwiftUI
         // também chama esta atualização enquanto a janela está sendo destruída, e observar
         // a janela nesse instante derrubava o app.
+        nsView.onAttach = onAttach
         nsView.onWillClose = onWillClose
     }
 
@@ -28,6 +32,7 @@ struct WindowLifecycleObserver: NSViewRepresentable {
 
 @MainActor
 final class WindowLifecycleObserverView: NSView {
+    var onAttach: (@MainActor (NSWindow) -> Void)?
     var onWillClose: (@MainActor () -> Void)?
 
     /// Identidade da janela observada, sem referência a ela: formar uma referência (mesmo
@@ -66,6 +71,7 @@ final class WindowLifecycleObserverView: NSView {
                 self?.onWillClose?()
             }
         }
+        onAttach?(window)
     }
 
     func stopObservingWindow() {

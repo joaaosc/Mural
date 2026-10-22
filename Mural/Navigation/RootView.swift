@@ -26,8 +26,6 @@ private struct LoadedRootView: View {
     let model: BoardModel
 
     @State private var isFolderInfoPresented = false
-    @State private var isPackageImporterPresented = false
-    @State private var isNewBoardPresented = false
     @State private var isRenamePresented = false
     @State private var boardNameDraft = ""
     @State private var isNewFolderPresented = false
@@ -35,15 +33,14 @@ private struct LoadedRootView: View {
     @State private var isConfirmingSelectionDelete = false
     /// Espera curta antes de abrir o seletor ao segurar ⌘: some se o ⌘ era de um atalho.
     @State private var commandHoldTask: Task<Void, Never>?
-    @State private var importError: String?
     /// Texto solto colado, esperando a escolha do tipo no popup.
     @State private var pendingPaste: PendingPaste?
     @State private var linkPreviewCoordinator: LinkPreviewCoordinator?
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
+    /// As abas da janela: novo mural, importação e rascunho promovido passam por elas.
+    @Environment(MuralTabs.self) private var tabs: MuralTabs?
     @Environment(\.undoManager) private var undoManager
 
     private var path: [Destination] { session.path }
@@ -134,15 +131,6 @@ private struct LoadedRootView: View {
         .ignoresSafeArea()
         .navigationTitle(session.title)
         .navigationSubtitle(breadcrumb)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                BoardSwitcherMenu(
-                    currentName: session.title,
-                    currentRoute: session.route,
-                    library: session.registry.library,
-                    onNewBoard: { session.actions.newBoard() })
-            }
-        }
         .focusedSceneValue(session.restorationPhase == .ready ? session.actions : nil)
         .overlay(alignment: .topLeading) {
             FloatingToolbar(
@@ -223,14 +211,6 @@ private struct LoadedRootView: View {
         ) { result in
             guard case .success(let urls) = result else { return }
             Task { await session.importFiles(from: urls) }
-        }
-        .fileImporter(
-            isPresented: $isPackageImporterPresented,
-            allowedContentTypes: [.muralPackage],
-            allowsMultipleSelection: false
-        ) { result in
-            guard case .success(let urls) = result, let source = urls.first else { return }
-            importPackage(from: source)
         }
         .fileExporter(
             isPresented: $session.isExporterPresented,
@@ -350,14 +330,9 @@ private struct LoadedRootView: View {
         isCanvasFocused = true
     }
 
-    /// Folhas de nome (mural e pasta) e avisos de importação.
+    /// Folhas de nome (renomear o mural e nova pasta) e avisos da sessão.
     private func withDialogs(_ content: some View) -> some View {
         content
-            .sheet(isPresented: $isNewBoardPresented) {
-                nameSheet(title: "Novo mural", text: $boardNameDraft, actionTitle: "Criar") {
-                    createBoard(named: boardNameDraft)
-                }
-            }
             .sheet(isPresented: $isRenamePresented) {
                 nameSheet(title: "Renomear mural", text: $boardNameDraft, actionTitle: "Renomear") {
                     renameBoard(to: boardNameDraft)
@@ -367,14 +342,6 @@ private struct LoadedRootView: View {
                 nameSheet(title: "Nova pasta", placeholder: "Nome da pasta", text: $folderNameDraft, actionTitle: "Criar") {
                     createFolder(named: folderNameDraft)
                 }
-            }
-            .alert(
-                "Não foi possível importar o mural",
-                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(importError ?? "")
             }
             .alert(
                 "Importação concluída",
@@ -414,7 +381,6 @@ private struct LoadedRootView: View {
             HStack {
                 Spacer()
                 Button("Cancelar", role: .cancel) {
-                    isNewBoardPresented = false
                     isRenamePresented = false
                     isNewFolderPresented = false
                 }
@@ -429,29 +395,21 @@ private struct LoadedRootView: View {
     private func handle(_ request: FocusedBoardActionRequest) {
         switch request {
         case .newBoard:
-            boardNameDraft = ""
-            isNewBoardPresented = true
+            tabs?.requestNewBoard()
         case .openMural:
-            isPackageImporterPresented = true
+            tabs?.requestOpenPackage()
         case .rename:
             boardNameDraft = session.title
             isRenamePresented = true
         case .resumeDraft:
-            Task {
-                guard session.actions.canResumeDraft,
-                    let state = try? await session.registry.library.lifecycleState(),
-                    state.lifecycle == .draft
-                else {
-                    session.actions.resumeDraftAvailable = false
-                    return
-                }
-                openWindow(value: BoardRoute.welcomeDraft(state.stableWelcomeID))
-            }
+            Task { await tabs?.resumeDraft() }
         case .promoteDraft:
+            // O rascunho vira mural salvo na mesma aba.
             Task {
-                guard let route = await session.promoteDraft(named: session.title) else { return }
-                openWindow(value: route)
-                dismiss()
+                guard let route = await session.promoteDraft(named: session.title),
+                    let tabs, let tabID = tabs.tabID(of: session)
+                else { return }
+                tabs.replace(tabID, with: route)
             }
         case .newFolder:
             beginNewFolder()
@@ -460,54 +418,11 @@ private struct LoadedRootView: View {
         }
     }
 
-    private func createBoard(named value: String) {
-        isNewBoardPresented = false
-        let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            do {
-                let route = try await session.registry.library.createNamedBoard(
-                    name.isEmpty ? "Mural sem título" : name)
-                openWindow(value: route)
-            } catch {
-                importError = "Não foi possível criar o mural: \(error.localizedDescription)"
-            }
-        }
-    }
-
     private func renameBoard(to value: String) {
         isRenamePresented = false
-        Task { await session.rename(to: value) }
-    }
-
-    private func importPackage(from source: URL) {
         Task {
-            do {
-                let result = try await MuralPackageImport.importAsCopy(
-                    from: source, using: session.registry.library)
-                let importedName = try await session.registry.library.open(result.route)?.manifest.name ?? "Mural"
-                openWindow(value: result.route)
-                session.successMessage =
-                    "Mural ‘\(importedName)’ importado como uma cópia interna. "
-                    + "O arquivo original não será alterado."
-                switch result.workspaceStatus {
-                case .loaded:
-                    break
-                case .missing:
-                    session.warningMessage =
-                        "O estado visual do mural importado estava ausente; "
-                        + "o conteúdo foi aberto com a visualização padrão."
-                case .corrupted(let filename):
-                    session.warningMessage =
-                        "O estado visual do mural importado estava corrompido (\(filename)); "
-                        + "o conteúdo foi aberto com a visualização padrão."
-                case .futureSchema(let version):
-                    session.warningMessage =
-                        "O estado visual do mural importado usa uma versão futura (\(version)); "
-                        + "o conteúdo foi aberto com a visualização padrão."
-                }
-            } catch {
-                importError = error.localizedDescription
-            }
+            await session.rename(to: value)
+            tabs?.libraryDidChange()
         }
     }
 
