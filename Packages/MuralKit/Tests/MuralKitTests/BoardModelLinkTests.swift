@@ -44,37 +44,7 @@ struct BoardModelLinkTests {
         }
     }
 
-    @Test("Com ponto, o primeiro link fica centralizado nele e os demais em cascata de 24 em 24")
-    func pointCentersFirstLinkAndCascadesTheRest() throws {
-        let store = makeStore()
-        defer { try? FileManager.default.removeItem(at: store.directory) }
-        let model = BoardModel(store: store)
-        let point = BoardPoint(x: 600, y: 420)
-
-        let created = model.importLinks(try drafts(3), at: point)
-
-        let first = try #require(created.first).position
-        #expect(first.x + linkSize.width / 2 == point.x)
-        #expect(first.y + linkSize.height / 2 == point.y)
-        #expect(created.map(\.position) == (0..<3).map { BoardPoint(x: first.x + Double($0) * 24, y: first.y + Double($0) * 24) })
-        // Os links entram por último, na ordem do lote: o seguinte desenha por cima do anterior.
-        #expect(model.board.items.suffix(3).map(\.id) == created.map(\.id))
-        #expect(created.compactMap { model.item(id: $0.id)?.position } == created.map(\.position))
-    }
-
-    @Test("Perto da borda, nenhum link fica abaixo de 0 e a cascata continua")
-    func pointNearTheEdgeIsClamped() throws {
-        let store = makeStore()
-        defer { try? FileManager.default.removeItem(at: store.directory) }
-        let model = BoardModel(store: store)
-
-        let created = model.importLinks(try drafts(3), at: BoardPoint(x: 10, y: 20))
-
-        #expect(created.map(\.position) == [BoardPoint(x: 0, y: 0), BoardPoint(x: 24, y: 24), BoardPoint(x: 48, y: 48)])
-        #expect(model.importLinks(try drafts(1), at: BoardPoint(x: -300, y: .nan)).map(\.position) == [.zero])
-    }
-
-    @Test("Dentro de uma pasta o link recebe a pasta e não entra no mural, mesmo com ponto")
+    @Test("Dentro de uma pasta o link recebe a pasta e não entra no mural")
     func linksInsideFolderKeepTheParent() throws {
         let store = makeStore()
         defer { try? FileManager.default.removeItem(at: store.directory) }
@@ -83,7 +53,7 @@ struct BoardModelLinkTests {
         let rootBefore = model.rootItems.map(\.id)
         let childrenBefore = model.children(of: folder.id).count
 
-        let created = model.importLinks(try drafts(2), into: folder.id, at: BoardPoint(x: 600, y: 420))
+        let created = model.importLinks(try drafts(2), into: folder.id)
 
         #expect(created.count == 2)
         #expect(created.allSatisfy { $0.parentID == folder.id })
@@ -284,8 +254,7 @@ struct BoardModelLinkTests {
         let folder = try #require(model.rootItems.first { $0.kind == .folder })
 
         let loose = model.importLinks(
-            [try draft("https://apple.com", title: "Apple", summary: "Descrição", imageURL: "https://cdn.example.com/capa.jpg")],
-            at: BoardPoint(x: 500, y: 400))
+            [try draft("https://apple.com", title: "Apple", summary: "Descrição", imageURL: "https://cdn.example.com/capa.jpg")])
         let inside = model.importLinks([try draft("https://swift.org"), try draft("https://example.com")], into: folder.id)
         #expect(model.lastError == nil)
         #expect(loose.first?.link?.summary == "Descrição" && loose.first?.link?.remoteImageURL != nil, "controle: o rascunho trouxe prévia")

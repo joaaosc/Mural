@@ -21,7 +21,7 @@ nonisolated enum LinkPreviewFetchError: Error, Equatable {
 ///   disso é recusado, mesmo sem `Content-Length` e mesmo vindo da reserva.
 /// - Uma imagem só serve se o ImageIO a lê e ela tem tamanho de prévia (`LinkPreviewFiles.canStoreImage(_:)`);
 ///   uma de 1×1 pixel do Safari, por exemplo, passa a vez para a `og:image`.
-/// - A imagem que veio com o link (a do Safari ao arrastar) vale mais que a `og:image` da página, menos num pedido
+/// - A imagem que veio com o link (a do Safari ao copiar um favorito) vale mais que a `og:image` da página, menos num pedido
 ///   de atualização (`LinkPreviewRequest.isRefresh`), que a ignora e procura a imagem de novo na página.
 /// - O `<head>` tem prioridade; a reserva só completa o que faltar.
 nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
