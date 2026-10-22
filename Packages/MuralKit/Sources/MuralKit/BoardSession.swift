@@ -12,6 +12,9 @@ public actor BoardSession {
     public private(set) var isDirty = false
     public private(set) var isFlushInProgress = false
     public private(set) var lastFlushErrorDescription: String?
+    /// Depois de aposentada (janela fechada, rascunho promovido), a sessão recusa
+    /// mutações e gravações: um autosave atrasado não pode reescrever o package.
+    public private(set) var isRetired = false
 
     public init(snapshot: BoardRepositorySnapshot, repository: BoardRepository) {
         self.id = snapshot.id
@@ -24,6 +27,7 @@ public actor BoardSession {
     /// Inicia uma mutação e devolve a geração observada pelo caller.
     @discardableResult
     public func beginMutation(_ kind: BoardSessionMutationKind = .content) throws -> UInt64 {
+        guard !isRetired else { throw BoardSessionError.retired }
         guard !isFlushInProgress else { throw BoardSessionError.flushInProgress }
         return generation
     }
@@ -34,6 +38,7 @@ public actor BoardSession {
         workspace: BoardWorkspaceState? = nil,
         expectedGeneration: UInt64? = nil
     ) throws {
+        guard !isRetired else { throw BoardSessionError.retired }
         guard !isFlushInProgress else { throw BoardSessionError.flushInProgress }
         if let expectedGeneration, expectedGeneration != generation {
             throw BoardSessionError.generationMismatch(expected: expectedGeneration, actual: generation)
@@ -52,8 +57,26 @@ public actor BoardSession {
         lastFlushErrorDescription = nil
     }
 
+    /// Renomeia o mural dentro da própria sessão, para que a gravação seguinte leve o
+    /// nome novo. Fechar e reabrir a sessão deixaria um autosave antigo regravar o nome.
+    public func rename(to name: String) throws {
+        guard !isRetired else { throw BoardSessionError.retired }
+        guard !isFlushInProgress else { throw BoardSessionError.flushInProgress }
+        guard name != manifest.name else { return }
+        manifest.name = name
+        generation &+= 1
+        isDirty = true
+        lastFlushErrorDescription = nil
+    }
+
+    /// Encerra a sessão. Idempotente.
+    public func retire() {
+        isRetired = true
+    }
+
     @discardableResult
     public func flush() async throws -> BoardRepositorySnapshot {
+        guard !isRetired else { throw BoardSessionError.retired }
         guard !isFlushInProgress else { throw BoardSessionError.flushInProgress }
         guard isDirty else {
             return BoardRepositorySnapshot(manifest: manifest, board: board, workspace: workspace)

@@ -145,42 +145,71 @@ public actor BoardLibrary {
     }
 
     public func listSaved() async throws -> [BoardLibraryEntry] {
+        try await listSavedReport().entries
+    }
+
+    /// Murais salvos e os packages que não puderam ser lidos. Um package danificado,
+    /// com nome inesperado ou de uma versão mais nova é pulado e relatado; ele não
+    /// pode esconder os outros murais. Só falhas da própria pasta `Boards/` lançam.
+    public func listSavedReport() async throws -> BoardLibraryListing {
         try makeDirectories()
-        let entries = try FileManager.default.contentsOfDirectory(
-            at: boardsDirectory,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(
+                at: boardsDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            throw BoardLibraryError.io(String(describing: error))
+        }
         var result: [BoardLibraryEntry] = []
+        var unreadable: [BoardLibraryIssue] = []
         for package in entries where package.pathExtension == "mural" {
             let manifestURL = package.appendingPathComponent("manifest.json")
             guard FileManager.default.fileExists(atPath: manifestURL.path) else { continue }
-            let manifest = try decodeManifest(from: manifestURL)
-            let expectedName = "\(manifest.id.rawValue.uuidString).mural"
-            guard package.deletingLastPathComponent().standardizedFileURL == boardsDirectory.standardizedFileURL,
-                package.lastPathComponent == expectedName
-            else {
-                throw BoardLibraryError.invalidPackage(package)
+            do {
+                let manifest = try decodeManifest(from: manifestURL)
+                let expectedName = "\(manifest.id.rawValue.uuidString).mural"
+                guard package.deletingLastPathComponent().standardizedFileURL == boardsDirectory.standardizedFileURL,
+                    package.lastPathComponent == expectedName
+                else {
+                    throw BoardLibraryError.invalidPackage(package)
+                }
+                try validateCompletePackage(package)
+                result.append(BoardLibraryEntry(manifest: manifest, route: .saved(manifest.id)))
+            } catch {
+                unreadable.append(
+                    BoardLibraryIssue(packageName: package.lastPathComponent, reason: error.localizedDescription))
             }
-            try validateCompletePackage(package)
-            result.append(BoardLibraryEntry(manifest: manifest, route: .saved(manifest.id)))
         }
-        return result.sorted {
+        let sorted = result.sorted {
             let nameOrder = $0.manifest.name.compare($1.manifest.name)
             return nameOrder == .orderedSame
                 ? $0.manifest.id.rawValue.uuidString < $1.manifest.id.rawValue.uuidString
                 : nameOrder == .orderedAscending
         }
+        return BoardLibraryListing(
+            entries: sorted,
+            unreadable: unreadable.sorted { $0.packageName < $1.packageName })
     }
 
     public func list() async throws -> [BoardLibraryEntry] {
-        let saved = try await listSaved()
+        try await listReport().entries
+    }
+
+    /// Murais salvos, o rascunho de exemplo (quando existe) e os packages ilegíveis.
+    public func listReport() async throws -> BoardLibraryListing {
+        let saved = try await listSavedReport()
         let state = try await bootstrap()
         guard state.lifecycle == .draft else { return saved }
         guard let result = try await draftRepository.load(state.stableWelcomeID) else {
             throw BoardLibraryError.unavailableRoute(.welcomeDraft(state.stableWelcomeID))
         }
-        return saved + [BoardLibraryEntry(manifest: result.snapshot.manifest, route: .welcomeDraft(state.stableWelcomeID))]
+        return BoardLibraryListing(
+            entries: saved.entries
+                + [BoardLibraryEntry(manifest: result.snapshot.manifest, route: .welcomeDraft(state.stableWelcomeID))],
+            unreadable: saved.unreadable)
     }
 
     public func createNamedBoard(_ name: String) async throws -> BoardRoute {
