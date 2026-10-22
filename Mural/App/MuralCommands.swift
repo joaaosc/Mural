@@ -1,3 +1,4 @@
+import AppKit
 import MuralKit
 import SwiftUI
 
@@ -40,6 +41,10 @@ struct MuralCommands: Commands {
                 .disabled(!(actions?.canAddFiles ?? false))
         }
         CommandGroup(replacing: .saveItem) {
+            // Este grupo também traz o "Fechar" do macOS; ao substituí-lo, o ⌘W sumia.
+            Button("Fechar") { NSApp.keyWindow?.performClose(nil) }
+                .keyboardShortcut("w", modifiers: .command)
+            Divider()
             Button("Salvar Mural…", action: { actions?.saveDraft() })
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(!(actions?.canSaveDraft ?? false))
