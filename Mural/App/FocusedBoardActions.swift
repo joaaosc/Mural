@@ -9,6 +9,7 @@ enum FocusedBoardActionRequest: Equatable, Sendable {
     case rename
     case resumeDraft
     case promoteDraft
+    case newFolder
 }
 
 enum MuralCommandIntent: Equatable, Sendable {
@@ -103,6 +104,11 @@ final class FocusedBoardActions {
         session?.createCard(.sticky)
     }
 
+    /// Pede o nome antes de criar: a folha é da cena focada.
+    func newFolder() {
+        request = .newFolder
+    }
+
     func retryFlush() {
         session?.retryFlush()
     }
@@ -135,6 +141,11 @@ final class FocusedBoardActions {
     /// Criar card ou sticker só no mural e dentro de pasta, não na página de um item.
     var canCreateContent: Bool {
         session?.acceptsNewContent ?? false
+    }
+
+    /// Nova pasta só no mural, com nada aberto por cima (pastas não entram em pastas).
+    var canCreateFolder: Bool {
+        session?.acceptsNewFolder ?? false
     }
 
     var canRename: Bool {

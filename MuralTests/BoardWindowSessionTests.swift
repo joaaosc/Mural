@@ -851,6 +851,32 @@ struct BoardWindowSessionTests {
         #expect(session.model?.children(of: folder.id).contains { $0.id == note } == true)
     }
 
+    @Test("Pasta nova entra solta no mural, abre vazia e volta igual ao reabrir; dentro dela não há outra")
+    func createFolderOpensIt() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Pastas")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        #expect(session.acceptsNewFolder)
+
+        let folderID = try #require(session.createFolder(named: "Referências"))
+        let folder = try #require(session.model?.item(id: folderID))
+        #expect(folder.kind == .folder)
+        #expect(folder.parentID == nil)
+        #expect(session.path == [.collection(folderID)])
+        #expect(!session.acceptsNewFolder)
+        #expect(session.createFolder(named: "Dentro") == nil)
+        #expect(session.model?.rootItems.filter { $0.kind == .folder }.map(\.id) == [folderID])
+        await session.flushAndPrepareToLeave()
+
+        let reloaded = BoardWindowSession(
+            route: route, registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
+        try await makeReady(reloaded)
+        #expect(reloaded.model?.item(id: folderID)?.title == "Referências")
+    }
+
     @Test("Sem o modelo ligado, nenhuma fila é criada e a nota dobra pela primeira frase")
     func sessionWithoutModel() async throws {
         let directory = try root()

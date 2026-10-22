@@ -443,6 +443,27 @@ final class MuralUITests: XCTestCase {
             "o post-it colado antes de fechar deveria voltar")
     }
 
+    /// Barra de criação → Pasta: dá o nome, a pasta abre vazia e fica no mural ao voltar.
+    @MainActor
+    func testCreationBarCreatesFolder() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        let newFolder = app.buttons["Pasta"].firstMatch
+        XCTAssertTrue(newFolder.waitForExistence(timeout: 5), "no mural, a barra de criação oferece Pasta")
+        newFolder.click()
+        let name = app.textFields["Nome da pasta"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click()
+        // Sem acento: a digitação sintética perdia letras depois do "ê" (tecla morta).
+        name.typeText("Viagem\r")
+
+        let back = app.buttons["Voltar"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "a pasta nova abre por cima do mural")
+        XCTAssertFalse(app.buttons["Pasta"].exists, "dentro de uma pasta não se cria outra")
+        back.click()
+        XCTAssertTrue(app.buttons["Viagem"].firstMatch.waitForExistence(timeout: 5), "a pasta fica no mural")
+    }
+
     /// Arrasta o elemento a partir do centro: segura um instante e solta `dx`, `dy` pontos adiante.
     @MainActor
     private func drag(_ element: XCUIElement, dx: CGFloat, dy: CGFloat) {

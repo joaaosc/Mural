@@ -36,10 +36,15 @@ struct MuralCommands: Commands {
             Section {
                 Button("Novo card de texto", action: { actions?.newNote() })
                     .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(!(actions?.canCreateContent ?? false))
                 Button("Novo sticker", action: { actions?.newSticky() })
                     .keyboardShortcut("n", modifiers: [.command, .option])
+                    .disabled(!(actions?.canCreateContent ?? false))
+                // ⌃⌘N, como a pasta do Finder: ⇧⌘N e ⌥⌘N já criam card e sticker.
+                Button("Nova pasta…", action: { actions?.newFolder() })
+                    .keyboardShortcut("n", modifiers: [.command, .control])
+                    .disabled(!(actions?.canCreateFolder ?? false))
             }
-            .disabled(!(actions?.canCreateContent ?? false))
         }
         CommandGroup(replacing: .importExport) {
             Button("Abrir Mural…") {

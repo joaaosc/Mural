@@ -29,6 +29,8 @@ private struct LoadedRootView: View {
     @State private var isNewBoardPresented = false
     @State private var isRenamePresented = false
     @State private var boardNameDraft = ""
+    @State private var isNewFolderPresented = false
+    @State private var folderNameDraft = ""
     @State private var importError: String?
     /// Texto solto colado, esperando a escolha do tipo no popup.
     @State private var pendingPaste: PendingPaste?
@@ -71,6 +73,13 @@ private struct LoadedRootView: View {
     }
 
     var body: some View {
+        withDialogs(boardContent)
+    }
+
+    /// O mural, os níveis abertos e o que age sobre eles. Folhas e avisos ficam em
+    /// `withDialogs`: numa cadeia só, o compilador não checava os tipos a tempo.
+    @ViewBuilder
+    private var boardContent: some View {
         /// Captured while the exporter presentation is rendered. A later
         /// export cannot be cleaned up by an old panel callback.
         let operationID = session.exportTransfer?.operationID
@@ -139,6 +148,7 @@ private struct LoadedRootView: View {
                 CreationBar(
                     onNewNote: { createCard(.text) },
                     onNewSticky: { createCard(.sticky) },
+                    onNewFolder: newFolderAction,
                     onAddFiles: { session.beginFileImport(folderID: currentFolderID) }
                 )
                 .padding(.bottom, 18)
@@ -229,44 +239,6 @@ private struct LoadedRootView: View {
             guard let operationID else { return }
             Task { await session.finishSaveCopy(nil, operationID: operationID) }
         }
-        .sheet(isPresented: $isNewBoardPresented) {
-            nameSheet(title: "Novo mural", actionTitle: "Criar") {
-                createBoard(named: boardNameDraft)
-            }
-        }
-        .sheet(isPresented: $isRenamePresented) {
-            nameSheet(title: "Renomear mural", actionTitle: "Renomear") {
-                renameBoard(to: boardNameDraft)
-            }
-        }
-        .alert(
-            "Não foi possível importar o mural",
-            isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importError ?? "")
-        }
-        .alert(
-            "Importação concluída",
-            isPresented: Binding(
-                get: { session.successMessage != nil },
-                set: { if !$0 { session.successMessage = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(session.successMessage ?? "")
-        }
-        .alert(
-            "Aviso de importação",
-            isPresented: Binding(
-                get: { session.warningMessage != nil },
-                set: { if !$0 { session.warningMessage = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(session.warningMessage ?? "")
-        }
         .onChange(of: session.actions.request) { _, request in
             guard let request else { return }
             session.actions.request = nil
@@ -281,15 +253,65 @@ private struct LoadedRootView: View {
         }
     }
 
+    /// Folhas de nome (mural e pasta) e avisos de importação.
+    private func withDialogs(_ content: some View) -> some View {
+        content
+            .sheet(isPresented: $isNewBoardPresented) {
+                nameSheet(title: "Novo mural", text: $boardNameDraft, actionTitle: "Criar") {
+                    createBoard(named: boardNameDraft)
+                }
+            }
+            .sheet(isPresented: $isRenamePresented) {
+                nameSheet(title: "Renomear mural", text: $boardNameDraft, actionTitle: "Renomear") {
+                    renameBoard(to: boardNameDraft)
+                }
+            }
+            .sheet(isPresented: $isNewFolderPresented) {
+                nameSheet(title: "Nova pasta", placeholder: "Nome da pasta", text: $folderNameDraft, actionTitle: "Criar") {
+                    createFolder(named: folderNameDraft)
+                }
+            }
+            .alert(
+                "Não foi possível importar o mural",
+                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(importError ?? "")
+            }
+            .alert(
+                "Importação concluída",
+                isPresented: Binding(
+                    get: { session.successMessage != nil },
+                    set: { if !$0 { session.successMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(session.successMessage ?? "")
+            }
+            .alert(
+                "Aviso de importação",
+                isPresented: Binding(
+                    get: { session.warningMessage != nil },
+                    set: { if !$0 { session.warningMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(session.warningMessage ?? "")
+            }
+    }
+
     @ViewBuilder
     private func nameSheet(
         title: String,
+        placeholder: String = "Nome do mural",
+        text: Binding<String>,
         actionTitle: String,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.headline)
-            TextField("Nome do mural", text: $boardNameDraft)
+            TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(action)
             HStack {
@@ -297,6 +319,7 @@ private struct LoadedRootView: View {
                 Button("Cancelar", role: .cancel) {
                     isNewBoardPresented = false
                     isRenamePresented = false
+                    isNewFolderPresented = false
                 }
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
@@ -333,6 +356,8 @@ private struct LoadedRootView: View {
                 openWindow(value: route)
                 dismiss()
             }
+        case .newFolder:
+            beginNewFolder()
         }
     }
 
@@ -441,6 +466,29 @@ private struct LoadedRootView: View {
 
     private func cancelPaste() {
         pendingPaste = nil
+        isCanvasFocused = true
+    }
+
+    /// Botão Pasta da barra: só no mural, com nada aberto por cima.
+    private var newFolderAction: (() -> Void)? {
+        guard session.acceptsNewFolder else { return nil }
+        return { beginNewFolder() }
+    }
+
+    /// Pede o nome da pasta nova; o pedido do menu chega aqui também.
+    private func beginNewFolder() {
+        guard session.acceptsNewFolder else { return }
+        folderNameDraft = ""
+        isNewFolderPresented = true
+    }
+
+    /// Cria a pasta no mural e a abre, vazia, crescendo a partir do cartão novo.
+    private func createFolder(named name: String) {
+        isNewFolderPresented = false
+        withAnimation(navigationAnimation) {
+            _ = session.createFolder(named: name)
+        }
+        isFolderInfoPresented = false
         isCanvasFocused = true
     }
 

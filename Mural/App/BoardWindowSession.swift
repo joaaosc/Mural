@@ -180,6 +180,11 @@ final class BoardWindowSession {
         return true
     }
 
+    /// Pastas só existem soltas no mural: criar uma vale apenas com nada aberto por cima.
+    var acceptsNewFolder: Bool {
+        acceptsNewContent && path.isEmpty
+    }
+
     private var workspaceTitle: String {
         // Manifest is loaded with the domain session; keeping the title in the
         // workspace adapter avoids a second source of truth in the view.
@@ -578,6 +583,17 @@ final class BoardWindowSession {
         setNavigation(path: folders + [.item(item.id)], filter: nil)
         beginEditing(item.id)
         return item.id
+    }
+
+    /// Cria uma pasta no mural e a abre, vazia, por cima dele. Dentro de uma pasta ou na
+    /// página de um item nada é criado.
+    @discardableResult
+    func createFolder(named name: String) -> UUID? {
+        guard restoration.acceptsPersistence, !isClosed, path.isEmpty, let model else { return nil }
+        let folder = model.createFolder(named: name)
+        captureBoardIfNeeded()
+        setNavigation(path: [.collection(folder.id)], filter: nil)
+        return folder.id
     }
 
     /// Texto colado, no tipo escolhido no popup.
@@ -1426,7 +1442,7 @@ private struct BoardLibraryView: View {
                     actions.resumeDraftAvailable = true
                     openWindow(value: draft.route)
                 }
-            case .rename, .promoteDraft:
+            case .rename, .promoteDraft, .newFolder:
                 break
             }
         }
