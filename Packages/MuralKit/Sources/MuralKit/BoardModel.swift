@@ -167,6 +167,8 @@ public final class BoardModel {
     private nonisolated static func copyFiles(
         _ urls: [URL], parentID: UUID?, importer: ItemImporter
     ) async -> PreparedImport {
+        let signpost = MuralSignposts.importing.beginInterval("Copiar arquivos")
+        defer { MuralSignposts.importing.endInterval("Copiar arquivos", signpost) }
         var items: [BoardItem] = []
         var failures: [String] = []
         for url in urls {
@@ -183,6 +185,8 @@ public final class BoardModel {
     private nonisolated static func writeData(
         _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID?, importer: ItemImporter
     ) async -> PreparedImport {
+        let signpost = MuralSignposts.importing.beginInterval("Gravar conteúdo colado")
+        defer { MuralSignposts.importing.endInterval("Gravar conteúdo colado", signpost) }
         do {
             let item = try importer.importData(
                 data, fileExtension: fileExtension, kind: kind, title: title, parentID: parentID)

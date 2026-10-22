@@ -183,6 +183,8 @@ public actor BoardRepository {
         copyingItemsFrom sourceItems: URL?,
         preservingWorkspaceDiagnostic diagnostic: Data?
     ) async throws {
+        let signpost = MuralSignposts.persistence.beginInterval("Salvar mural")
+        defer { MuralSignposts.persistence.endInterval("Salvar mural", signpost) }
         let id = snapshot.manifest.id
         let package = packageURL(for: id)
         let existingManifest = try existingManifest(at: package)

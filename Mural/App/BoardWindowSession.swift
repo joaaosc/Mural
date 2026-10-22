@@ -1,6 +1,7 @@
 import MuralKit
 import Observation
 import SwiftUI
+import os
 
 struct BoardImportDestination: Equatable, Sendable {
     let route: BoardRoute
@@ -119,6 +120,7 @@ final class BoardWindowSession {
     @ObservationIgnored private var restorationWatchdog: Task<Void, Never>?
     /// Tempo máximo tentando alcançar a posição salva antes de liberar o canvas.
     @ObservationIgnored var restorationTimeout: Duration = .seconds(2)
+    @ObservationIgnored private var restorationSignpost: OSSignpostIntervalState?
     /// Janelas abertas que o término do app espera gravar.
     @ObservationIgnored private let openSessions: OpenBoardSessions
 
@@ -198,6 +200,7 @@ final class BoardWindowSession {
 
             presentationGeneration &+= 1
             openSessions.register(self)
+            restorationSignpost = MuralSignposts.restoration.beginInterval("Restaurar canvas")
             restoration.begin(CanvasRestorationToken(boardID: boardID, generation: presentationGeneration))
             restorationPhase = restoration.phase
             zoom.configure(workspace: loadedWorkspace.canvas)
@@ -249,6 +252,10 @@ final class BoardWindowSession {
 
     private func didBecomeReady() {
         restorationPhase = restoration.phase
+        if let restorationSignpost {
+            MuralSignposts.restoration.endInterval("Restaurar canvas", restorationSignpost)
+            self.restorationSignpost = nil
+        }
         restorationWatchdog?.cancel()
         restorationWatchdog = nil
         lastCanvasContainerSize = zoom.viewport
@@ -950,6 +957,8 @@ final class BoardWindowSession {
         sessionPipeline = Task { [weak self] in
             await previous?.value
             guard let self, !Task.isCancelled else { return }
+            let signpost = MuralSignposts.persistence.beginInterval("Autosave")
+            defer { MuralSignposts.persistence.endInterval("Autosave", signpost) }
             do {
                 var expectedGeneration = await domainSession.generation
                 if let board {
