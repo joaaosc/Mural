@@ -67,25 +67,41 @@ struct BoardMoveTests {
         #expect(board.items.map(\.id) == initial.items.map(\.id))
     }
 
-    @Test("Guardar em pasta recusa o que não pode entrar, sem alterar o mural")
-    func moveIntoFolderRefusals() {
+    @Test("Guardar em pasta aceita pasta, cartão que já está numa pasta e destino dentro de pasta")
+    func moveIntoFolderAcceptsNesting() throws {
         let nestedFolder = BoardItem(kind: .folder, title: "Pasta dentro de pasta", parentID: folder.id)
         let board = Board(items: initial.items + [nestedFolder])
         let cases: [(name: String, id: UUID, folderID: UUID)] = [
             ("pasta em pasta", otherFolder.id, folder.id),
-            ("destino que não é pasta", note.id, sticky.id),
-            ("destino dentro de pasta", note.id, nestedFolder.id),
             ("cartão que já está numa pasta", child.id, otherFolder.id),
+            ("destino dentro de pasta", note.id, nestedFolder.id),
+        ]
+        for move in cases {
+            var attempt = board
+            let accepted = attempt.moveIntoFolder(id: move.id, folderID: move.folderID)
+            #expect(accepted, "recusou \(move.name)")
+            var expected = try #require(board.item(id: move.id))
+            expected.parentID = move.folderID
+            #expect(attempt.item(id: move.id) == expected, "mudou mais que o pai em \(move.name)")
+            #expect(attempt.items.map(\.id) == board.items.map(\.id), "mudou a ordem da lista em \(move.name)")
+        }
+    }
+
+    @Test("Guardar em pasta recusa o que não pode entrar, sem alterar o mural")
+    func moveIntoFolderRefusals() {
+        let cases: [(name: String, id: UUID, folderID: UUID)] = [
+            ("destino que não é pasta", note.id, sticky.id),
+            ("destino que já é o pai", child.id, folder.id),
             ("o próprio id", folder.id, folder.id),
             ("cartão desconhecido", UUID(), folder.id),
             ("pasta desconhecida", note.id, UUID()),
             ("os dois desconhecidos", UUID(), UUID()),
         ]
         for refusal in cases {
-            var attempt = board
+            var attempt = initial
             let accepted = attempt.moveIntoFolder(id: refusal.id, folderID: refusal.folderID)
             #expect(!accepted, "aceitou \(refusal.name)")
-            #expect(attempt == board, "alterou o mural em \(refusal.name)")
+            #expect(attempt == initial, "alterou o mural em \(refusal.name)")
         }
     }
 

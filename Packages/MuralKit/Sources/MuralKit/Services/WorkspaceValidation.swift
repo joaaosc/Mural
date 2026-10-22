@@ -25,10 +25,11 @@ extension BoardWorkspaceState {
             issues.append(.nonFiniteCanvasCenter)
         }
 
+        // O caminho vai de pasta em pasta (até `maximumFolderDepth` níveis) e pode terminar numa página de cartão.
         var validPath: [WorkspaceDestination] = []
         var seen = Set<UUID>()
         for (index, destination) in canonical.path.enumerated() {
-            guard index < 2 else {
+            guard index <= Board.maximumFolderDepth else {
                 issues.append(.pathTruncated(index: index))
                 break
             }
@@ -42,7 +43,7 @@ extension BoardWorkspaceState {
                 issues.append(.pathTruncated(index: index))
                 break
             }
-            guard isValid(destination: destination, at: index, path: validPath, board: board) else {
+            guard isValid(destination: destination, after: validPath, board: board) else {
                 issues.append(.invalidPath(index: index))
                 issues.append(.pathTruncated(index: index))
                 break
@@ -51,13 +52,13 @@ extension BoardWorkspaceState {
         }
         canonical.path = validPath
 
-        if let filter = canonical.filter {
-            let filterIsValid: Bool
-            switch canonical.path.count {
-            case 0: filterIsValid = true
-            case 1: filterIsValid = filter != .folders
-            default: filterIsValid = false
-            }
+        // O filtro vale na lista de um nível (mural ou pasta), nunca na página de um cartão.
+        if canonical.filter != nil {
+            let filterIsValid =
+                switch canonical.path.last {
+                case nil, .collection: true
+                case .item: false
+                }
             if !filterIsValid {
                 canonical.filter = nil
                 issues.append(.invalidFilter)
@@ -89,23 +90,20 @@ extension BoardWorkspaceState {
         canonicalized(for: board).state
     }
 
-    private func isValid(
-        destination: WorkspaceDestination,
-        at index: Int,
-        path: [WorkspaceDestination],
-        board: Board
-    ) -> Bool {
+    /// Um destino vale se o cartão existe, é do tipo certo (pasta para `.collection`, outro cartão para `.item`) e está
+    /// dentro do destino anterior, ou solto no mural se for o primeiro. Nada vem depois de um `.item`.
+    private func isValid(destination: WorkspaceDestination, after path: [WorkspaceDestination], board: Board) -> Bool {
         guard let id = destination.id, let item = board.item(id: id) else { return false }
-        switch (index, destination) {
-        case (0, .collection(_)):
-            return item.kind == .folder && item.parentID == nil
-        case (0, .item(_)):
-            return item.kind != .folder && item.parentID == nil
-        case (1, .item(_)):
-            guard case .collection(let parentID) = path[0] else { return false }
-            return item.kind != .folder && item.parentID == parentID
-        default:
-            return false
+        let expectedParentID: UUID?
+        switch path.last {
+        case nil: expectedParentID = nil
+        case .collection(let folderID): expectedParentID = folderID
+        case .item: return false
+        }
+        guard item.parentID == expectedParentID else { return false }
+        switch destination {
+        case .collection: return item.kind == .folder
+        case .item: return item.kind != .folder
         }
     }
 
@@ -119,14 +117,13 @@ extension BoardWorkspaceState {
     private func isValid(position: ReadingPosition, board: Board) -> Bool {
         switch position {
         case .collection(let folderID, let firstVisibleItemID, let relativeOffset, let fallbackContentY):
-            guard let folder = board.item(id: folderID), folder.kind == .folder, folder.parentID == nil,
+            // A pasta pode estar em qualquer nível; o primeiro cartão visível pode ser outra pasta.
+            guard let folder = board.item(id: folderID), folder.kind == .folder,
                 relativeOffset.isFinite, relativeOffset >= 0,
                 fallbackContentY.isFinite, fallbackContentY >= 0
             else { return false }
             if let firstVisibleItemID {
-                guard let item = board.item(id: firstVisibleItemID), item.kind != .folder,
-                    item.parentID == folderID
-                else { return false }
+                guard let item = board.item(id: firstVisibleItemID), item.parentID == folderID else { return false }
             }
         case .item(let itemID, let visibleContentY):
             guard let item = board.item(id: itemID), item.kind != .folder,

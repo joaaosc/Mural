@@ -225,14 +225,31 @@ public final class BoardModel {
 
     // MARK: Pastas
 
-    /// Pasta vazia, solta no mural numa posição livre (pastas não entram em pastas).
-    /// Sem nome, vira "Nova pasta".
+    /// Pasta vazia, solta no mural numa posição livre. Sem nome, vira "Nova pasta".
     @discardableResult
     public func createFolder(named name: String) -> BoardItem {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let placed = insert(BoardItem(kind: .folder, title: trimmed.isEmpty ? "Nova pasta" : trimmed))
+        let placed = insert(BoardItem(kind: .folder, title: Self.folderTitle(from: name)))
         persist()
         return placed
+    }
+
+    /// Pasta vazia dentro de outra pasta. Sem nome, vira "Nova pasta".
+    /// - Returns: `nil`, sem criar nada, se o pai não é uma pasta ou já está no último nível (`Board.maximumFolderDepth`).
+    @discardableResult
+    public func createFolder(named name: String, into parentID: UUID) -> BoardItem? {
+        guard canCreateFolder(in: parentID) else { return nil }
+        let placed = insert(BoardItem(kind: .folder, title: Self.folderTitle(from: name), parentID: parentID))
+        persist()
+        return placed
+    }
+
+    /// Diz se cabe uma pasta nova no pai: `nil` é o mural, que sempre aceita; uma pasta aceita enquanto a nova
+    /// não passar do último nível (`Board.maximumFolderDepth`).
+    public func canCreateFolder(in parentID: UUID?) -> Bool {
+        guard let parentID else { return true }
+        guard board.item(id: parentID)?.kind == .folder else { return false }
+        // A pasta nova ficaria um nível abaixo do pai, que já está um nível abaixo das pastas que o cercam.
+        return board.depth(of: parentID) + 2 <= Board.maximumFolderDepth
     }
 
     /// Grava título e corpo (Markdown) de uma nota. Sem título, usa a primeira linha do corpo.
@@ -313,7 +330,7 @@ public final class BoardModel {
         return previous
     }
 
-    /// Guarda um cartão solto dentro de uma pasta.
+    /// Guarda um cartão, ou uma pasta com tudo que há nela, dentro de outra pasta (regras em `Board.moveIntoFolder`).
     public func moveIntoFolder(_ itemID: UUID, folderID: UUID) {
         guard board.moveIntoFolder(id: itemID, folderID: folderID) else { return }
         persist()
@@ -327,7 +344,23 @@ public final class BoardModel {
         persist()
     }
 
-    /// Apaga o cartão (e, se for pasta, o conteúdo dela) junto com os arquivos guardados.
+    /// Sobe o cartão um nível: da pasta para a pasta que a guarda ou, se a pasta está solta, para o mural.
+    /// Um cartão que já está solto fica como está.
+    public func moveUp(_ itemID: UUID) {
+        guard let parentID = board.item(id: itemID)?.parentID else { return }
+        if let grandparentID = board.item(id: parentID)?.parentID {
+            moveIntoFolder(itemID, folderID: grandparentID)
+        } else {
+            moveToBoard(itemID)
+        }
+    }
+
+    /// Quantos cartões há dentro da pasta, em qualquer nível. As subpastas contam como cartões.
+    public func descendantCount(of folderID: UUID) -> Int {
+        board.descendants(of: folderID).count
+    }
+
+    /// Apaga o cartão (e, se for pasta, tudo que há dentro dela, em qualquer nível) junto com os arquivos guardados.
     public func delete(_ itemID: UUID) {
         guard !isPersistenceSuspended else {
             lastError = "Não foi possível apagar o item: a persistência está suspensa. Nenhum arquivo foi removido."
@@ -385,6 +418,11 @@ public final class BoardModel {
     }
 
     // MARK: Interno
+
+    private static func folderTitle(from name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Nova pasta" : trimmed
+    }
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.
     private func insert(_ item: BoardItem) -> BoardItem {

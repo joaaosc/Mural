@@ -240,7 +240,6 @@ struct BoardModelTests {
         let store = makeStore()
         let model = BoardModel(store: store)
         let folder = try #require(model.rootItems.first { $0.kind == .folder })
-        let otherFolder = try #require(model.rootItems.last { $0.kind == .folder })
         let loose = try #require(model.rootItems.first { $0.kind == .text })
         let child = try #require(model.children(of: folder.id).first)
         let boardBeforeMoves = model.board
@@ -251,7 +250,9 @@ struct BoardModelTests {
 
         model.move(child.id, to: BoardPoint(x: 10, y: 10))
         model.move(UUID(), to: BoardPoint(x: 10, y: 10))
-        model.moveIntoFolder(folder.id, folderID: otherFolder.id)
+        model.moveIntoFolder(folder.id, folderID: folder.id)
+        model.moveIntoFolder(child.id, folderID: folder.id)
+        model.moveIntoFolder(loose.id, folderID: child.id)
         model.moveIntoFolder(loose.id, folderID: loose.id)
         model.moveToBoard(loose.id)
         model.moveToBoard(UUID())

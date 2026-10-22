@@ -51,8 +51,8 @@ struct BoardFormatVersionTests {
 
     // MARK: Board
 
-    @Test("Cada alteração de fato grava a versão atual do formato")
-    func effectiveMutationsStampCurrentVersion() throws {
+    @Test("Cada alteração de fato grava a versão que o conteúdo exige")
+    func effectiveMutationsStampRequiredVersion() throws {
         let extra = BoardItem(kind: .sticky, title: "Novo", position: BoardPoint(x: 300, y: 300))
         var renamed = note
         renamed.title = "Outro título"
@@ -62,7 +62,10 @@ struct BoardFormatVersionTests {
             ("remove", { $0.remove(id: note.id) }),
             ("move", { $0.move(id: note.id, to: BoardPoint(x: 5, y: 5)) }),
             ("setPositions", { $0.setPositions([note.id: BoardPoint(x: 9, y: 9)]) }),
+            ("remove de pasta com cartões", { $0.remove(id: folder.id) }),
             ("moveIntoFolder", { $0.moveIntoFolder(id: note.id, folderID: otherFolder.id) }),
+            ("moveIntoFolder de pasta em pasta", { $0.moveIntoFolder(id: otherFolder.id, folderID: folder.id) }),
+            ("moveIntoFolder de cartão de uma pasta para outra", { $0.moveIntoFolder(id: child.id, folderID: otherFolder.id) }),
             ("moveToBoard", { $0.moveToBoard(id: child.id, at: BoardPoint(x: 7, y: 7)) }),
         ]
         for mutation in mutations {
@@ -70,8 +73,25 @@ struct BoardFormatVersionTests {
             var board = older
             mutation.apply(&board)
             #expect(board.items != older.items, "\(mutation.name) não alterou o mural")
-            #expect(board.formatVersion == Board.currentFormatVersion, "\(mutation.name) não gravou a versão atual")
+            #expect(board.formatVersion == board.requiredFormatVersion, "\(mutation.name) não gravou a versão exigida")
+            #expect(board.formatVersion >= 1, "\(mutation.name) deixou a versão antiga")
         }
+    }
+
+    @Test("A versão exigida vem do conteúdo: 2 só com pasta dentro de pasta, e volta a 1 sem ela")
+    func requiredVersionFollowsContent() {
+        #expect(Board().formatVersion == 1)
+        #expect(Board(items: items).requiredFormatVersion == 1, "pasta solta com cartão dentro é da versão 1")
+
+        var board = Board(items: items)
+        let nested = board.moveIntoFolder(id: otherFolder.id, folderID: folder.id)
+        #expect(nested)
+        #expect(board.formatVersion == 2)
+        #expect(Board(items: board.items).formatVersion == 2)
+
+        let loose = board.moveToBoard(id: otherFolder.id, at: BoardPoint(x: 400, y: 100))
+        #expect(loose)
+        #expect(board.formatVersion == 1, "sem pasta aninhada, o mural volta a abrir nas builds da versão 1")
     }
 
     @Test("Chamada sem efeito deixa o mural antigo, e a versão 0, como estavam")
@@ -85,7 +105,9 @@ struct BoardFormatVersionTests {
             ("setPositions vazio", { $0.setPositions([:]) }),
             ("setPositions na posição que já era", { $0.setPositions([note.id: note.position]) }),
             ("setPositions só de cartão de pasta e de id desconhecido", { $0.setPositions([child.id: .zero, UUID(): .zero]) }),
-            ("moveIntoFolder de pasta em pasta", { $0.moveIntoFolder(id: otherFolder.id, folderID: folder.id) }),
+            ("moveIntoFolder de pasta dentro de si mesma", { $0.moveIntoFolder(id: folder.id, folderID: folder.id) }),
+            ("moveIntoFolder para a pasta que já é o pai", { $0.moveIntoFolder(id: child.id, folderID: folder.id) }),
+            ("moveIntoFolder para um destino que não é pasta", { $0.moveIntoFolder(id: note.id, folderID: child.id) }),
             ("moveToBoard de cartão que já está solto", { $0.moveToBoard(id: note.id, at: BoardPoint(x: 5, y: 5)) }),
         ]
         for call in calls {
@@ -179,16 +201,17 @@ struct BoardFormatVersionTests {
         let saved = try await session.flush()
         let reloaded = try #require(await repository.load(id)).snapshot
         #expect(reloaded.board == edited)
-        #expect(reloaded.board.formatVersion == Board.currentFormatVersion)
+        #expect(reloaded.board.formatVersion == 1, "o conteúdo continua sendo da versão 1")
         #expect(reloaded.manifest.contentRevision == loaded.manifest.contentRevision + 1)
         try await repository.save(saved)
     }
 
     @Test("A mensagem diz que o mural veio de uma versão mais nova e que nada foi alterado")
     func futureBoardMessage() {
+        let future = Board.currentFormatVersion + 1
         #expect(
-            BoardRepositoryError.futureBoardFormat(2).errorDescription
-                == "Este mural foi salvo por uma versão mais nova do Mural (formato 2). Nada foi alterado.")
+            BoardRepositoryError.futureBoardFormat(future).errorDescription
+                == "Este mural foi salvo por uma versão mais nova do Mural (formato \(future)). Nada foi alterado.")
     }
 }
 

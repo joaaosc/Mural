@@ -176,7 +176,7 @@ struct BoardPortablePackageTests {
         await assertError(service, package, .duplicateItemID(id))
     }
 
-    @Test("Posição não finita, parent inválido e payload de arquivo são rejeitados")
+    @Test("Posição não finita, parent inválido, ciclo, profundidade e payload de arquivo são rejeitados")
     func itemPayloadValidationIsExact() async throws {
         let root = try root()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -192,9 +192,20 @@ struct BoardPortablePackageTests {
         await assertBoardError(service, Board(items: [parent, childOfText]), items, .invalidItemParent(childOfText.id))
         let folder = BoardItem(kind: .folder, title: "folder", parentID: UUID())
         await assertBoardError(service, Board(items: [folder]), items, .invalidItemParent(folder.id))
+        // Pasta dentro de pasta vale; o que não vale é o ciclo e passar do limite de níveis.
         let rootFolder = BoardItem(kind: .folder, title: "root")
         let nestedFolder = BoardItem(kind: .folder, title: "nested", parentID: rootFolder.id)
-        await assertBoardError(service, Board(items: [rootFolder, nestedFolder]), items, .invalidItemParent(nestedFolder.id))
+        try await service.validateBoard(Board(items: [rootFolder, nestedFolder]), itemsURL: items)
+        let cycleID = UUID()
+        let cycleStart = BoardItem(kind: .folder, title: "cycle A", parentID: cycleID)
+        let cycleEnd = BoardItem(id: cycleID, kind: .folder, title: "cycle B", parentID: cycleStart.id)
+        await assertBoardError(service, Board(items: [cycleStart, cycleEnd]), items, .invalidItemParent(cycleStart.id))
+        var chain: [BoardItem] = []
+        for level in 1...(Board.maximumFolderDepth + 1) {
+            chain.append(BoardItem(kind: .folder, title: "level \(level)", parentID: chain.last?.id))
+        }
+        let tooDeep = try #require(chain.last)
+        await assertBoardError(service, Board(items: chain), items, .invalidItemParent(tooDeep.id))
         let image = BoardItem(kind: .image, title: "image")
         await assertBoardError(service, Board(items: [image]), items, .missingAsset("\(image.id.uuidString):fileName"))
         let text = BoardItem(kind: .text, title: "text", fileName: "extra.txt")

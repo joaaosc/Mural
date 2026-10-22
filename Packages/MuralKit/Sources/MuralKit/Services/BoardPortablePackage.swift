@@ -327,10 +327,8 @@ public actor BoardPortablePackageService {
         }
         var referenced = Set<String>()
         for item in board.items {
-            if let parentID = item.parentID {
-                guard let parent = itemsByID[parentID], parent.kind == .folder, parent.parentID == nil,
-                    item.kind != .folder
-                else {
+            if item.parentID != nil {
+                guard hasValidParentChain(item, in: itemsByID) else {
                     throw BoardPortablePackageError.invalidItemParent(item.id)
                 }
             } else if item.kind == .folder, item.fileName != nil {
@@ -369,6 +367,21 @@ public actor BoardPortablePackageService {
                 throw BoardPortablePackageError.unreferencedAsset(asset.lastPathComponent)
             }
         }
+    }
+
+    /// A cadeia de pais chega ao mural passando só por pastas e sem passar de `Board.maximumFolderDepth` níveis
+    /// (uma pasta ocupa um nível; um cartão que não é pasta cabe em qualquer pasta). Um ciclo nunca chega ao mural
+    /// e acaba no limite de níveis.
+    private func hasValidParentChain(_ item: BoardItem, in itemsByID: [UUID: BoardItem]) -> Bool {
+        var foldersAbove = 0
+        var next = item.parentID
+        while let parentID = next {
+            guard let parent = itemsByID[parentID], parent.kind == .folder else { return false }
+            foldersAbove += 1
+            guard foldersAbove <= Board.maximumFolderDepth else { return false }
+            next = parent.parentID
+        }
+        return item.kind != .folder || foldersAbove < Board.maximumFolderDepth
     }
 
     private func copyTree(_ source: URL, to destination: URL) throws {
