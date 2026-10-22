@@ -1,14 +1,14 @@
 # Mural
 
 App de macOS 27 em SwiftUI para reunir referências visuais num mural: imagens, vídeos,
-PDFs, notas, post-its e listas. O conteúdo entra colando (⌘V), arrastando para a janela,
+PDFs, notas, post-its, listas e links. O conteúdo entra colando (⌘V), arrastando para a janela,
 pela barra de criação no centro inferior ou por Arquivo › Importar…, e fica salvo entre aberturas.
 
 A interface tem três níveis, cada um crescendo a partir do cartão clicado:
 
 1. **Mural**: cartões livres, com zoom, filtros e prévia de pastas ao passar o ponteiro.
 2. **Pasta**: o conteúdo em colunas de alturas livres, com etiquetas nos cantos.
-3. **Item**: detalhe por tipo (imagem com paleta e metadados, vídeo, PDF, texto, lista).
+3. **Item**: detalhe por tipo (imagem com paleta e metadados, vídeo, PDF, texto, lista, página do link).
 
 Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
@@ -28,6 +28,20 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   voltam abertos ao reabrir a nota.
 - **⌘V com texto solto** abre um popup que pergunta se ele vira sticker, card de texto
   ou, quando parece lista, lista; a sugestão fica no Return.
+
+## Links
+
+- **⌘V com um endereço** cria um cartão de link com imagem, ícone, site, título e resumo da
+  página. Vale para Copiar Link, o endereço da barra e favoritos ou itens da Lista de Leitura
+  copiados no Safari, que já trazem título, resumo e imagem; vários endereços, um por linha,
+  viram um cartão cada.
+- **Página no detalhe**: abrir o cartão mostra a página dentro do Mural, com página anterior e
+  próxima, Abrir no navegador, Copiar link e Usar como prévia (o trecho visível vira a imagem
+  do cartão). Só `http` e `https` abrem dentro; e-mail, telefone, mensagem e FaceTime vão para
+  o app do sistema.
+- **Prévias**: buscadas pela rede quando o cartão aparece, com limite por site; ficam em
+  `LinkPreviews/`, ao lado dos murais, e se refazem sozinhas se o arquivo sumir. "Atualizar
+  prévia", no menu do cartão, busca de novo.
 
 ## Requisitos
 
