@@ -33,11 +33,16 @@ struct CardButton: View {
                 CardView(item: item, model: model)
             }
             .buttonStyle(.plain)
+            // Só no botão do cartão: aplicado depois das sobreposições, o rótulo cobriria também o da bolinha.
+            .accessibilityLabel(item.title)
+            .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
             .overlay {
                 if isSelected {
                     RoundedRectangle(cornerRadius: Theme.cardCorner)
                         .strokeBorder(.tint, lineWidth: 3)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             .overlay(alignment: .topLeading) {
@@ -45,12 +50,10 @@ struct CardButton: View {
                     SelectionBadge(isSelected: isSelected)
                         .padding(8)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
             .overlay(alignment: .topLeading) { reminderToggle }
-            .accessibilityLabel(item.title)
-            .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
             .contextMenu {
                 Button("Abrir", action: onOpen)
                 linkMenu
