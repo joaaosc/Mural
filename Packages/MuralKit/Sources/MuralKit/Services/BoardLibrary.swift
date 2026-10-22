@@ -14,13 +14,17 @@ public actor BoardLibrary {
     private let portablePackageService: BoardPortablePackageService
     private var faultInjection: BoardLibraryFaultInjection
     private var bootstrapTask: Task<LibraryState, Error>?
+    /// Para onde vai o pacote de um mural excluído: o Lixo do Mac, para a pessoa poder recuperar.
+    /// Os testes trocam por uma remoção simples, para não encher o Lixo de quem roda os testes.
+    private let discardPackage: @Sendable (URL) throws -> Void
 
     public init(
         rootDirectory: URL = BoardStore.defaultDirectory(),
         faultInjection: BoardLibraryFaultInjection = .none,
         repositoryFaultInjection: BoardRepositoryFaultInjection = .none,
         packageLimits: BoardPackageLimits = BoardPackageLimits(),
-        packageAvailableCapacity: @escaping @Sendable (URL) -> UInt64? = BoardPortablePackageService.defaultAvailableCapacity
+        packageAvailableCapacity: @escaping @Sendable (URL) -> UInt64? = BoardPortablePackageService.defaultAvailableCapacity,
+        discardPackage: @escaping @Sendable (URL) throws -> Void = BoardLibrary.moveToTrash
     ) {
         self.rootDirectory = rootDirectory
         self.boardsDirectory = rootDirectory.appendingPathComponent("Boards", isDirectory: true)
@@ -40,6 +44,12 @@ public actor BoardLibrary {
             availableCapacity: packageAvailableCapacity)
         self.faultInjection = faultInjection
         self.bootstrapTask = nil
+        self.discardPackage = discardPackage
+    }
+
+    /// Move o item para o Lixo do Mac.
+    public static func moveToTrash(_ url: URL) throws {
+        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
     }
 
     public func bootstrap() async throws -> LibraryState {
@@ -305,6 +315,31 @@ public actor BoardLibrary {
             try FileManager.default.removeItem(at: await draftRepository.packageURL(for: state.stableWelcomeID))
         } catch {
             if FileManager.default.fileExists(atPath: await draftRepository.packageURL(for: state.stableWelcomeID).path) {
+                throw BoardLibraryError.io(String(describing: error))
+            }
+        }
+    }
+
+    /// Exclui o mural da biblioteca. Um mural salvo vai para o Lixo do Mac; o rascunho de exemplo é
+    /// descartado, como em `discardWelcomeDraft()`. Quem tem o mural aberto precisa fechá-lo antes: uma
+    /// sessão viva recriaria o pacote na próxima gravação.
+    public func deleteBoard(_ route: BoardRoute) async throws {
+        switch route {
+        case .library:
+            throw BoardLibraryError.unavailableRoute(route)
+        case .welcomeDraft(let id):
+            guard let state = try loadState(), state.lifecycle == .draft, state.stableWelcomeID == id else {
+                throw BoardLibraryError.unavailableRoute(route)
+            }
+            try await discardWelcomeDraft()
+        case .saved(let id):
+            let package = await savedRepository.packageURL(for: id)
+            guard FileManager.default.fileExists(atPath: package.path) else {
+                throw BoardLibraryError.unavailableRoute(route)
+            }
+            do {
+                try discardPackage(package)
+            } catch {
                 throw BoardLibraryError.io(String(describing: error))
             }
         }
