@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// Faixa de abas como a do Safari no layout compacto: uma aba por mural aberto, todas da mesma
 /// largura, na mesma linha dos botões da janela. Com abas demais para a largura, a faixa rola.
@@ -8,8 +7,14 @@ struct BoardTabStrip: View {
     /// Largura livre na barra da janela: um item da barra não estica sozinho, ele usa a largura pedida.
     let width: CGFloat
 
-    /// Aba sendo arrastada para mudar de lugar.
-    @State private var draggedTab: UUID?
+    /// Aba sendo arrastada para mudar de lugar: de onde saiu e quanto o ponteiro andou.
+    @State private var tabDrag: TabDrag?
+
+    private struct TabDrag: Equatable {
+        let id: UUID
+        let startIndex: Int
+        var translation: CGFloat
+    }
 
     static let spacing: CGFloat = 4
     static let minimumTabWidth: CGFloat = 90
@@ -21,7 +26,7 @@ struct BoardTabStrip: View {
         let fits = CGFloat(count) * tabWidth + Self.spacing * CGFloat(max(0, count - 1)) <= width + 0.5
         ScrollView(.horizontal) {
             HStack(spacing: Self.spacing) {
-                ForEach(tabs.tabs) { tab in
+                ForEach(Array(tabs.tabs.enumerated()), id: \.element.id) { index, tab in
                     BoardTabButton(
                         title: tab.title,
                         isSelected: tab.id == tabs.selectedID,
@@ -32,17 +37,46 @@ struct BoardTabStrip: View {
                         onDelete: { tabs.requestDelete(tab.route, name: tab.title) }
                     )
                     .frame(width: tabWidth, height: Self.height)
-                    .onDrag {
-                        draggedTab = tab.id
-                        return NSItemProvider(object: tab.id.uuidString as NSString)
-                    }
-                    .onDrop(of: [.text], delegate: TabReorderDelegate(target: tab.id, tabs: tabs, dragged: $draggedTab))
+                    .offset(x: dragOffset(for: tab.id, at: index, step: tabWidth + Self.spacing))
+                    .zIndex(tabDrag?.id == tab.id ? 1 : 0)
+                    .simultaneousGesture(reorderGesture(for: tab.id, step: tabWidth + Self.spacing))
                 }
             }
+            .coordinateSpace(.named(Self.space))
         }
         .scrollIndicators(.never)
         .scrollDisabled(fits)
         .frame(width: width, height: Self.height, alignment: .leading)
+    }
+
+    private static let space = "tab-strip"
+
+    /// A aba arrastada segue o ponteiro; as outras ficam no lugar delas.
+    private func dragOffset(for id: UUID, at index: Int, step: CGFloat) -> CGFloat {
+        guard let tabDrag, tabDrag.id == id else { return 0 }
+        return tabDrag.translation - CGFloat(index - tabDrag.startIndex) * step
+    }
+
+    /// Arrastar uma aba para os lados: quando ela passa da metade da vizinha, as duas trocam de lugar, como
+    /// no Safari. Gesto próprio, e não arrastar e soltar do sistema, que não começa dentro da barra da janela.
+    private func reorderGesture(for id: UUID, step: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                guard let index = tabs.tabs.firstIndex(where: { $0.id == id }) else { return }
+                if tabDrag?.id != id {
+                    tabDrag = TabDrag(id: id, startIndex: index, translation: 0)
+                }
+                tabDrag?.translation = value.translation.width
+                guard let start = tabDrag?.startIndex, step > 0 else { return }
+                let moved = Int((value.translation.width / step).rounded())
+                let target = min(max(start + moved, 0), tabs.tabs.count - 1)
+                if target != index {
+                    withAnimation(.smooth(duration: 0.2)) { tabs.moveTab(id, toIndex: target) }
+                }
+            }
+            .onEnded { _ in
+                withAnimation(.smooth(duration: 0.2)) { tabDrag = nil }
+            }
     }
 
     /// Largura de cada aba: a faixa dividida igualmente, sem passar do mínimo legível.
@@ -51,29 +85,6 @@ struct BoardTabStrip: View {
         let shared = (available - spacing * CGFloat(count - 1)) / CGFloat(count)
         return max(minimumTabWidth, shared.rounded(.down))
     }
-}
-
-/// Reordena as abas enquanto uma é arrastada por cima das outras, como no Safari.
-private struct TabReorderDelegate: DropDelegate {
-    let target: UUID
-    let tabs: MuralTabs
-    @Binding var dragged: UUID?
-
-    func dropEntered(info: DropInfo) {
-        guard let dragged, dragged != target else { return }
-        withAnimation(.smooth(duration: 0.2)) { tabs.moveTab(dragged, to: target) }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        dragged = nil
-        return true
-    }
-
-    func dropExited(info: DropInfo) {}
 }
 
 /// Uma aba: o nome do mural no meio e, ao passar o ponteiro, o "×" à esquerda, como no Safari.
