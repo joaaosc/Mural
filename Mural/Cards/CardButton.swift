@@ -54,6 +54,7 @@ struct CardButton: View {
             .contextMenu {
                 Button("Abrir", action: onOpen)
                 linkMenu
+                notesMenu
                 moveMenu
                 Divider()
                 colorMenu
@@ -112,6 +113,14 @@ struct CardButton: View {
             Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
             Button("Atualizar prévia") { linkPreviewCoordinator?.request([item.id], force: true) }
                 .disabled(linkPreviewCoordinator == nil)
+        }
+    }
+
+    /// Nota, post-it e lista: mandar o texto ao app Notas.
+    @ViewBuilder
+    private var notesMenu: some View {
+        if [.text, .sticky, .checklist].contains(item.kind) {
+            Button("Salvar no Notas") { NotesSharing().share(item, model: model, from: nil) }
         }
     }
 

@@ -81,6 +81,12 @@ struct ItemDetailView: View {
                 })
         }
         actions.append(PillAction(title: "Copiar", symbol: "square.on.square") { PasteboardExporter.copy(item, from: model) })
+        if [.text, .sticky, .checklist].contains(item.kind) {
+            actions.append(
+                PillAction(title: "Salvar no Notas", symbol: "square.and.arrow.up") {
+                    NotesSharing().share(item, model: model, from: nil)
+                })
+        }
         if let url = model.fileURL(for: item) {
             actions.append(
                 PillAction(title: "Abrir no app padrão", symbol: "arrow.up.forward.app") {
