@@ -1182,6 +1182,17 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    /// Dá a cor (ou tira, com `nil`) a todos os cartões marcados, com uma gravação só. A marcação continua,
+    /// para a pessoa poder fazer mais alguma coisa com os mesmos cartões.
+    func colorSelection(_ color: TagColor?) {
+        guard !isClosed, let model else { return }
+        var changed = false
+        for itemID in currentSelection where model.setColorTag(color, for: itemID) {
+            changed = true
+        }
+        if changed { captureBoardIfNeeded() }
+    }
+
     func flushAndPrepareToLeave() async {
         guard !isClosed else { return }
         if let leaveFlushTask {

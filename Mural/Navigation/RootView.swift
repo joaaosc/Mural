@@ -314,6 +314,9 @@ private struct LoadedRootView: View {
                 if session.isSelecting {
                     SelectionBar(
                         count: session.currentSelection.count,
+                        onColor: { color in
+                            withAnimation(reduceMotion ? nil : .smooth) { session.colorSelection(color) }
+                        },
                         onDelete: { isConfirmingSelectionDelete = true },
                         onCancel: { session.clearSelection() })
                 } else {

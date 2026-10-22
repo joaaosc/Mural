@@ -1,9 +1,12 @@
+import MuralKit
 import SwiftUI
 
 /// Barra do seletor, no lugar da barra de criação enquanto a seleção está aberta: quantos
-/// cartões estão marcados, Apagar… e Cancelar. Mesmo vidro e botões da barra de criação.
+/// cartões estão marcados, Cor, Apagar… e Cancelar. Mesmo vidro e botões da barra de criação.
 struct SelectionBar: View {
     let count: Int
+    /// Dá a cor (ou tira, com `nil`) aos cartões marcados.
+    var onColor: (TagColor?) -> Void = { _ in }
     var onDelete: () -> Void
     var onCancel: () -> Void
 
@@ -14,6 +17,7 @@ struct SelectionBar: View {
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .padding(.horizontal, 12)
+            colorMenu
             Button("Apagar…", systemImage: "trash", role: .destructive, action: onDelete)
                 .foregroundStyle(count == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.red))
                 .disabled(count == 0)
@@ -27,6 +31,28 @@ struct SelectionBar: View {
         .glassEffect(.regular, in: .capsule)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("selection-bar")
+    }
+
+    /// As mesmas sete cores do menu do cartão; escolher uma pinta todos os marcados.
+    private var colorMenu: some View {
+        Menu {
+            Picker("Cor", selection: Binding<TagColor?>(get: { nil }, set: { onColor($0) })) {
+                ForEach(TagColor.allCases) { color in
+                    Label(color.displayName, systemImage: "circle.fill")
+                        .tint(color.color)
+                        .tag(Optional(color))
+                }
+            }
+            .pickerStyle(.palette)
+            Button("Remover cor") { onColor(nil) }
+        } label: {
+            Label("Cor", systemImage: "paintpalette")
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .disabled(count == 0)
+        .help("Dar uma cor aos cartões marcados")
+        .accessibilityIdentifier("selection-color")
     }
 
     private var title: String {
