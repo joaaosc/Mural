@@ -209,7 +209,6 @@ final class BoardWindowSession {
             let loadedGeneration = await session.generation
             let manifest = await session.manifest
             let packageURL = await session.repository.packageURL(for: boardID)
-            await refreshDraftAvailability()
             // A janela pode ter fechado durante as esperas acima: devolve a referência.
             guard !isClosed else {
                 await releaseRegistryReference()
@@ -259,11 +258,6 @@ final class BoardWindowSession {
 
     private var canvasToken: CanvasRestorationToken {
         CanvasRestorationToken(boardID: boardID, generation: presentationGeneration)
-    }
-
-    func refreshDraftAvailability() async {
-        actions.resumeDraftAvailable =
-            (try? await registry.library.lifecycleState())?.lifecycle == .draft
     }
 
     func beginApplyingZoom() {
@@ -797,7 +791,6 @@ final class BoardWindowSession {
             // senão um autosave atrasado recriaria o package do rascunho.
             ownsRegistryReference = false
             markClosed()
-            actions.resumeDraftAvailable = false
             successMessage = "Rascunho promovido para um mural salvo."
             return promoted
         } catch let promotionError {

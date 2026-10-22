@@ -4,33 +4,33 @@ import Testing
 @testable import Mural
 
 /// O app nunca fica aberto só com a barra de menus: sem nenhuma janela depois da
-/// restauração (ou ao clicar no Dock), abre a biblioteca.
+/// restauração (ou ao clicar no Dock), abre a janela com a lista de murais.
 @Suite("Abertura do app")
 @MainActor
 struct AppLaunchTests {
-    @Test("Sem janela depois da abertura, abre a biblioteca; com janela, não faz nada")
-    func opensLibraryOnlyWithoutWindows() {
-        let opener = LibraryWindowOpener()
+    @Test("Sem janela depois da abertura, abre a janela; com janela, não faz nada")
+    func opensWindowOnlyWithoutWindows() {
+        let opener = MainWindowOpener()
         var opened = 0
         opener.register { opened += 1 }
         let delegate = MuralAppDelegate()
-        delegate.libraryOpener = opener
+        delegate.windowOpener = opener
 
         delegate.hasOpenWindow = { true }
-        delegate.openLibraryIfNoWindow()
+        delegate.openWindowIfNeeded()
         #expect(opened == 0)
 
         delegate.hasOpenWindow = { false }
-        delegate.openLibraryIfNoWindow()
+        delegate.openWindowIfNeeded()
         #expect(opened == 1)
     }
 
-    @Test("Clique no Dock sem janelas abre a biblioteca e dispensa o comportamento padrão")
-    func reopenWithoutWindowsOpensLibrary() {
-        let opener = LibraryWindowOpener()
+    @Test("Clique no Dock sem janelas abre a janela e dispensa o comportamento padrão")
+    func reopenWithoutWindowsOpensWindow() {
+        let opener = MainWindowOpener()
         var opened = 0
         let delegate = MuralAppDelegate()
-        delegate.libraryOpener = opener
+        delegate.windowOpener = opener
         delegate.hasOpenWindow = { false }
 
         // Sem ação registrada, deixa o AppKit seguir o padrão.

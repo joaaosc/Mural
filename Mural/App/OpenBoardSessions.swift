@@ -69,11 +69,11 @@ private final class OnceGate {
     }
 }
 
-/// Abre a biblioteca de fora de uma view: o delegate do app não tem `openWindow`.
+/// Abre a janela do Mural de fora de uma view: o delegate do app não tem `openWindow`.
 /// `MuralCommands`, que existe mesmo sem janelas, registra aqui a ação do SwiftUI.
 @MainActor
-final class LibraryWindowOpener {
-    static let shared = LibraryWindowOpener()
+final class MainWindowOpener {
+    static let shared = MainWindowOpener()
 
     private var action: (@MainActor () -> Void)?
 
@@ -95,7 +95,7 @@ final class LibraryWindowOpener {
 @MainActor
 final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     var openSessions = OpenBoardSessions.shared
-    var libraryOpener = LibraryWindowOpener.shared
+    var windowOpener = MainWindowOpener.shared
     var flushTimeout: Duration = .seconds(10)
     /// Espera a restauração de janelas do macOS antes de conferir se alguma abriu.
     var launchWindowCheckDelay: Duration = .milliseconds(800)
@@ -117,24 +117,24 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
 
     /// O estado salvo pode dizer que havia janelas sem nenhuma restaurável (sessões de teste,
     /// janelas fechadas): o macOS então não cria a janela padrão e o app abre só com a
-    /// barra de menus. Depois da restauração, sem nenhuma janela, abre a biblioteca.
+    /// barra de menus. Depois da restauração, sem nenhuma janela, abre a janela com a lista de murais.
     func applicationDidFinishLaunching(_ notification: Notification) {
         let delay = launchWindowCheckDelay
         Task { @MainActor in
             try? await Task.sleep(for: delay)
-            openLibraryIfNoWindow()
+            openWindowIfNeeded()
         }
     }
 
-    /// Clique no ícone do Dock sem janelas abertas: abre a biblioteca.
+    /// Clique no ícone do Dock sem janelas abertas: abre a janela.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard !flag, !hasOpenWindow() else { return true }
-        return !libraryOpener.open()
+        return !windowOpener.open()
     }
 
-    func openLibraryIfNoWindow() {
+    func openWindowIfNeeded() {
         guard !hasOpenWindow() else { return }
-        libraryOpener.open()
+        windowOpener.open()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

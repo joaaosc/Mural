@@ -394,15 +394,9 @@ private struct LoadedRootView: View {
 
     private func handle(_ request: FocusedBoardActionRequest) {
         switch request {
-        case .newBoard:
-            tabs?.requestNewBoard()
-        case .openMural:
-            tabs?.requestOpenPackage()
         case .rename:
             boardNameDraft = session.title
             isRenamePresented = true
-        case .resumeDraft:
-            Task { await tabs?.resumeDraft() }
         case .promoteDraft:
             // O rascunho vira mural salvo na mesma aba.
             Task {

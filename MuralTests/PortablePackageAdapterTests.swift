@@ -195,9 +195,7 @@ struct PortablePackageAdapterTests {
             route: route,
             registry: BoardSessionRegistry(library: library))
         await session.load()
-        #expect(session.actions.canResumeDraft)
         _ = try #require(await session.promoteDraft(named: "Promovido"))
-        #expect(!session.actions.canResumeDraft)
         #expect(try await library.lifecycleState()?.lifecycle == .promoted)
         await #expect(throws: BoardLibraryError.self) {
             _ = try await library.open(route)
@@ -217,40 +215,6 @@ struct PortablePackageAdapterTests {
         #expect(result.route != sourceRoute)
         #expect(FileManager.default.fileExists(atPath: package.path))
         try await library.cleanupTransfer(package)
-    }
-
-    @Test("comandos sem foco são consumidos uma vez e preservam New/Open")
-    func unfocusedCommandRequestsAreOneShot() {
-        let coordinator = MuralCommandCoordinator()
-        let newToken = coordinator.submit(.newBoard)
-        #expect(coordinator.consume(token: newToken) == .newBoard)
-        #expect(coordinator.consume(token: newToken) == nil)
-
-        let openToken = coordinator.submit(.openMural)
-        #expect(coordinator.consume(token: openToken) == .openMural)
-        #expect(coordinator.pending == nil)
-    }
-
-    @Test("janela salva pode retomar draft enquanto o lifecycle é draft")
-    func savedWindowCanResumeExistingDraft() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("saved-draft-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let library = BoardLibrary(rootDirectory: directory)
-        let state = try await library.bootstrap()
-        let route = try await library.createNamedBoard("Salvo")
-        let session = BoardWindowSession(
-            route: route,
-            registry: BoardSessionRegistry(library: library))
-        await session.load()
-        #expect(state.lifecycle == .draft)
-        #expect(session.actions.canResumeDraft)
-
-        _ = try await library.promoteWelcomeDraft(name: "Promovido")
-        session.actions.resumeDraftAvailable =
-            (try? await library.lifecycleState())?.lifecycle == .draft
-        #expect(!session.actions.canResumeDraft)
     }
 
     @Test("begin durante cleanup não substitui o staging em finalização")

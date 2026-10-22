@@ -4,58 +4,10 @@ import Observation
 import SwiftUI
 
 enum FocusedBoardActionRequest: Equatable, Sendable {
-    case newBoard
-    case openMural
     case rename
-    case resumeDraft
     case promoteDraft
     case newFolder
     case tileBoard
-}
-
-enum MuralCommandIntent: Equatable, Sendable {
-    case newBoard
-    case openMural
-}
-
-struct MuralCommandRequest: Equatable, Sendable {
-    let token: UInt64
-    let intent: MuralCommandIntent
-}
-
-/// App-scoped hand-off for commands issued while no scene is focused.  The
-/// request is consumed by the library scene exactly once; it is not global
-/// process state and does not identify a board.
-@MainActor
-@Observable
-final class MuralCommandCoordinator {
-    private(set) var pending: MuralCommandRequest?
-    private var nextToken: UInt64 = 0
-
-    @discardableResult
-    func submit(_ intent: MuralCommandIntent) -> UInt64 {
-        nextToken &+= 1
-        let request = MuralCommandRequest(token: nextToken, intent: intent)
-        pending = request
-        return request.token
-    }
-
-    func consume(token: UInt64) -> MuralCommandIntent? {
-        guard let pending, pending.token == token else { return nil }
-        self.pending = nil
-        return pending.intent
-    }
-}
-
-private struct MuralCommandCoordinatorKey: EnvironmentKey {
-    static let defaultValue: MuralCommandCoordinator? = nil
-}
-
-extension EnvironmentValues {
-    var muralCommandCoordinator: MuralCommandCoordinator? {
-        get { self[MuralCommandCoordinatorKey.self] }
-        set { self[MuralCommandCoordinatorKey.self] = newValue }
-    }
 }
 
 /// Comandos que pertencem à cena focada, nunca a um estado global de aplicativo.
@@ -64,10 +16,6 @@ extension EnvironmentValues {
 final class FocusedBoardActions {
     weak var session: BoardWindowSession?
     var request: FocusedBoardActionRequest?
-    /// Library scenes set this from the persisted lifecycle.  It is not
-    /// inferred from a route because a promoted welcome ID is no longer a
-    /// valid draft route.
-    var resumeDraftAvailable = false
 
     func addFiles() {
         session?.beginFileImport(folderID: session?.currentFolderID)
@@ -81,20 +29,8 @@ final class FocusedBoardActions {
         session?.beginSaveCopy()
     }
 
-    func newBoard() {
-        request = .newBoard
-    }
-
-    func openMural() {
-        request = .openMural
-    }
-
     func rename() {
         request = .rename
-    }
-
-    func resumeDraft() {
-        request = .resumeDraft
     }
 
     func newNote() {
@@ -156,12 +92,5 @@ final class FocusedBoardActions {
 
     var canRename: Bool {
         session?.model != nil
-    }
-
-    var canResumeDraft: Bool {
-        if let session {
-            return session.model != nil && resumeDraftAvailable
-        }
-        return resumeDraftAvailable
     }
 }

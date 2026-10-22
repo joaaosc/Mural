@@ -24,7 +24,7 @@ struct MuralCommands: Commands {
     var body: some Commands {
         // Os comandos existem mesmo sem janelas: daqui as abas e o delegate conseguem abrir a janela.
         let _ = tabs.registerWindowOpener { [openWindow] in openWindow(id: MuralWindowView.sceneID) }
-        let _ = LibraryWindowOpener.shared.register { [tabs] in tabs.showWindow() }
+        let _ = MainWindowOpener.shared.register { [tabs] in tabs.showWindow() }
         CommandGroup(replacing: .newItem) {
             Button("Novo Mural…") { tabs.requestNewBoard() }
                 .keyboardShortcut("n", modifiers: .command)
