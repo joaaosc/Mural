@@ -80,6 +80,10 @@ struct ImageDetailView: View {
             saveCaptionIfChanged()
         }
         .allowsHitTesting(!restoring)
+        .readingRestoreTimeout(isRestoring: restoring) {
+            restoring = false
+            if let token = presentationToken { _ = session?.finishReadingRestore(token: token) }
+        }
         .accessibilityHidden(restoring)
     }
 

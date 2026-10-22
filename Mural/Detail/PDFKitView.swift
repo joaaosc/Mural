@@ -52,6 +52,13 @@ struct PDFKitView: NSViewRepresentable {
         private var hasFrameObserver = false
         private var didFinalizePresentation = false
         private(set) var restoreCallbackCount = 0
+        /// Quantas vezes o destino salvo foi reaplicado nesta apresentação.
+        private var restoreAttempts = 0
+        /// Prazo para aceitar a posição alcançada; sem ele, cada rolagem do usuário
+        /// reaplicaria o destino salvo enquanto a confirmação exata não chegasse.
+        private var restoreDeadline: Task<Void, Never>?
+        static let maxRestoreAttempts = 4
+        static let restoreTimeout: Duration = .milliseconds(1500)
         weak var observedClipView: NSClipView?
 
         init(itemID: UUID, url: URL, session: BoardWindowSession?) {
@@ -105,6 +112,9 @@ struct PDFKitView: NSViewRepresentable {
             didFinalizePresentation = false
             isRestoring = session != nil
             restoreApplied = false
+            restoreAttempts = 0
+            restoreDeadline?.cancel()
+            restoreDeadline = nil
             expectedPageIndex = nil
             expectedScale = nil
             expectedPoint = nil
@@ -144,6 +154,12 @@ struct PDFKitView: NSViewRepresentable {
                 finishUnavailableRestore(in: view)
                 return
             }
+            guard restoreAttempts < Self.maxRestoreAttempts else {
+                acceptReachedPosition()
+                return
+            }
+            restoreAttempts += 1
+            startRestoreDeadline()
             let bounds = page.bounds(for: .mediaBox)
             let boundedScale = min(max(scale.isFinite ? scale : view.scaleFactorForSizeToFit, view.minScaleFactor), view.maxScaleFactor)
             view.autoScales = false
@@ -181,13 +197,34 @@ struct PDFKitView: NSViewRepresentable {
                     abs(destination.point.y - expectedPoint.y) <= 1
                 else { return }
             }
+            acceptReachedPosition()
+        }
+
+        /// Libera a leitura onde o PDF estiver: o PDFKit pode ajustar o ponto do destino
+        /// alguns pontos (margens, fim do documento) e a confirmação exata nunca chegaria.
+        private func acceptReachedPosition() {
+            restoreDeadline?.cancel()
+            restoreDeadline = nil
+            guard isRestoring else { return }
             isRestoring = false
             if let presentationToken {
                 _ = session?.finishReadingRestore(token: presentationToken)
             }
         }
 
+        private func startRestoreDeadline() {
+            guard restoreDeadline == nil else { return }
+            restoreDeadline = Task { [weak self] in
+                try? await Task.sleep(for: Self.restoreTimeout)
+                guard let self, !Task.isCancelled else { return }
+                self.restoreDeadline = nil
+                self.acceptReachedPosition()
+            }
+        }
+
         private func finishUnavailableRestore(in view: PDFView) {
+            restoreDeadline?.cancel()
+            restoreDeadline = nil
             guard isRestoring else { return }
             expectedPageIndex = nil
             expectedScale = nil
@@ -309,6 +346,8 @@ struct PDFKitView: NSViewRepresentable {
         func invalidate() {
             finalizeBeforeNavigation()
             pendingCapture?.cancel()
+            restoreDeadline?.cancel()
+            restoreDeadline = nil
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             if let presentationToken {

@@ -62,6 +62,10 @@ struct ChecklistDetailView: View {
         }
         .task(id: item.id) { beginRestore() }
         .allowsHitTesting(!restoring)
+        .readingRestoreTimeout(isRestoring: restoring) {
+            restoring = false
+            if let token = presentationToken { _ = session?.finishReadingRestore(token: token) }
+        }
         .accessibilityHidden(restoring)
         .scrollPosition($scrollPosition)
     }
