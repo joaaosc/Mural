@@ -119,8 +119,8 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 - macOS 27 e Xcode 27.2 ou mais novo (o projeto usa o formato JSON `project.xcproj`).
 - O pacote [StretchText](../Workbench/StretchText) em `../Workbench/StretchText`, ao lado
   desta pasta: o projeto e o `MuralKit` apontam para ele por caminho relativo. A imagem dentro
-  da nota precisa da versão com o bloco de imagem (`MarkdownImage`), na `main` do Workbench a
-  partir de `e95134a`.
+  da nota e a tarefa clicável precisam da `main` do Workbench a partir de `d67fd91` (bloco de
+  imagem e `togglingTask`/`stretchMarkdownTaskToggle`).
 - Para a escolha das frases pelo modelo: um Mac com Apple Intelligence ligada. Sem ela,
   o app funciona com a primeira frase.
 
