@@ -92,6 +92,9 @@ struct BoardFormatVersionTests {
         let loose = board.moveToBoard(id: otherFolder.id, at: BoardPoint(x: 400, y: 100))
         #expect(loose)
         #expect(board.formatVersion == 1, "sem pasta aninhada, o mural volta a abrir nas builds da versão 1")
+
+        board.add(BoardItem(kind: .link, title: "Apple", position: BoardPoint(x: 600, y: 100)))
+        #expect(board.formatVersion == 3, "cartão de link exige a versão 3")
     }
 
     @Test("Chamada sem efeito deixa o mural antigo, e a versão 0, como estavam")

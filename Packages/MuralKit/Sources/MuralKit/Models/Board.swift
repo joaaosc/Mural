@@ -5,7 +5,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// A versão mais nova do formato que esta build lê. Uma build recusa abrir um mural de versão maior
     /// que a sua (`BoardRepositoryError.futureBoardFormat`).
     /// - 2: pasta dentro de pasta (a versão 1 só tinha pastas soltas no mural).
-    public static let currentFormatVersion = 2
+    /// - 3: cartão de link.
+    public static let currentFormatVersion = 3
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -29,6 +30,7 @@ public struct Board: Codable, Equatable, Sendable {
     static func minimumFormatVersion(for items: [BoardItem]) -> Int {
         var version = 1
         if items.contains(where: { $0.kind == .folder && $0.parentID != nil }) { version = max(version, 2) }
+        if items.contains(where: { $0.kind == .link }) { version = max(version, 3) }
         return version
     }
 

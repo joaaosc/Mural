@@ -49,7 +49,7 @@ struct BoardModelLinkPreviewTests {
 
     // MARK: Versão do formato
 
-    @Test("Prévia que muda o cartão grava a versão atual do formato; a que não muda nada, não")
+    @Test("Prévia que muda o cartão grava a versão que o conteúdo exige; a que não muda nada, não")
     func appliedPreviewWritesTheCurrentFormat() throws {
         let store = makeStore()
         defer { try? FileManager.default.removeItem(at: store.directory) }
@@ -59,7 +59,7 @@ struct BoardModelLinkPreviewTests {
 
         model.board.formatVersion = 0
         model.applyLinkPreviews([update])
-        #expect(model.board.formatVersion == Board.currentFormatVersion)
+        #expect(model.board.formatVersion == 3, "mural com cartão de link exige a versão 3")
 
         model.board.formatVersion = 0
         model.applyLinkPreviews([update])

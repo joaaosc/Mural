@@ -64,7 +64,7 @@ struct NestedFolderTests {
 
     @Test("O formato com pasta dentro de pasta é a versão 2, e o limite é de 8 níveis")
     func formatVersionAndLimit() {
-        #expect(Board.currentFormatVersion == 2)
+        #expect(Board.currentFormatVersion >= 2)
         #expect(Board().formatVersion == 1, "mural sem pasta aninhada continua na versão 1")
         #expect(tree.board.formatVersion == 2)
         #expect(Board.maximumFolderDepth == 8)
@@ -83,7 +83,7 @@ struct NestedFolderTests {
         #expect(board.items.map(\.id) == tree.board.items.map(\.id))
         #expect(board.children(of: tree.c.id).map(\.id) == [tree.noteInC.id, tree.other.id])
         #expect(board.depth(of: tree.other.id) == 3)
-        #expect(board.formatVersion == Board.currentFormatVersion)
+        #expect(board.formatVersion == 2)
 
         // Uma pasta com conteúdo leva o conteúdo junto.
         var withContent = tree.board
