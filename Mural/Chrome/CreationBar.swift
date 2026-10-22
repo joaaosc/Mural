@@ -36,5 +36,5 @@ struct CreationBar: View {
 #Preview {
     CreationBar(onNewNote: {}, onNewSticky: {}, onNewFolder: {}, onAddFiles: {})
         .padding(40)
-        .background(Theme.canvas)
+        .background { PreviewBackdrop() }
 }

@@ -75,5 +75,5 @@ struct FloatingToolbar: View {
     }
     .padding(30)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(Theme.canvas)
+    .background { PreviewBackdrop() }
 }

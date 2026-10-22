@@ -44,5 +44,5 @@ struct SelectionBar: View {
         SelectionBar(count: 3, onDelete: {}, onCancel: {})
     }
     .padding(40)
-    .background(Theme.canvas)
+    .background { PreviewBackdrop() }
 }

@@ -35,5 +35,5 @@ struct ActionPill: View {
         PillAction(title: "Apagar", symbol: "trash", role: .destructive) {},
     ])
     .padding(40)
-    .background(Theme.page)
+    .background { PreviewBackdrop(page: true) }
 }

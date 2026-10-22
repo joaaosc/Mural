@@ -33,5 +33,5 @@ struct CanvasControls: View {
 #Preview {
     CanvasControls(zoom: CanvasZoomController())
         .padding(40)
-        .background(Theme.canvas)
+        .background { PreviewBackdrop() }
 }
