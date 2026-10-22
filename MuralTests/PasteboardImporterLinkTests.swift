@@ -247,6 +247,53 @@ struct PasteboardImporterLinkTests {
         #expect(fixture.model.lastError == "O conteúdo copiado não pôde virar um cartão.")
     }
 
+    // MARK: Imagem em tipo antigo
+
+    @Test("Imagem que um app só declara no tipo antigo (NeXT TIFF v4.0) vira cartão de imagem")
+    func imageInLegacyTypeBecomesImage() async throws {
+        let fixture = LinkImportFixture()
+        defer { fixture.tearDown() }
+        let legacyTIFF = NSPasteboard.PasteboardType("NeXT TIFF v4.0 pasteboard type")
+        #expect(fixture.pasteboard.setData(try LinkImportFixture.imageData(.tiff), forType: legacyTIFF))
+
+        await fixture.paste()
+
+        #expect(fixture.model.board.items.count == 1)
+        let image = try #require(fixture.model.board.items.first)
+        #expect(image.kind == .image)
+        #expect(image.title == "Imagem colada")
+        #expect(fixture.storedFileIsPNG(image))
+        #expect(image.imageMetadata?.pixelWidth == 40)
+        #expect(fixture.model.lastError == nil)
+    }
+
+    @Test("Copiar Link (endereço e texto) continua virando link, e a leitura de imagem em tipo antigo não o toma")
+    func copyLinkStaysALinkWithTheLegacyImageReading() async throws {
+        let fixture = LinkImportFixture()
+        defer { fixture.tearDown() }
+        fixture.write(Self.addressItem("https://example.com/artigo", name: "Artigo"))
+
+        await fixture.paste()
+
+        #expect(fixture.model.board.items.map(\.kind) == [.link])
+        #expect(fixture.links.first?.title == "Artigo")
+        #expect(fixture.model.lastError == nil)
+    }
+
+    @Test("Só texto continua sendo texto: a leitura de imagem em tipo antigo não encontra nada e passa a vez")
+    func plainTextStaysTextWithTheLegacyImageReading() async throws {
+        let fixture = LinkImportFixture()
+        defer { fixture.tearDown() }
+        fixture.pasteboard.setString("lembrar de comprar café", forType: .string)
+
+        await fixture.paste()
+
+        let sticky = try #require(fixture.model.board.items.first)
+        #expect(fixture.model.board.items.count == 1)
+        #expect(sticky.kind == .sticky)
+        #expect(sticky.text == "lembrar de comprar café")
+    }
+
     // MARK: Favorito do Safari
 
     @Test("Item com a lista de favoritos do Safari vira link com resumo e imagem")
