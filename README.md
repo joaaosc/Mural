@@ -21,8 +21,7 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   **+** e ⌘N criam um mural novo numa aba.
 - ⌘W fecha a aba; fechar a última fecha a janela, e o app continua aberto. Visualizar › Mostrar
   Todos os Murais (⇧⌘\) ou o Dock reabrem a janela. ⌃⇥ e ⌃⇧⇥ passam de uma aba para outra.
-- As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app. Arrastar uma
-  aba para os lados muda a ordem.
+- As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app.
 - **Excluir mural**: botão direito no mural da barra lateral ou na aba, ou Arquivo › Excluir Mural….
   Depois da confirmação, a aba fecha e o mural vai para o Lixo do Mac; o rascunho de exemplo é
   descartado.

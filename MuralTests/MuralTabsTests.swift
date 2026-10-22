@@ -206,27 +206,6 @@ struct MuralTabsTests {
         await tabs.resumeDraft()
         #expect(tabs.tabs.isEmpty)
     }
-    @Test("Arrastar uma aba a põe na posição nova, para os dois lados; fora da faixa, nada muda")
-    func movingTabsReorders() async throws {
-        let (library, directory) = try makeLibrary()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let (tabs, _) = makeTabs(library)
-        let a = try #require(tabs.open(try await library.createNamedBoard("A"), title: "A"))
-        let b = try #require(tabs.open(try await library.createNamedBoard("B"), title: "B"))
-        let c = try #require(tabs.open(try await library.createNamedBoard("C"), title: "C"))
-
-        tabs.moveTab(a.id, toIndex: 2)
-        #expect(tabs.tabs.map(\.id) == [b.id, c.id, a.id])
-        tabs.moveTab(a.id, toIndex: 0)
-        #expect(tabs.tabs.map(\.id) == [a.id, b.id, c.id])
-        tabs.moveTab(b.id, toIndex: 1)
-        tabs.moveTab(b.id, toIndex: 7)
-        #expect(tabs.tabs.map(\.id) == [a.id, b.id, c.id], "no mesmo lugar ou fora da faixa, nada muda")
-        #expect(tabs.selectedID == c.id, "mudar a ordem não troca a aba ativa")
-        #expect(tabs.snapshot.entries.map(\.title) == ["A", "B", "C"], "a ordem nova vale para a restauração")
-        await tabs.closeAll()
-    }
-
     // MARK: Excluir mural
 
     @Test("Excluir o mural de uma aba fecha a aba, solta a sessão e tira o mural da lista; a janela fica")

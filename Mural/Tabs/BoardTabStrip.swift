@@ -7,15 +7,6 @@ struct BoardTabStrip: View {
     /// Largura livre na barra da janela: um item da barra não estica sozinho, ele usa a largura pedida.
     let width: CGFloat
 
-    /// Aba sendo arrastada para mudar de lugar: de onde saiu e quanto o ponteiro andou.
-    @State private var tabDrag: TabDrag?
-
-    private struct TabDrag: Equatable {
-        let id: UUID
-        let startIndex: Int
-        var translation: CGFloat
-    }
-
     static let spacing: CGFloat = 4
     static let minimumTabWidth: CGFloat = 90
     static let height: CGFloat = 30
@@ -26,7 +17,7 @@ struct BoardTabStrip: View {
         let fits = CGFloat(count) * tabWidth + Self.spacing * CGFloat(max(0, count - 1)) <= width + 0.5
         ScrollView(.horizontal) {
             HStack(spacing: Self.spacing) {
-                ForEach(Array(tabs.tabs.enumerated()), id: \.element.id) { index, tab in
+                ForEach(tabs.tabs) { tab in
                     BoardTabButton(
                         title: tab.title,
                         isSelected: tab.id == tabs.selectedID,
@@ -37,46 +28,12 @@ struct BoardTabStrip: View {
                         onDelete: { tabs.requestDelete(tab.route, name: tab.title) }
                     )
                     .frame(width: tabWidth, height: Self.height)
-                    .offset(x: dragOffset(for: tab.id, at: index, step: tabWidth + Self.spacing))
-                    .zIndex(tabDrag?.id == tab.id ? 1 : 0)
-                    .simultaneousGesture(reorderGesture(for: tab.id, step: tabWidth + Self.spacing))
                 }
             }
-            .coordinateSpace(.named(Self.space))
         }
         .scrollIndicators(.never)
         .scrollDisabled(fits)
         .frame(width: width, height: Self.height, alignment: .leading)
-    }
-
-    private static let space = "tab-strip"
-
-    /// A aba arrastada segue o ponteiro; as outras ficam no lugar delas.
-    private func dragOffset(for id: UUID, at index: Int, step: CGFloat) -> CGFloat {
-        guard let tabDrag, tabDrag.id == id else { return 0 }
-        return tabDrag.translation - CGFloat(index - tabDrag.startIndex) * step
-    }
-
-    /// Arrastar uma aba para os lados: quando ela passa da metade da vizinha, as duas trocam de lugar, como
-    /// no Safari. Gesto próprio, e não arrastar e soltar do sistema, que não começa dentro da barra da janela.
-    private func reorderGesture(for id: UUID, step: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.space))
-            .onChanged { value in
-                guard let index = tabs.tabs.firstIndex(where: { $0.id == id }) else { return }
-                if tabDrag?.id != id {
-                    tabDrag = TabDrag(id: id, startIndex: index, translation: 0)
-                }
-                tabDrag?.translation = value.translation.width
-                guard let start = tabDrag?.startIndex, step > 0 else { return }
-                let moved = Int((value.translation.width / step).rounded())
-                let target = min(max(start + moved, 0), tabs.tabs.count - 1)
-                if target != index {
-                    withAnimation(.smooth(duration: 0.2)) { tabs.moveTab(id, toIndex: target) }
-                }
-            }
-            .onEnded { _ in
-                withAnimation(.smooth(duration: 0.2)) { tabDrag = nil }
-            }
     }
 
     /// Largura de cada aba: a faixa dividida igualmente, sem passar do mínimo legível.

@@ -148,14 +148,6 @@ final class MuralTabs {
         return true
     }
 
-    /// Arrastar uma aba: ela passa para a posição dada, e as outras abrem espaço.
-    func moveTab(_ id: UUID, toIndex index: Int) {
-        guard let from = tabs.firstIndex(where: { $0.id == id }), tabs.indices.contains(index), from != index else {
-            return
-        }
-        tabs.insert(tabs.remove(at: from), at: index)
-    }
-
     func selectNext() { selectNeighbor(offset: 1) }
     func selectPrevious() { selectNeighbor(offset: -1) }
 
