@@ -57,7 +57,8 @@ struct NoteEditorView: View {
     /// Nota nova começa pelo título; nota existente, pelo fim do corpo.
     private func focusFirstField() {
         if draft.title.isEmpty && draft.text.isEmpty {
-            titleFocused = true
+            // No `onAppear` a página ainda está entrando e o campo recusa o foco: o pedido vai na volta seguinte.
+            Task { @MainActor in titleFocused = true }
         } else {
             controller.focus(atEnd: true)
         }
@@ -81,15 +82,16 @@ struct NoteEditorView: View {
         }
     }
 
-    /// ⌘V com o cursor no título e uma imagem na área de transferência: a imagem vai para o fim do corpo.
+    /// ⌘V com uma imagem na área de transferência e o cursor fora do corpo (no título, ou em texto
+    /// nenhum depois de um clique na página): a imagem vai para o fim do corpo, não para um cartão novo.
     private func installPasteMonitor() {
         removePasteMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [controller] event in
-            // Só com um campo de texto em edição (o título) nesta janela; o corpo cola sozinho.
+            // Só nesta janela e fora do corpo, que cola sozinho; de um campo de texto (o título) a imagem também sai.
             guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                 event.charactersIgnoringModifiers == "v",
                 let textView = controller.textView, let window = textView.window, event.window === window,
-                let editor = window.firstResponder as? NSTextView, editor !== textView, editor.isFieldEditor,
+                window.firstResponder !== textView, (window.firstResponder as? NSTextView)?.isFieldEditor ?? true,
                 let pieces = NoteImagePaste.read(from: .general)
             else { return event }
             receiveImages(controller.appendAtEnd(pieces))

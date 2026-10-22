@@ -57,12 +57,12 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 - **⌘V com texto solto** abre um popup que pergunta se ele vira sticker, card de texto
   ou, quando parece lista, lista; a sugestão fica no Return.
 - **Imagem no card de texto**: editando o corpo, ⌘V, Editar › Colar ou soltar uma imagem a põem
-  numa linha própria do Markdown, `![Imagem colada](arquivo)`, onde está o cursor (no título, ela
-  vai para o fim do corpo; com a página aberta sem editar, ⌘V acrescenta no fim). Vale arquivo de
-  imagem, captura de tela, "Copiar Imagem" e texto formatado com imagens (Notas, TextEdit, Pages,
-  Safari); imagem que só existe na internet não é baixada. A leitura e a miniatura mostram a imagem;
-  o arquivo fica em `Items/` e sai do disco quando nenhuma nota o cita mais. Murais com imagem em
-  nota usam a versão 5 do formato.
+  numa linha própria do Markdown, `![Imagem colada](arquivo)`, onde está o cursor (com ⌘V no título
+  ou fora do texto, ela vai para o fim do corpo; com a página aberta sem editar, ⌘V acrescenta no
+  fim). Vale arquivo de imagem, captura de tela, "Copiar Imagem" e texto formatado com imagens
+  (Notas, TextEdit, Pages, Safari); imagem que só existe na internet não é baixada. A leitura e a
+  miniatura mostram a imagem; o arquivo fica em `Items/` e sai do disco quando nenhuma nota o cita
+  mais. Murais com imagem em nota usam a versão 5 do formato.
 - **Salvar no Notas**, na pílula da página e no menu do cartão (nota, sticker e lista): abre o
   painel do próprio Notas já preenchido, com títulos, listas, tarefas e imagens. Cada vez cria uma
   nota nova; o Mural não lê nem atualiza notas do Notas.

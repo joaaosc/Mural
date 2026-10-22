@@ -777,6 +777,36 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.images["Imagem colada"].waitForExistence(timeout: 5), "a imagem colada aparece na leitura")
     }
 
+    /// Com o cursor ainda no título, a imagem colada vai para o fim do corpo e o título fica como estava.
+    @MainActor
+    func testPastingImageInNoteTitleGoesToBody() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Card de texto"].firstMatch.click()
+        let body = app.textViews["Texto da nota em Markdown"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        app.typeText("Nota com foto")
+        // Compara com o que o campo recebeu, não com o digitado: o executor já mandou uma letra com ⌘ no meio.
+        let title = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Título")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        let typed = try XCTUnwrap(title.value as? String)
+        XCTAssertFalse(typed.isEmpty, "o cursor começa no título da nota nova")
+
+        let url = try Self.makePNG(named: "foto-no-titulo")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(try Data(contentsOf: url), forType: .png)
+        app.typeKey("v", modifierFlags: .command)
+
+        let cited = NSPredicate(format: "value CONTAINS %@", "![Imagem colada](")
+        expectation(for: cited, evaluatedWith: body)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(title.value as? String, typed, "o título não recebe a imagem")
+
+        app.typeKey(.return, modifierFlags: .command)
+        XCTAssertTrue(app.images["Imagem colada"].waitForExistence(timeout: 5), "a imagem colada aparece na leitura")
+    }
+
     /// A folha de lembretes cria os cartões e a bolinha do cartão marca como concluído.
     @MainActor
     func testRemindersSheetAddsCardsAndToggles() throws {
