@@ -31,10 +31,11 @@ final class CanvasZoomController {
     var viewport: CGSize = .zero
     /// Área ocupada pelos cartões, sem zoom.
     var contentExtent: CGSize = .zero
-    /// Insets reais reportados pela geometria do ScrollView.
-    var contentInsets: EdgeInsets = EdgeInsets()
+    /// Insets reais reportados pela geometria do ScrollView. Só entra em cálculos; fora
+    /// da observação para não notificar a cada quadro de rolagem.
+    @ObservationIgnored var contentInsets: EdgeInsets = EdgeInsets()
     /// Retângulo visível em coordenadas do conteúdo, fornecido pelo ScrollGeometry.
-    var visibleRect: CGRect = .zero
+    @ObservationIgnored var visibleRect: CGRect = .zero
 
     /// Lido a cada rolagem; não precisa redesenhar nada, por isso fica fora da observação.
     @ObservationIgnored var scrollOffset: CGPoint = .zero
@@ -61,6 +62,15 @@ final class CanvasZoomController {
 
     /// Zoom que o usuário vê agora, incluindo a pinça em andamento.
     var displayedZoom: CGFloat { zoom * liveScale }
+
+    /// Copia a geometria real do ScrollView. Chamado a cada quadro de rolagem: o tamanho
+    /// do viewport (observado pelo canvas) só é atribuído quando muda de fato.
+    func apply(_ metrics: CanvasScrollMetrics) {
+        if viewport != metrics.containerSize { viewport = metrics.containerSize }
+        scrollOffset = metrics.contentOffset
+        contentInsets = metrics.contentInsets
+        visibleRect = metrics.visibleRect
+    }
 
     /// Configura a escala confirmada e a âncora persistida de uma sessão.
     /// A origem é explícita: um canvas sem estado restaurável começa no canto superior esquerdo.

@@ -77,16 +77,12 @@ private struct LoadedRootView: View {
                 onOpen: open,
                 onAdd: { session.beginFileImport(folderID: currentFolderID) },
                 boardID: session.boardID,
-                generation: session.generation,
+                // Identidade da apresentação, não a geração do autosave.
+                generation: session.presentationGeneration,
+                // Chamado a cada quadro de rolagem: só conduz a restauração e nota resize.
+                // A posição é gravada em `.idle`, no assentamento do zoom e após resize.
                 onCanvasGeometryReady: { boardID, generation, metrics in
-                    let wasReady = session.restorationPhase == .ready
                     session.restoreCanvas(boardID: boardID, generation: generation, metrics: metrics)
-                    if wasReady {
-                        session.recordCanvas(
-                            boardID: boardID,
-                            generation: generation,
-                            state: session.zoom.confirmedWorkspace())
-                    }
                 },
                 onCanvasChange: { boardID, generation, state in
                     session.recordCanvas(boardID: boardID, generation: generation, state: state)

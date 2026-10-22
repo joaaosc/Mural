@@ -24,7 +24,7 @@ struct BoardWindowSessionTests {
             contentOffset: .zero,
             containerSize: CGSize(width: 900, height: 700),
             contentSize: CGSize(width: 3_400, height: 2_800))
-        session.restoreCanvas(boardID: session.boardID, generation: session.generation, metrics: metrics)
+        session.restoreCanvas(boardID: session.boardID, generation: session.presentationGeneration, metrics: metrics)
         let center = session.workspace.canvas.logicalCenter.map { CGPoint(x: $0.x, y: $0.y) }
         let target =
             center.map {
@@ -41,7 +41,7 @@ struct BoardWindowSessionTests {
             contentSize: metrics.contentSize,
             contentInsets: metrics.contentInsets)
         for _ in 0..<3 where session.restorationPhase != .ready {
-            session.restoreCanvas(boardID: session.boardID, generation: session.generation, metrics: reached)
+            session.restoreCanvas(boardID: session.boardID, generation: session.presentationGeneration, metrics: reached)
         }
         #expect(session.restorationPhase == .ready)
     }
@@ -185,14 +185,14 @@ struct BoardWindowSessionTests {
 
         restored.restoreCanvas(
             boardID: restored.boardID,
-            generation: restored.generation,
+            generation: restored.presentationGeneration,
             metrics: notYetReached)
         let firstRequest = try #require(restored.zoom.scrollRequest)
         #expect(restored.restorationPhase == .applyingPosition)
 
         restored.restoreCanvas(
             boardID: restored.boardID,
-            generation: restored.generation,
+            generation: restored.presentationGeneration,
             metrics: notYetReached)
 
         #expect(restored.zoom.scrollRequest == firstRequest)
@@ -410,7 +410,7 @@ struct BoardWindowSessionTests {
         let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
         try await makeReady(session)
         let item = try #require(session.model?.importText("texto"))
-        let generation = session.generation
+        let generation = session.presentationGeneration
         _ = session.beginReadingRestore(for: item.id)
         session.recordReadingPosition(
             .item(itemID: item.id, visibleContentY: 400),
@@ -690,7 +690,7 @@ struct BoardWindowSessionTests {
         a.recordReadingPosition(
             .item(itemID: item.id, visibleContentY: 321),
             boardID: a.boardID,
-            generation: a.generation)
+            generation: a.presentationGeneration)
         a.captureBoardIfNeeded()
         await a.flushAndPrepareToLeave()
         let itemB = try #require(b.model?.importText("B"))
@@ -717,7 +717,7 @@ struct BoardWindowSessionTests {
         session.recordReadingPosition(
             .item(itemID: item.id, visibleContentY: 80),
             boardID: session.boardID,
-            generation: session.generation)
+            generation: session.presentationGeneration)
         session.delete(item.id)
         #expect(session.path.isEmpty)
         #expect(session.readingPosition(for: item.id) == nil)

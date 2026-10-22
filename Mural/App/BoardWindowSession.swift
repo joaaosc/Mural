@@ -64,7 +64,15 @@ final class BoardWindowSession {
     private(set) var model: BoardModel?
     private(set) var domainSession: BoardSession?
     private(set) var workspace: BoardWorkspaceState = .default
+    /// Geração do domínio: avança a cada autosave. Só serve para saber se o conteúdo
+    /// mudou (ex.: entre preparar e entregar uma exportação), nunca para validar callbacks.
     private(set) var generation: UInt64 = 0
+    /// Identidade da apresentação carregada: muda só quando a sessão é (re)carregada.
+    /// Tokens de restauração e leitura usam esta geração; se usassem a do autosave, um
+    /// salvamento no meio da restauração deixaria a tela sem clique para sempre.
+    private(set) var presentationGeneration: UInt64 = 0
+    /// Depois de fechada (janela fechada, rascunho promovido), a janela não grava mais.
+    private(set) var isClosed = false
     private(set) var restorationPhase: CanvasRestorationPhase = .loading
     private(set) var error: String?
     private(set) var isDirty = false
@@ -94,6 +102,8 @@ final class BoardWindowSession {
     @ObservationIgnored private var pendingAutosaveDebounce: Task<Void, Never>?
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
     @ObservationIgnored private var leaveFlushTask: Task<Void, Never>?
+    @ObservationIgnored private var windowCloseTask: Task<Void, Never>?
+    @ObservationIgnored private var windowCloseHandled = false
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private let cleanupTransferOperation: @Sendable (URL) async throws -> Void
     @ObservationIgnored private var pendingSaveCopyResult: Result<URL, any Error>?
@@ -101,6 +111,14 @@ final class BoardWindowSession {
     @ObservationIgnored private var autosaveFailed = false
     @ObservationIgnored private var restoringReadingItems: [UUID: ReadingPresentationToken] = [:]
     @ObservationIgnored private var readingFinalizers: [ReadingPresentationToken: ReadingPresentationFinalizer] = [:]
+    /// Esta janela é dona de uma referência no registry (`acquire`/`release`).
+    @ObservationIgnored private var ownsRegistryReference = false
+    /// Último tamanho do canvas com a restauração pronta; só um resize agenda captura.
+    @ObservationIgnored private var lastCanvasContainerSize: CGSize = .zero
+    @ObservationIgnored private var canvasCaptureDebounce: Task<Void, Never>?
+    @ObservationIgnored private var restorationWatchdog: Task<Void, Never>?
+    /// Tempo máximo tentando alcançar a posição salva antes de liberar o canvas.
+    @ObservationIgnored var restorationTimeout: Duration = .seconds(2)
 
     init(
         route: BoardRoute,
@@ -147,15 +165,22 @@ final class BoardWindowSession {
     private(set) var manifestName = "Mural"
 
     func load() async {
-        guard model == nil else { return }
+        guard model == nil, !isClosed, route != .library else { return }
         restorationPhase = .loading
         do {
-            let session = try await registry.open(route)
+            let session = try await registry.acquire(route)
+            ownsRegistryReference = true
             let board = await session.board
             let loadedWorkspace = await session.workspace
             let loadedGeneration = await session.generation
             let manifest = await session.manifest
             let packageURL = await session.repository.packageURL(for: boardID)
+            await refreshDraftAvailability()
+            // A janela pode ter fechado durante as esperas acima: devolve a referência.
+            guard !isClosed else {
+                await releaseRegistryReference()
+                return
+            }
 
             domainSession = session
             workspace = loadedWorkspace
@@ -164,12 +189,11 @@ final class BoardWindowSession {
             manifestName = manifest.name
             let store = BoardStore(directory: packageURL)
             model = BoardModel(board: board, store: store, persistence: .deferred)
-            await refreshDraftAvailability()
             path = Self.destinations(from: loadedWorkspace.path, board: board)
             filter = Self.filter(from: loadedWorkspace.filter, path: path, board: board)
 
-            let token = CanvasRestorationToken(boardID: boardID, generation: loadedGeneration)
-            restoration.begin(token)
+            presentationGeneration &+= 1
+            restoration.begin(CanvasRestorationToken(boardID: boardID, generation: presentationGeneration))
             restorationPhase = restoration.phase
             zoom.configure(workspace: loadedWorkspace.canvas)
             error = nil
@@ -179,36 +203,76 @@ final class BoardWindowSession {
         }
     }
 
+    /// Nova tentativa depois de "Mural indisponível" (ex.: arquivo momentaneamente ilegível).
+    func retryLoad() async {
+        guard model == nil, !isClosed else { return }
+        error = nil
+        await load()
+    }
+
+    private func releaseRegistryReference() async {
+        guard ownsRegistryReference else { return }
+        ownsRegistryReference = false
+        // Uma sessão suja continua registrada para a próxima janela recuperar.
+        _ = await registry.release(boardID)
+    }
+
+    private var canvasToken: CanvasRestorationToken {
+        CanvasRestorationToken(boardID: boardID, generation: presentationGeneration)
+    }
+
     func refreshDraftAvailability() async {
         actions.resumeDraftAvailable =
             (try? await registry.library.lifecycleState())?.lifecycle == .draft
     }
 
     func beginApplyingZoom() {
-        let token = CanvasRestorationToken(boardID: boardID, generation: generation)
-        guard restoration.applyZoom(for: token) else { return }
+        guard restoration.applyZoom(for: canvasToken) else { return }
         restorationPhase = restoration.phase
     }
 
     func beginApplyingPosition() {
-        let token = CanvasRestorationToken(boardID: boardID, generation: generation)
-        guard restoration.applyPosition(for: token) else { return }
+        guard restoration.applyPosition(for: canvasToken) else { return }
         restorationPhase = restoration.phase
+        startRestorationWatchdog()
     }
 
     func confirmReady() {
-        let token = CanvasRestorationToken(boardID: boardID, generation: generation)
-        guard restoration.confirmReady(for: token) else { return }
+        guard restoration.confirmReady(for: canvasToken) else { return }
+        didBecomeReady()
+    }
+
+    private func didBecomeReady() {
         restorationPhase = restoration.phase
+        restorationWatchdog?.cancel()
+        restorationWatchdog = nil
+        lastCanvasContainerSize = zoom.viewport
+    }
+
+    /// Se a posição salva não for alcançada a tempo (alvo inalcançável por arredondamento,
+    /// clamp diferente do ScrollView, resize contínuo), o canvas é liberado onde estiver.
+    /// Só começa depois da primeira geometria real: sem layout, nada está visível.
+    private func startRestorationWatchdog() {
+        restorationWatchdog?.cancel()
+        let expected = presentationGeneration
+        let timeout = restorationTimeout
+        restorationWatchdog = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard let self, !Task.isCancelled, !self.isClosed,
+                self.presentationGeneration == expected,
+                self.restoration.forceReady(for: self.canvasToken)
+            else { return }
+            self.didBecomeReady()
+        }
     }
 
     func restoreCanvas(boardID callbackBoardID: BoardID, generation callbackGeneration: UInt64, metrics: CanvasScrollMetrics) {
-        guard self.boardID == callbackBoardID, generation == callbackGeneration else { return }
-        zoom.viewport = metrics.containerSize
-        zoom.scrollOffset = metrics.contentOffset
-        zoom.contentInsets = metrics.contentInsets
-        zoom.visibleRect = metrics.visibleRect
-        guard restorationPhase != .ready else { return }
+        guard self.boardID == callbackBoardID, presentationGeneration == callbackGeneration, !isClosed else { return }
+        zoom.apply(metrics)
+        guard restorationPhase != .ready else {
+            noteReadyCanvasGeometry(metrics)
+            return
+        }
         guard let center = workspace.canvas.logicalCenter else {
             if restorationPhase == .awaitingLayout {
                 beginApplyingZoom()
@@ -263,12 +327,27 @@ final class BoardWindowSession {
         abs(lhs.x - rhs.x) <= 1 && abs(lhs.y - rhs.y) <= 1
     }
 
+    /// Com o canvas pronto, rolagens do usuário são capturadas em `.idle` e o zoom no
+    /// assentamento; aqui só um resize (tamanho do viewport mudou) agenda uma captura,
+    /// com debounce. Nada é gravado a cada quadro de rolagem.
+    private func noteReadyCanvasGeometry(_ metrics: CanvasScrollMetrics) {
+        guard metrics.containerSize != lastCanvasContainerSize else { return }
+        lastCanvasContainerSize = metrics.containerSize
+        canvasCaptureDebounce?.cancel()
+        canvasCaptureDebounce = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            guard let self, !self.isClosed else { return }
+            self.recordCanvas(self.zoom.confirmedWorkspace())
+        }
+    }
+
     func acceptsPersistence(for boardID: BoardID, generation: UInt64) -> Bool {
-        restoration.acceptsPersistence && self.boardID == boardID && self.generation == generation
+        restoration.acceptsPersistence && !isClosed && self.boardID == boardID
+            && presentationGeneration == generation
     }
 
     func setNavigation(path: [Destination], filter: BoardFilter?) {
-        guard restoration.acceptsPersistence, let model else { return }
+        guard restoration.acceptsPersistence, !isClosed, let model else { return }
         let newPath = Self.workspaceDestinations(from: path, board: model.board)
         let newFilter = filter.flatMap { Self.workspaceFilter(from: $0, path: path, board: model.board) }
         self.path = Self.destinations(from: newPath, board: model.board)
@@ -297,7 +376,7 @@ final class BoardWindowSession {
     }
 
     func recordCanvas(_ canvas: CanvasWorkspaceState) {
-        guard restoration.acceptsPersistence else { return }
+        guard restoration.acceptsPersistence, !isClosed else { return }
         updateWorkspace { $0.canvas = canvas }
     }
 
@@ -307,7 +386,7 @@ final class BoardWindowSession {
     }
 
     func captureBoardIfNeeded() {
-        guard let model else { return }
+        guard let model, !isClosed else { return }
         mutationSequence &+= 1
         pendingBoard = model.board
         pendingBoardSequence = mutationSequence
@@ -320,6 +399,7 @@ final class BoardWindowSession {
     /// navigation are allowed to change while the panel is visible, but they
     /// must not redirect the files to another folder or board.
     func beginFileImport(folderID: UUID? = nil) {
+        guard !isClosed else { return }
         importDestination = BoardImportDestination(
             route: route,
             boardID: boardID,
@@ -371,7 +451,7 @@ final class BoardWindowSession {
 
     func beginSaveCopy() {
         guard exportTask == nil, exportTransfer == nil, exportDocument == nil,
-            !isExporterPresented, !isFinishingExport, model != nil
+            !isExporterPresented, !isFinishingExport, model != nil, !isClosed
         else { return }
         isPreparingExport = true
         exportTask = Task { @MainActor [weak self] in
@@ -465,6 +545,10 @@ final class BoardWindowSession {
         guard await flushAndPrepareToLeaveSuccessfully() else { return nil }
         do {
             let promoted = try await registry.promoteWelcomeDraft(name: name)
+            // O registry já aposentou a sessão do rascunho; esta janela não grava mais,
+            // senão um autosave atrasado recriaria o package do rascunho.
+            ownsRegistryReference = false
+            markClosed()
             actions.resumeDraftAvailable = false
             successMessage = "Rascunho promovido para um mural salvo."
             return promoted
@@ -474,20 +558,27 @@ final class BoardWindowSession {
         }
     }
 
+    /// Renomeia pela própria sessão de domínio, na mesma fila dos autosaves: não há
+    /// sessão antiga que possa regravar o nome anterior.
     func rename(to requestedName: String) async {
         let name = Self.normalizedName(requestedName)
-        guard await flushAndPrepareToLeaveSuccessfully() else { return }
-        await registry.close(boardID)
-        do {
-            _ = try await registry.library.rename(route, to: name)
-            domainSession = try await registry.open(route)
-            generation = await domainSession?.generation ?? generation
-            manifestName = name
-            successMessage = "Mural renomeado."
-        } catch let renameError {
-            domainSession = try? await registry.open(route)
-            self.error = "Não foi possível renomear o mural: \(renameError.localizedDescription)"
+        guard !isClosed, let domainSession else { return }
+        let previous = sessionPipeline
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            do {
+                try await domainSession.rename(to: name)
+                _ = try await domainSession.flush()
+                self.manifestName = name
+                self.successMessage = "Mural renomeado."
+            } catch let renameError {
+                self.error = "Não foi possível renomear o mural: \(renameError.localizedDescription)"
+            }
+            self.isDirty = await domainSession.isDirty
         }
+        sessionPipeline = task
+        await task.value
     }
 
     private static func normalizedName(_ value: String) -> String {
@@ -504,13 +595,13 @@ final class BoardWindowSession {
     func readingPresentationToken(for itemID: UUID) -> ReadingPresentationToken {
         ReadingPresentationToken(
             boardID: boardID,
-            generation: generation,
+            generation: presentationGeneration,
             navigationGeneration: navigationGeneration,
             itemID: itemID)
     }
 
     func acceptsReadingPresentation(_ token: ReadingPresentationToken) -> Bool {
-        token.boardID == boardID && token.generation == generation
+        token.boardID == boardID && token.generation == presentationGeneration
             && token.navigationGeneration == navigationGeneration
     }
 
@@ -564,7 +655,7 @@ final class BoardWindowSession {
     ) -> ReadingPosition? {
         let token = ReadingPresentationToken(
             boardID: callbackBoardID ?? boardID,
-            generation: callbackGeneration ?? generation,
+            generation: callbackGeneration ?? presentationGeneration,
             navigationGeneration: callbackNavigationGeneration ?? navigationGeneration,
             itemID: itemID)
         return beginReadingRestore(token: token)
@@ -609,7 +700,7 @@ final class BoardWindowSession {
         generation callbackGeneration: UInt64? = nil
     ) {
         guard callbackBoardID.map({ $0 == boardID }) ?? true,
-            callbackGeneration.map({ $0 == generation }) ?? true
+            callbackGeneration.map({ $0 == presentationGeneration }) ?? true
         else { return }
         guard readingPositions[itemID] != nil else { return }
         updateWorkspace { $0.readingPositions.removeValue(forKey: itemID) }
@@ -638,7 +729,7 @@ final class BoardWindowSession {
     }
 
     func delete(_ itemID: UUID) {
-        guard let model, model.item(id: itemID) != nil else { return }
+        guard let model, !isClosed, model.item(id: itemID) != nil else { return }
         model.delete(itemID)
         canonicalizeWorkspaceAfterContentMutation()
         captionDrafts.removeValue(forKey: itemID)
@@ -647,23 +738,27 @@ final class BoardWindowSession {
     }
 
     func move(_ itemID: UUID, to position: BoardPoint) {
+        guard !isClosed else { return }
         model?.move(itemID, to: position)
         captureBoardIfNeeded()
     }
 
     func moveIntoFolder(_ itemID: UUID, folderID: UUID) {
+        guard !isClosed else { return }
         model?.moveIntoFolder(itemID, folderID: folderID)
         canonicalizeWorkspaceAfterContentMutation()
         captureBoardIfNeeded()
     }
 
     func moveToBoard(_ itemID: UUID) {
+        guard !isClosed else { return }
         model?.moveToBoard(itemID)
         canonicalizeWorkspaceAfterContentMutation()
         captureBoardIfNeeded()
     }
 
     func flushAndPrepareToLeave() async {
+        guard !isClosed else { return }
         if let leaveFlushTask {
             await leaveFlushTask.value
             return
@@ -682,6 +777,46 @@ final class BoardWindowSession {
         return !isDirty
     }
 
+    /// Flushes the session once after the real `NSWindow` close notification.
+    /// A failed flush deliberately leaves the registry entry in place so a
+    /// later scene can recover the dirty session.  Repeated notifications
+    /// share the in-flight operation and never retire the registry twice.
+    /// Depois disso a janela fica fechada: callbacks tardios não gravam mais nada.
+    func handleWindowWillClose() async {
+        guard route != .library else { return }
+        if let windowCloseTask {
+            await windowCloseTask.value
+            return
+        }
+        guard !windowCloseHandled else { return }
+        windowCloseHandled = true
+        invalidatePresentation()
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.flushAndPrepareToLeave()
+            self.markClosed()
+            await self.releaseRegistryReference()
+        }
+        windowCloseTask = task
+        await task.value
+        windowCloseTask = nil
+    }
+
+    /// Encerra as gravações desta janela: nenhum autosave, captura ou watchdog depois.
+    private func markClosed() {
+        isClosed = true
+        pendingAutosaveDebounce?.cancel()
+        pendingAutosaveDebounce = nil
+        canvasCaptureDebounce?.cancel()
+        canvasCaptureDebounce = nil
+        restorationWatchdog?.cancel()
+        restorationWatchdog = nil
+    }
+
+    /// Consolida drafts, zoom e posição e grava pela mesma fila dos autosaves. Toda
+    /// chamada à sessão de domínio passa por `sessionPipeline`: um flush paralelo a um
+    /// `update` faria a sessão recusar a mutação e mostrar um erro falso.
     private func performFlushAndPrepareToLeave() async {
         guard let domainSession else { return }
         commitCaptionDrafts()
@@ -693,22 +828,12 @@ final class BoardWindowSession {
         enqueueAutosave()
         isSaving = true
         defer { isSaving = false }
-        do {
-            await sessionPipeline?.value
-            guard !autosaveFailed else {
-                isDirty = true
-                return
-            }
-            if await domainSession.isDirty {
-                _ = try await domainSession.prepareToLeave()
-                model?.finalizeDeferredDeletions()
-            }
-            isDirty = await domainSession.isDirty
-            error = nil
-        } catch {
+        await sessionPipeline?.value
+        guard !autosaveFailed else {
             isDirty = true
-            self.error = "Não foi possível salvar o mural: \(error.localizedDescription)"
+            return
         }
+        isDirty = await domainSession.isDirty
     }
 
     func retryFlush() {
@@ -723,7 +848,7 @@ final class BoardWindowSession {
     }
 
     private func updateWorkspace(_ update: (inout BoardWorkspaceState) -> Void) {
-        guard restoration.acceptsPersistence else { return }
+        guard restoration.acceptsPersistence, !isClosed else { return }
         var changed = workspace
         update(&changed)
         guard changed != workspace else { return }
@@ -736,7 +861,7 @@ final class BoardWindowSession {
     }
 
     private func canonicalizeWorkspaceAfterContentMutation() {
-        guard let model else { return }
+        guard let model, !isClosed else { return }
         let canonical = workspace.canonicalized(for: model.board).state
         guard canonical != workspace else { return }
         workspace = canonical
@@ -751,11 +876,12 @@ final class BoardWindowSession {
     }
 
     private func scheduleAutosave() {
+        guard !isClosed else { return }
         pendingAutosaveDebounce?.cancel()
         pendingAutosaveDebounce = Task { [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(250))
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled, !self.isClosed else { return }
                 enqueueAutosave()
             } catch is CancellationError {
                 return
@@ -767,7 +893,7 @@ final class BoardWindowSession {
     }
 
     private func enqueueAutosave() {
-        guard let domainSession else { return }
+        guard let domainSession, !isClosed else { return }
         autosaveFailed = false
         let board = pendingBoard
         let savedWorkspace = pendingWorkspace
@@ -791,8 +917,10 @@ final class BoardWindowSession {
                     try await domainSession.update(workspace: savedWorkspace, expectedGeneration: expectedGeneration)
                 }
                 if await domainSession.isDirty {
-                    _ = try await domainSession.flush()
-                    model?.finalizeDeferredDeletions()
+                    let persisted = try await domainSession.flush()
+                    // Só apaga a mídia que a versão gravada já não usa; uma exclusão feita
+                    // durante esta gravação espera a próxima.
+                    model?.finalizeDeferredDeletions(persistedBoard: persisted.board)
                 }
                 generation = await domainSession.generation
                 isDirty = await domainSession.isDirty
@@ -878,7 +1006,14 @@ struct BoardWindowHost: View {
                 BoardLibraryView(registry: registry)
             } else if session.model == nil {
                 if let error = session.error {
-                    ContentUnavailableView("Mural indisponível", systemImage: "exclamationmark.triangle", description: Text(error))
+                    ContentUnavailableView {
+                        Label("Mural indisponível", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Tentar de novo") { Task { await session.retryLoad() } }
+                        Button("Abrir biblioteca") { openWindow(value: BoardRoute.library) }
+                    }
                 } else {
                     ProgressView("Abrindo mural…")
                 }
@@ -888,16 +1023,20 @@ struct BoardWindowHost: View {
                     .navigationTitle(session.title)
             }
         }
+        .background {
+            if route != .library {
+                WindowLifecycleObserver {
+                    Task { @MainActor in
+                        await session.handleWindowWillClose()
+                    }
+                }
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+            }
+        }
         .task(id: route) {
             guard route != .library else { return }
             await session.load()
-        }
-        .onDisappear {
-            // SwiftUI also sends onDisappear when a tab or transient view is
-            // replaced. It is therefore safe to flush here, but not to close
-            // the registry entry. A real NSWindow-close lifecycle hook remains
-            // the pending integration point for calling registry.close(boardID).
-            Task { await session.flushAndPrepareToLeave() }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, route != .library else { return }

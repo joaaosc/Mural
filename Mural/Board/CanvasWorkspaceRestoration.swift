@@ -127,5 +127,13 @@ struct CanvasRestorationStateMachine: Equatable {
         return true
     }
 
+    /// Saída de emergência do watchdog: aceita a geometria alcançada em vez de deixar o
+    /// canvas sem interação. Só vale depois que a restauração já recebeu layout real.
+    mutating func forceReady(for token: CanvasRestorationToken) -> Bool {
+        guard self.token == token, phase == .applyingZoom || phase == .applyingPosition else { return false }
+        phase = .ready
+        return true
+    }
+
     var acceptsPersistence: Bool { phase == .ready }
 }

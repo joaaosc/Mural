@@ -238,7 +238,7 @@ struct PDFKitView: NSViewRepresentable {
         private func scheduleCapture(in view: PDFView) {
             guard let session,
                 session.restorationPhase == .ready,
-                session.acceptsPersistence(for: session.boardID, generation: session.generation),
+                session.acceptsPersistence(for: session.boardID, generation: session.presentationGeneration),
                 view.currentDestination != nil,
                 view.document != nil
             else { return }
