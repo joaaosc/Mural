@@ -41,4 +41,48 @@ struct FolderCreationTests {
         model.moveIntoFolder(note.id, folderID: folder.id)
         #expect(model.children(of: folder.id).map(\.id) == [note.id])
     }
+
+    @Test("Renomear corta os espaços das pontas")
+    func renamesAndTrims() {
+        let model = makeModel()
+        let folder = model.createFolder(named: "Viagem")
+        #expect(model.renameFolder(folder.id, to: "  Trabalho \n"))
+        #expect(model.board.item(id: folder.id)?.title == "Trabalho")
+    }
+
+    @Test("Nome vazio ou só com espaços não muda a pasta")
+    func renameEmptyKeepsTitle() {
+        let model = makeModel()
+        let folder = model.createFolder(named: "Viagem")
+        #expect(!model.renameFolder(folder.id, to: ""))
+        #expect(!model.renameFolder(folder.id, to: " \n "))
+        #expect(model.board.item(id: folder.id)?.title == "Viagem")
+    }
+
+    @Test("Mesmo nome devolve false")
+    func renameSameName() {
+        let model = makeModel()
+        let folder = model.createFolder(named: "Viagem")
+        #expect(!model.renameFolder(folder.id, to: " Viagem "))
+    }
+
+    @Test("Item que não é pasta não é renomeado")
+    func renameIgnoresNonFolder() {
+        let model = makeModel()
+        let note = model.createNote()
+        let title = model.board.item(id: note.id)?.title
+        #expect(!model.renameFolder(note.id, to: "Outro"))
+        #expect(model.board.item(id: note.id)?.title == title)
+        #expect(!model.renameFolder(UUID(), to: "Outro"))
+    }
+
+    @Test("O novo nome fica gravado no disco")
+    func renamePersists() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MuralFolder-\(UUID().uuidString)")
+        let model = BoardModel(store: BoardStore(directory: directory), seedIfEmpty: false)
+        let folder = model.createFolder(named: "Viagem")
+        model.renameFolder(folder.id, to: "Trabalho")
+        let reloaded = BoardModel(store: BoardStore(directory: directory), seedIfEmpty: false)
+        #expect(reloaded.board.item(id: folder.id)?.title == "Trabalho")
+    }
 }

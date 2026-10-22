@@ -325,6 +325,19 @@ public final class BoardModel {
         return placed
     }
 
+    /// Renomeia uma pasta, sem espaços nas pontas.
+    /// - Returns: `false`, sem mudar nada, se o item não é pasta, o nome fica vazio ou é igual ao atual.
+    @discardableResult
+    public func renameFolder(_ itemID: UUID, to name: String) -> Bool {
+        guard var item = board.item(id: itemID), item.kind == .folder else { return false }
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean != item.title else { return false }
+        item.title = clean
+        board.update(item)
+        persist()
+        return true
+    }
+
     /// Diz se cabe uma pasta nova no pai: `nil` é o mural, que sempre aceita; uma pasta aceita enquanto a nova
     /// não passar do último nível (`Board.maximumFolderDepth`).
     public func canCreateFolder(in parentID: UUID?) -> Bool {
