@@ -379,7 +379,9 @@ final class MuralUITests: XCTestCase {
         let app = launch()
         let cottage = app.buttons["The Cottage"].firstMatch
         XCTAssertTrue(cottage.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Adicionar arquivos"].firstMatch.exists, "o botão inferior tem nome visível")
+        XCTAssertTrue(
+            app.buttons["Arquivos…"].firstMatch.waitForExistence(timeout: 5),
+            "o botão de arquivos da barra inferior tem nome visível")
         let draftWindow = app.windows.containing(.button, identifier: "The Cottage").firstMatch
         let before = CGPoint(x: cottage.frame.minX - draftWindow.frame.minX, y: cottage.frame.minY - draftWindow.frame.minY)
 
@@ -424,13 +426,18 @@ final class MuralUITests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("Fechar sem perder", forType: .string)
         app.typeKey("v", modifierFlags: .command)
+        // Texto solto passa pelo popup; Return aceita a sugestão (post-it, para texto curto).
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 5), "⌘V com texto deveria abrir o popup")
+        app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(app.buttons["Fechar sem perder"].waitForExistence(timeout: 5))
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.buttons["The Cottage"].waitForNonExistence(timeout: 5), "a janela do mural fecha")
 
         let draftEntry = app.descendants(matching: .any)["welcome-draft-entry"].firstMatch
         XCTAssertTrue(draftEntry.waitForExistence(timeout: 10), "a biblioteca continua aberta")
-        draftEntry.doubleClick()
+        // Um clique abre; com as janelas em abas, o segundo clique de um duplo clique cai na aba
+        // "Murais" que surge sob o ponteiro e deixa o rascunho reaberto atrás.
+        draftEntry.click()
         XCTAssertTrue(
             app.buttons["Fechar sem perder"].waitForExistence(timeout: 10),
             "o post-it colado antes de fechar deveria voltar")
