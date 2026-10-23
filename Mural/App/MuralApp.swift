@@ -16,7 +16,20 @@ struct MuralApp: App {
             discard = { url in try BoardLibrary.moveToTrash(url) }
         }
         let library = BoardLibrary(rootDirectory: LaunchConfiguration.store().directory, discardPackage: discard)
-        _tabs = State(initialValue: MuralTabs(registry: BoardSessionRegistry(library: library)))
+        let tabs = MuralTabs(registry: BoardSessionRegistry(library: library))
+        _tabs = State(initialValue: tabs)
+
+        // O ícone na barra de menus e o painel de vidro que ele abre. O conteúdo é montado a cada apresentação.
+        MenuBarController.shared.install { _ in
+            GlassHostingView(
+                rootView: MenuBarPanelView(
+                    tabs: tabs,
+                    close: { MenuBarController.shared.dismiss() },
+                    resize: { MenuBarController.shared.fitToContent() }
+                )
+                .panelGlassSurface()
+            )
+        }
     }
 
     var body: some Scene {

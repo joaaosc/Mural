@@ -82,6 +82,8 @@ struct MuralCommands: Commands {
             // Como "Mostrar Todas as Abas" do Safari: a janela com a barra lateral de murais.
             Button("Mostrar Todos os Murais") { tabs.showAllMurals() }
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
+            // O mesmo painel do ícone na barra de menus, aberto no meio da tela.
+            Button("Abrir Painel de Murais") { MenuBarController.shared.presentCentered() }
             Section {
                 Button("Aproximar") { zoom?.zoomIn() }
                     .keyboardShortcut("=", modifiers: .command)
