@@ -6,6 +6,8 @@ import Observation
 struct MusicOfferRequest: Identifiable, Equatable {
     let id = UUID()
     let catalogID: String?
+    /// Mural que pediu: só a janela dele mostra a oferta.
+    let boardID: BoardID
 }
 
 /// Como um cartão de música aparece em relação ao tocador.
@@ -78,6 +80,13 @@ final class MusicPlayback {
         clearCurrent()
     }
 
+    /// Para quando o cartão atual deste mural não existe mais (apagado, ou junto com uma pasta).
+    func stopIfMissing(in model: BoardModel, boardID: BoardID) {
+        guard currentBoardID == boardID, let currentItemID, model.item(id: currentItemID) == nil else { return }
+        provider.stop()
+        clearCurrent()
+    }
+
     private func clearCurrent() {
         currentItemID = nil
         currentBoardID = nil
@@ -97,7 +106,7 @@ final class MusicPlayback {
         switch await provider.eligibility() {
         case .canPlay: break
         case .canSubscribe:
-            offer = MusicOfferRequest(catalogID: music.catalogID)
+            offer = MusicOfferRequest(catalogID: music.catalogID, boardID: boardID)
             return
         case .cannotPlay:
             model.lastError = "Esta conta não pode tocar o Apple Music."

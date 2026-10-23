@@ -22,10 +22,14 @@ struct CardButton: View {
     var onEditCaption: ((UUID) -> Void)? = nil
     /// Marca ou reabre o lembrete; `nil` onde a bolinha não é clicável (a prévia de pasta).
     var onToggleReminder: ((UUID) -> Void)? = nil
+    /// Toca ou pausa a música; `nil` onde o botão não aparece (a prévia de pasta).
+    var onToggleMusic: ((UUID) -> Void)? = nil
+    var musicPhase: MusicCardPhase = .idle
     /// `nil` onde não há seletor (a prévia de pasta que aparece ao passar o ponteiro).
     var selection: CardSelection? = nil
 
     @State private var isConfirmingDelete = false
+    @State private var isHovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.linkPreviewCoordinator) private var linkPreviewCoordinator
 
@@ -61,6 +65,8 @@ struct CardButton: View {
                 }
             }
             .overlay(alignment: .topLeading) { reminderToggle }
+            .overlay(alignment: .topLeading) { musicToggle }
+            .onHover { isHovering = $0 }
             .contextMenu {
                 Button("Abrir", action: onOpen)
                 if let onRename {
@@ -107,6 +113,34 @@ struct CardButton: View {
         }
     }
 
+    /// Tocar/pausar sobre o canto do cartão de música: aparece com o ponteiro em cima ou enquanto toca.
+    @ViewBuilder
+    private var musicToggle: some View {
+        if item.kind == .music, let onToggleMusic, selection?.isActive != true, isHovering || musicPhase != .idle {
+            let title = musicPhase == .playing ? "Pausar" : musicPhase == .loading ? "Carregando" : "Tocar"
+            Button {
+                onToggleMusic(item.id)
+            } label: {
+                ZStack {
+                    if musicPhase == .loading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: musicPhase == .playing ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                }
+                .frame(width: 26, height: 26)
+                .background(.regularMaterial, in: .circle)
+                .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .padding(6)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("music-toggle")
+            .help(title)
+        }
+    }
+
     /// Site do link e cor da tag, separados por vírgula; vazio quando o cartão não tem nenhum dos dois.
     private var accessibilityDetail: String {
         var parts: [String] = []
@@ -136,9 +170,15 @@ struct CardButton: View {
         }
     }
 
-    /// Só para música com endereço: copiar o link do Apple Music.
+    /// Só para música: tocar ou pausar, abrir no Música e, com endereço, copiar o link do Apple Music.
     @ViewBuilder
     private var musicMenu: some View {
+        if item.kind == .music {
+            if let onToggleMusic {
+                Button(musicPhase == .playing ? "Pausar" : "Tocar") { onToggleMusic(item.id) }
+            }
+            Button("Abrir no Música") { if let music = item.music { MusicOpener.open(music) } }
+        }
         if item.kind == .music, item.music?.url != nil {
             Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
         }

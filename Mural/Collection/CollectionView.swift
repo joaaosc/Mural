@@ -142,6 +142,8 @@ struct CollectionView: View {
             onRename: onRename,
             onEditCaption: onEditCaption,
             onToggleReminder: { id in Task { await session?.toggleReminder(id) } },
+            onToggleMusic: { id in Task { await session?.toggleMusic(id) } },
+            musicPhase: session?.musicPhase(of: item.id) ?? .idle,
             selection: selection
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)

@@ -1,5 +1,6 @@
 import AppKit
 import MuralKit
+import MusicKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -86,6 +87,12 @@ private struct LoadedRootView: View {
 
     var body: some View {
         withReminderSync(withDialogs(withSelection(boardContent)))
+            .musicSubscriptionOffer(
+                isPresented: musicOfferBinding,
+                options: MusicSubscriptionOffer.Options(
+                    messageIdentifier: .playMusic,
+                    itemID: session.musicPlayback.offer?.catalogID.map { MusicItemID($0) })
+            )
             .background { SaveCopyExporter(session: session) }
     }
 
@@ -114,6 +121,8 @@ private struct LoadedRootView: View {
             onMoveIntoFolder: session.moveIntoFolder,
             onSetColorTag: { session.setColorTag($1, for: $0) },
             onToggleReminder: toggleReminder,
+            onToggleMusic: toggleMusic,
+            musicPhase: session.musicPhase(of:),
             onMove: session.move,
             onFreeTextEdit: beginEditingFreeText,
             onFreeTextMove: session.moveFreeText,
@@ -360,6 +369,19 @@ private struct LoadedRootView: View {
             .accessibilityHidden(!isTop)
             .transition(.opacity)
             .zIndex(Double(index * 2 + 2))
+    }
+
+    // MARK: Música
+
+    /// Oferta de assinatura só na janela do mural que pediu; ao fechar, zera o pedido.
+    private var musicOfferBinding: Binding<Bool> {
+        Binding(
+            get: { session.musicPlayback.offer?.boardID == session.boardID },
+            set: { if !$0 { session.musicPlayback.offer = nil } })
+    }
+
+    private func toggleMusic(_ id: UUID) {
+        Task { await session.toggleMusic(id) }
     }
 
     // MARK: Lembretes

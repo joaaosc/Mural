@@ -740,6 +740,11 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    // MARK: Música
+
+    /// Tocador do Apple Music; os testes trocam por um com a ponte falsa.
+    @ObservationIgnored var musicPlayback: MusicPlayback = .shared
+
     // MARK: Lembretes
 
     /// Ponte com o app Lembretes; os testes trocam por uma versão falsa.
@@ -1221,6 +1226,7 @@ final class BoardWindowSession {
     func delete(_ itemID: UUID) {
         guard let model, !isClosed, model.item(id: itemID) != nil else { return }
         model.delete(itemID)
+        musicPlayback.stopIfMissing(in: model, boardID: boardID)
         canonicalizeWorkspaceAfterContentMutation()
         captionDrafts.removeValue(forKey: itemID)
         noteDrafts.removeValue(forKey: itemID)
@@ -1446,6 +1452,7 @@ final class BoardWindowSession {
     /// Encerra as gravações desta janela: nenhum autosave, captura ou watchdog depois.
     private func markClosed() {
         isClosed = true
+        musicPlayback.stop(boardID: boardID)
         openSessions.unregister(self)
         pendingAutosaveDebounce?.cancel()
         pendingAutosaveDebounce = nil

@@ -156,6 +156,7 @@ struct MusicPlaybackTests {
 
         #expect(rig.fake.played.isEmpty)
         #expect(rig.playback.offer?.catalogID == "100")
+        #expect(rig.playback.offer?.boardID == rig.boardID)
         #expect(rig.playback.currentItemID == nil)
     }
 
@@ -239,6 +240,28 @@ struct MusicPlaybackTests {
         #expect(rig.playback.currentBoardID == rig.boardID)
 
         rig.playback.stop(boardID: rig.boardID)
+        #expect(rig.fake.stopCount == 1)
+        #expect(rig.playback.currentItemID == nil)
+        #expect(rig.playback.currentBoardID == nil)
+    }
+
+    @Test("stopIfMissing para quando o cartão atual saiu do modelo e ignora o resto")
+    func stopIfMissing() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+
+        rig.playback.stopIfMissing(in: rig.model, boardID: rig.boardID)
+        #expect(rig.fake.stopCount == 0)
+
+        rig.model.delete(rig.ids[1])
+        rig.playback.stopIfMissing(in: rig.model, boardID: rig.boardID)
+        #expect(rig.fake.stopCount == 0)
+
+        rig.model.delete(rig.ids[0])
+        rig.playback.stopIfMissing(in: rig.model, boardID: BoardID(rawValue: UUID()))
+        #expect(rig.fake.stopCount == 0)
+        rig.playback.stopIfMissing(in: rig.model, boardID: rig.boardID)
         #expect(rig.fake.stopCount == 1)
         #expect(rig.playback.currentItemID == nil)
         #expect(rig.playback.currentBoardID == nil)

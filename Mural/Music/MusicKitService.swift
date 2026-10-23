@@ -18,7 +18,8 @@ final class MusicKitService: MusicProviding {
     }
 
     private(set) var status: MusicPlayerStatus = .stopped
-    @ObservationIgnored nonisolated(unsafe) private let player = ApplicationMusicPlayer.shared
+    /// Lido na hora: criar o serviço (cada mural aberto cria a sessão com ele) não acorda o tocador.
+    private var player: ApplicationMusicPlayer { ApplicationMusicPlayer.shared }
     @ObservationIgnored private var resolved: [String: Resolved] = [:]
     @ObservationIgnored private var observation: Task<Void, Never>?
 
@@ -104,6 +105,8 @@ final class MusicKitService: MusicProviding {
             case .song(let song): player.queue = [song]
             case .station(let station): player.queue = [station]
             }
+            // O tocador não é Sendable; esta é a única instância, usada só daqui.
+            nonisolated(unsafe) let player = self.player
             try await player.play()
         } catch {
             throw MusicPlaybackError.failed
@@ -113,6 +116,7 @@ final class MusicKitService: MusicProviding {
 
     func resume() async throws {
         observeIfNeeded()
+        nonisolated(unsafe) let player = self.player
         do { try await player.play() } catch { throw MusicPlaybackError.failed }
     }
 

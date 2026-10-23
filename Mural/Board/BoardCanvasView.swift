@@ -19,6 +19,8 @@ struct BoardCanvasView: View {
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
     var onSetColorTag: ((UUID, TagColor?) -> Void)? = nil
     var onToggleReminder: ((UUID) -> Void)? = nil
+    var onToggleMusic: ((UUID) -> Void)? = nil
+    var musicPhase: ((UUID) -> MusicCardPhase)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
     var onFreeTextEdit: ((UUID) -> Void)? = nil
     var onFreeTextMove: ((UUID, BoardPoint) -> Void)? = nil
@@ -221,6 +223,8 @@ struct BoardCanvasView: View {
             onRename: onRename,
             onEditCaption: onEditCaption,
             onToggleReminder: onToggleReminder,
+            onToggleMusic: onToggleMusic,
+            musicPhase: musicPhase?(item.id) ?? .idle,
             selection: selection)
     }
 
