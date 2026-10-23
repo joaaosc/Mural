@@ -142,6 +142,8 @@ final class BoardWindowSession {
     @ObservationIgnored private var readingFinalizers: [ReadingPresentationToken: ReadingPresentationFinalizer] = [:]
     /// Esta janela é dona de uma referência no registry (`acquire`/`release`).
     @ObservationIgnored private var ownsRegistryReference = false
+    /// O carregamento em andamento, para um segundo pedido esperar o mesmo em vez de começar outro.
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
     /// Último tamanho do canvas com a restauração pronta; só um resize agenda captura.
     @ObservationIgnored private var lastCanvasContainerSize: CGSize = .zero
     @ObservationIgnored private var canvasCaptureDebounce: Task<Void, Never>?
@@ -216,7 +218,24 @@ final class BoardWindowSession {
 
     private(set) var manifestName = "Mural"
 
+    /// Carrega o mural uma vez só. Um pedido que chega com outro em andamento espera o mesmo carregamento: começar
+    /// outro abriria mais uma referência da sessão de domínio e trocaria o modelo no meio. Acontece quando o painel da
+    /// barra de menus cola num mural de uma aba de fundo no instante em que a aba é escolhida.
     func load() async {
+        if let loadTask {
+            await loadTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadOnce()
+        }
+        loadTask = task
+        await task.value
+        loadTask = nil
+    }
+
+    private func loadOnce() async {
         guard model == nil, !isClosed, route != .library else { return }
         restorationPhase = .loading
         do {
