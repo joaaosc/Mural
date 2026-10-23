@@ -13,6 +13,7 @@ import WebKit
 ///
 /// A página fica numa janela do app, atrás das outras: o WebKit só tem tamanho de área visível (e portanto recorte)
 /// dentro de uma janela.
+@Suite(.serialized)
 @MainActor
 struct LinkPagePreviewTests {
     /// Tamanho da área da página nestes testes.
