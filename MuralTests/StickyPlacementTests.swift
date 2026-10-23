@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import Mural
@@ -54,5 +55,64 @@ struct StickyPlacementTests {
         let frame = StickyPlacement.frame(for: place, width: area.width).offsetBy(dx: area.minX, dy: area.minY)
         #expect(frame.midX == 620)
         #expect(frame.midY == 400)
+    }
+
+    @Test("A subpasta sob o ponteiro é a candidata cujo quadro contém o ponto")
+    func folderUnderPointerIsTheCandidateContainingIt() {
+        let first = UUID()
+        let second = UUID()
+        let frames = [
+            first: CGRect(x: 100, y: 50, width: 200, height: 150),
+            second: CGRect(x: 400, y: 50, width: 200, height: 150),
+        ]
+        let candidates = [first, second]
+        #expect(StickyPlacement.folder(under: CGPoint(x: 200, y: 100), frames: frames, among: candidates) == first)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 500, y: 100), frames: frames, among: candidates) == second)
+    }
+
+    @Test("Fora de todos os quadros, não há subpasta")
+    func noFolderOutsideAllFrames() {
+        let first = UUID()
+        let second = UUID()
+        let frames = [
+            first: CGRect(x: 100, y: 50, width: 200, height: 150),
+            second: CGRect(x: 400, y: 50, width: 200, height: 150),
+        ]
+        let candidates = [first, second]
+        #expect(StickyPlacement.folder(under: CGPoint(x: 350, y: 100), frames: frames, among: candidates) == nil)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 200, y: 300), frames: frames, among: candidates) == nil)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 200, y: 100), frames: frames, among: []) == nil)
+    }
+
+    @Test("Um quadro que não está entre os candidatos é ignorado, e um candidato sem quadro medido não conta")
+    func framesOutsideTheCandidatesAreIgnored() {
+        let accepted = UUID()
+        let refused = UUID()
+        let frames = [
+            accepted: CGRect(x: 0, y: 0, width: 100, height: 100),
+            refused: CGRect(x: 200, y: 0, width: 100, height: 100),
+        ]
+        let point = CGPoint(x: 250, y: 50)
+        #expect(StickyPlacement.folder(under: point, frames: frames, among: [accepted]) == nil)
+        #expect(StickyPlacement.folder(under: point, frames: frames, among: [accepted, refused]) == refused)
+        #expect(StickyPlacement.folder(under: point, frames: frames, among: [UUID()]) == nil)
+    }
+
+    @Test("As bordas de cima e da esquerda do quadro contam como dentro")
+    func topAndLeftEdgesCountAsInside() {
+        let id = UUID()
+        let frames = [id: CGRect(x: 100, y: 50, width: 200, height: 150)]
+        #expect(StickyPlacement.folder(under: CGPoint(x: 100, y: 120), frames: frames, among: [id]) == id)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 180, y: 50), frames: frames, among: [id]) == id)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 100, y: 50), frames: frames, among: [id]) == id)
+    }
+
+    @Test("As bordas de baixo e da direita do quadro contam como fora")
+    func bottomAndRightEdgesCountAsOutside() {
+        let id = UUID()
+        let frames = [id: CGRect(x: 100, y: 50, width: 200, height: 150)]
+        #expect(StickyPlacement.folder(under: CGPoint(x: 300, y: 120), frames: frames, among: [id]) == nil)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 180, y: 200), frames: frames, among: [id]) == nil)
+        #expect(StickyPlacement.folder(under: CGPoint(x: 300, y: 200), frames: frames, among: [id]) == nil)
     }
 }

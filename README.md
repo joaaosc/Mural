@@ -90,9 +90,10 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 - A pasta mostra em leque, pela borda direita, os três cartões mais recentes de dentro.
 - Murais com pasta dentro de pasta usam a versão 2 do formato.
 - **Post-it solto na pasta**: arrastar um post-it dentro da pasta o deixa solto onde foi largado, por cima
-  das colunas, e o lugar fica guardado. Levado para outra pasta ou para o mural, ele volta às colunas. Só
-  post-its se movem assim. O post-it novo criado na pasta já nasce solto, no meio do que está à vista.
-  Murais com post-it solto numa pasta usam a versão 9 do formato.
+  das colunas, e o lugar fica guardado. Solto sobre uma subpasta (que fica destacada antes de soltar), ele
+  entra nela. Levado para outra pasta ou para o mural, ele volta às colunas. Só post-its se movem assim.
+  O post-it novo criado na pasta já nasce solto, no meio do que está à vista. Murais com post-it solto
+  numa pasta usam a versão 9 do formato.
 
 ## Lembretes
 

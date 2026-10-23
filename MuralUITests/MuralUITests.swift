@@ -801,6 +801,41 @@ final class MuralUITests: XCTestCase {
             reopened.windows.matching(opened).firstMatch.waitForExistence(timeout: 5), "o post-it solto continua abrindo")
     }
 
+    /// Dentro da pasta, soltar um post-it sobre uma subpasta o guarda nela.
+    @MainActor
+    func testDroppingStickyOnSubfolderStoresIt() throws {
+        let app = launch()
+        // Prepara a subpasta: "44th Street" vai para dentro de "The Cottage", onde está o post-it "This week".
+        let street = app.buttons["44th Street"].firstMatch
+        XCTAssertTrue(street.waitForExistence(timeout: 10))
+        street.rightClick()
+        app.menuItems["Mover para a pasta"].hover()
+        app.menuItems["The Cottage"].click()
+
+        // Afasta o ponteiro das pastas, para nenhuma prévia mostrar a pasta guardada.
+        app.buttons["Today"].firstMatch.hover()
+        XCTAssertTrue(app.buttons["44th Street"].waitForNonExistence(timeout: 3), "a pasta guardada sai do mural")
+
+        app.buttons["The Cottage"].firstMatch.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        let subfolder = app.buttons["44th Street"].firstMatch
+        let sticky = app.buttons["This week"].firstMatch
+        XCTAssertTrue(subfolder.waitForExistence(timeout: 5), "a pasta guardada aparece dentro da outra")
+        XCTAssertTrue(sticky.waitForExistence(timeout: 5))
+        // Espera a pasta terminar de abrir (os cartões param de se mover).
+        Thread.sleep(forTimeInterval: 1)
+
+        // Do centro do post-it até o centro da subpasta.
+        drag(sticky, dx: subfolder.frame.midX - sticky.frame.midX, dy: subfolder.frame.midY - sticky.frame.midY)
+
+        XCTAssertTrue(app.buttons["This week"].waitForNonExistence(timeout: 5), "o post-it entra na subpasta")
+
+        subfolder.click()
+        let inside = NSPredicate(format: "title CONTAINS %@", "44th Street")
+        XCTAssertTrue(app.windows.matching(inside).firstMatch.waitForExistence(timeout: 5), "a janela mostra a subpasta")
+        XCTAssertTrue(app.buttons["This week"].firstMatch.waitForExistence(timeout: 5), "o post-it aparece dentro da subpasta")
+    }
+
     /// Botão direito na pasta › Renomear…: a folha começa com o nome atual e o cartão passa a mostrar o novo.
     @MainActor
     func testContextMenuRenamesFolder() throws {

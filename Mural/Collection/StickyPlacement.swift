@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Geometria do post-it solto dentro da pasta, separada da view para poder ser testada.
 ///
@@ -27,5 +28,11 @@ nonisolated enum StickyPlacement {
     /// lugar de um post-it novo que nasce no meio do que está à vista. `area` é a área dos cartões no mesmo espaço.
     static func visibleRectForNewSticky(_ visibleRect: CGRect, area: CGRect) -> CGRect {
         visibleRect.offsetBy(dx: -area.minX - area.width / 2 - size.width / 2, dy: -area.minY - size.height / 2)
+    }
+
+    /// Subpasta sob `point`, entre `candidates` (as que o domínio aceita), pelos quadros medidos no espaço do conteúdo.
+    /// Como no mural, as bordas de cima e da esquerda contam como dentro; a de baixo e a da direita, não.
+    static func folder(under point: CGPoint, frames: [UUID: CGRect], among candidates: [UUID]) -> UUID? {
+        candidates.first { frames[$0]?.contains(point) == true }
     }
 }

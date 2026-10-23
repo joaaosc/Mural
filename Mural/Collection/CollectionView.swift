@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Nível 2: o conteúdo de uma pasta, em colunas. Mídia numa faixa à esquerda, notas e listas
 /// numa faixa mais estreita à direita, só com as colunas que os itens ocupam. Os post-its
-/// podem ser arrastados: ficam soltos por cima das colunas, onde o ponteiro os largou.
+/// podem ser arrastados: ficam soltos por cima das colunas, onde o ponteiro os largou, ou
+/// entram na subpasta sobre a qual forem largados.
 struct CollectionView: View {
     let folder: BoardItem
     let model: BoardModel
@@ -142,6 +143,7 @@ struct CollectionView: View {
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
         .cardEmphasis(BoardFilter.emphasis(for: item, kind: filter, color: colorFilter))
+        .dropTargetHighlight(stickyDrag?.tracker.target == item.id)
         .highPriorityGesture(stickyMoveGesture(for: item), isEnabled: item.kind == .sticky)
         .offset(stickyOffset(for: item))
     }
@@ -170,15 +172,22 @@ struct CollectionView: View {
 
     /// Arrasto de um post-it da pasta. O clique simples continua abrindo: o gesto só começa depois de 4 pontos de
     /// movimento e, por ter prioridade sobre o botão, impede que o arrasto abra o post-it. A posição só é gravada ao
-    /// soltar, sem animação: o post-it fica onde o ponteiro o deixou, solto por cima das colunas e dos outros cartões
-    /// (soltar sobre uma subpasta não o guarda nela). Os outros tipos de cartão não se movem.
+    /// soltar, sem animação: o post-it fica onde o ponteiro o deixou, solto por cima das colunas e dos outros cartões.
+    /// Soltar sobre uma subpasta (destacada antes de soltar) o guarda nela, desde que o domínio aceite o destino: ele
+    /// sai desta pasta e perde o lugar solto. Os outros tipos de cartão não se movem.
     private func stickyMoveGesture(for item: BoardItem) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDraggingSticky) { _, isDragging, _ in isDragging = true }
             .onChanged { value in
-                stickyDrag = StickyDrag(id: item.id, translation: value.translation)
+                stickyDrag = drag(of: item, moved: value)
             }
             .onEnded { value in
+                // Decide pelo ponto em que o botão foi solto: num arrasto rápido ele pode não ter chegado num
+                // `onChanged`, e o destino anotado estaria atrasado.
+                if let folderID = drag(of: item, moved: value).tracker.target {
+                    store(item, in: folderID)
+                    return
+                }
                 guard let frame = itemFrames[item.id], placementArea.width > 0 else {
                     stickyDrag = nil
                     return
@@ -197,6 +206,50 @@ struct CollectionView: View {
                     stickyDrag = nil
                 }
             }
+    }
+
+    /// O arrasto de `item` com o ponteiro onde `value` o deixou. No primeiro movimento, anota as subpastas que podem
+    /// guardar o post-it e a que já estava sob o ponteiro (ela só vira destino depois que o ponteiro sai dela uma
+    /// vez); depois, só acompanha o ponteiro.
+    private func drag(of item: BoardItem, moved value: DragGesture.Value) -> StickyDrag {
+        var current: StickyDrag
+        if let existing = stickyDrag, existing.id == item.id {
+            current = existing
+        } else {
+            let accepted = acceptedSubfolders(for: item)
+            current = StickyDrag(
+                id: item.id, translation: .zero,
+                tracker: FolderDropTracker(startFolder: subfolder(at: value.startLocation, among: accepted)),
+                acceptedFolders: accepted)
+        }
+        current.translation = value.translation
+        current.tracker.update(folderUnderPointer: subfolder(at: value.location, among: current.acceptedFolders))
+        return current
+    }
+
+    /// As subpastas desta pasta (as das colunas) que o domínio aceita como destino do post-it.
+    private func acceptedSubfolders(for item: BoardItem) -> [UUID] {
+        let accepted = Set(model.board.folderDestinations(for: item.id).map(\.id))
+        return columnItems.filter { $0.kind == .folder && accepted.contains($0.id) }.map(\.id)
+    }
+
+    /// Subpasta sob um ponto do conteúdo, só entre as aceitas: soltar nunca é recusado em silêncio.
+    private func subfolder(at point: CGPoint, among accepted: [UUID]) -> UUID? {
+        StickyPlacement.folder(under: point, frames: itemFrames, among: accepted)
+    }
+
+    /// Guarda o post-it na subpasta: ele sai desta pasta e entra nas colunas da subpasta, sem animação.
+    private func store(_ item: BoardItem, in folderID: UUID) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if let session {
+                session.moveIntoFolder(item.id, folderID: folderID)
+            } else {
+                model.moveIntoFolder(item.id, folderID: folderID)
+            }
+            stickyDrag = nil
+        }
     }
 
     /// O post-it novo nasce no meio do que está à vista, já na coordenada do lugar na pasta (a da área dos cartões).
@@ -307,4 +360,8 @@ extension ReadingPosition {
 private struct StickyDrag: Equatable {
     var id: UUID
     var translation: CGSize
+    /// Acompanha a subpasta que guardaria o post-it se ele fosse solto agora.
+    var tracker: FolderDropTracker
+    /// Subpastas desta pasta que o domínio aceita como destino, fixadas no começo do arrasto.
+    var acceptedFolders: [UUID]
 }
