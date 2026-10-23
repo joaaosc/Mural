@@ -109,17 +109,9 @@ public actor BoardRepository {
             throw BoardRepositoryError.identityMismatch(expected: id, actual: manifest.id)
         }
 
-        let board: Board
-        do {
-            board = try decode(Board.self, from: Data(contentsOf: boardURL))
-        } catch {
-            throw BoardRepositoryError.corruptedBoard(String(describing: error))
-        }
-        // Antes de qualquer outro arquivo ser tocado (o view-state ilegível é movido para quarentena
-        // mais abaixo): uma build antiga não abre, e depois sobrescreveria, um mural de formato mais novo.
-        guard board.formatVersion <= Board.currentFormatVersion else {
-            throw BoardRepositoryError.futureBoardFormat(board.formatVersion)
-        }
+        // A trava de formato vem antes de qualquer outro arquivo ser tocado (o view-state ilegível é movido para
+        // quarentena mais abaixo): uma build antiga não abre, e depois sobrescreveria, um mural de formato mais novo.
+        let board = try decodeBoard(at: boardURL)
 
         let viewStateURL = package.appendingPathComponent("view-state.json")
         guard FileManager.default.fileExists(atPath: viewStateURL.path) else {
@@ -184,6 +176,17 @@ public actor BoardRepository {
 
     public func load(id: BoardID) throws -> BoardRepositoryLoadResult? {
         try load(id)
+    }
+
+    /// Lê só o `board.json` do pacote, para quem precisa do conteúdo sem abrir o mural: não toca em `view-state.json`
+    /// (que `load(_:)` pode pôr em quarentena) nem em `manifest.json`.
+    /// - Returns: `nil` se o pacote não tem `board.json`.
+    /// - Throws: `corruptedBoard` se o arquivo for ilegível e `futureBoardFormat` se tiver sido gravado por uma build
+    ///   mais nova, como em `load(_:)`.
+    public func readBoard(_ id: BoardID) throws -> Board? {
+        let boardURL = packageURL(for: id).appendingPathComponent("board.json")
+        guard FileManager.default.fileExists(atPath: boardURL.path) else { return nil }
+        return try decodeBoard(at: boardURL)
     }
 
     public func save(_ snapshot: BoardRepositorySnapshot) async throws {
@@ -464,6 +467,20 @@ public actor BoardRepository {
             }
             try FileManager.default.copyItem(at: entry, to: staging.appendingPathComponent(entry.lastPathComponent))
         }
+    }
+
+    /// Lê o `board.json`: arquivo ilegível vira `corruptedBoard` e formato mais novo que o desta build, `futureBoardFormat`.
+    private func decodeBoard(at url: URL) throws -> Board {
+        let board: Board
+        do {
+            board = try decode(Board.self, from: Data(contentsOf: url))
+        } catch {
+            throw BoardRepositoryError.corruptedBoard(String(describing: error))
+        }
+        guard board.formatVersion <= Board.currentFormatVersion else {
+            throw BoardRepositoryError.futureBoardFormat(board.formatVersion)
+        }
+        return board
     }
 
     private func loadWorkspaceForComparison(at package: URL, board: Board) throws -> BoardWorkspaceState {

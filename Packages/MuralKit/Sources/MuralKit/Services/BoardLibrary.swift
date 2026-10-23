@@ -252,6 +252,22 @@ public actor BoardLibrary {
         }
     }
 
+    /// Lê o conteúdo de um mural sem abri-lo: só leitura, para a capa do painel da barra de menus. `open(_:)` pode
+    /// pôr um view-state ilegível em quarentena; aqui só o `board.json` é lido. Não confere o estado do rascunho de
+    /// exemplo, não cria pastas e não mexe no pacote.
+    /// - Returns: `nil` para `.library` e para um pacote sem `board.json`.
+    /// - Throws: os erros de `BoardRepository.readBoard(_:)`.
+    public func readBoard(_ route: BoardRoute) async throws -> Board? {
+        switch route {
+        case .library:
+            return nil
+        case .welcomeDraft(let id):
+            return try await draftRepository.readBoard(id)
+        case .saved(let id):
+            return try await savedRepository.readBoard(id)
+        }
+    }
+
     public func rename(_ route: BoardRoute, to name: String) async throws -> BoardRoute {
         guard let snapshot = try await open(route) else { throw BoardLibraryError.unavailableRoute(route) }
         var manifest = snapshot.manifest
