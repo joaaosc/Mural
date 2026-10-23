@@ -9,8 +9,8 @@ let package = Package(
         .library(name: "MuralKit", targets: ["MuralKit"])
     ],
     dependencies: [
-        // Pacote irmão, desenvolvido junto: ~/Projects/Workbench/StretchText.
-        .package(path: "../../../Workbench/StretchText")
+        // Dependência remota usada pelos recursos de seleção e geração de texto.
+        .package(url: "https://github.com/joaaosc/StretchText.git", from: "1.0.0")
     ],
     targets: [
         .target(

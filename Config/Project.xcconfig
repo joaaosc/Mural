@@ -4,8 +4,12 @@ MACOSX_DEPLOYMENT_TARGET = 27.0
 SWIFT_VERSION = 6.0
 ALWAYS_SEARCH_USER_PATHS = NO
 SWIFT_STRICT_CONCURRENCY = complete
+CLOUD_MARKETING_VERSION = 1.0.0
 
 // Debug sem otimização: exigido pelo RenderPreview e pelos previews do Xcode.
 SWIFT_OPTIMIZATION_LEVEL[config=Debug] = -Onone
 SWIFT_ACTIVE_COMPILATION_CONDITIONS[config=Debug] = DEBUG $(inherited)
 ONLY_ACTIVE_ARCH[config=Debug] = YES
+
+// O Xcode Cloud escreve a versão do tag neste arquivo temporário no clone da build.
+#include? "CloudVersion.xcconfig"
