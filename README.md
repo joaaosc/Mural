@@ -137,6 +137,27 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   duas com o mesmo nome.
 - Murais com música usam a versão 8 do formato.
 
+## Barra de menus
+
+- **Ícone do Mural na barra de menus**, enquanto o app está aberto (mesmo sem janela): abre um painel
+  de vidro com a **vitrine dos murais**, em 3D como o Cover Flow, com reflexo. Cada capa mostra o mural
+  inteiro, desenhada com os próprios cartões. O centro começa no último mural usado pelo painel; senão,
+  no da aba ativa; senão, no editado por último. ← → ou dois dedos trocam de mural, e digitar letras
+  procura pelo nome. Visualizar › Abrir Painel de Murais abre o mesmo painel no meio da tela.
+- **Colar sem abrir a janela**: a seção "Copiado" mostra o que está na área de transferência e as
+  formas de colar, as mesmas do ⌘V: Sticker, Card de texto ou Lista para texto; link, imagem, PDF,
+  arquivos e música como eles são. Return ou ⌘V colam no mural do centro, no ponto em que você parou
+  nele (↑ ↓ escolhem a forma); a capa se atualiza e o painel fecha. Clicar na capa do centro, ⌘↩ ou
+  "Abrir mural" abrem o mural no app.
+- **Privacidade**: ao abrir, o painel só vê o tipo do que foi copiado, sem ler o conteúdo, e o macOS
+  não pergunta nada. O conteúdo é lido na hora de colar: pelo ⌘V, sempre sem pergunta; pelo Return,
+  o macOS pode pedir licença até o Mural ter permissão de colar nos Ajustes do Sistema (Privacidade e
+  Segurança). Com a permissão, o painel já mostra a prévia ao abrir. O que vem marcado como privado,
+  como senhas, nunca é lido.
+- O painel cola pela aba quando o mural está aberto; fechado, o mural é aberto por um instante, gravado
+  e fechado, e uma aba aberta nesse meio-tempo assume o lugar, sem perder o cartão. As capas ficam em
+  `BoardCovers/`, ao lado dos murais, e são refeitas quando o mural muda.
+
 ## Requisitos
 
 - macOS 27 e Xcode 27.2 ou mais novo (o projeto usa o formato JSON `project.xcproj`).
@@ -155,7 +176,7 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 | Pasta | Conteúdo |
 | --- | --- |
 | `Packages/MuralKit` | Domínio sem interface: modelos, importação, gravação, paleta, estado observável. |
-| `Mural/` | App: telas organizadas por área (`Tabs`, `Board`, `Collection`, `Detail`, `Cards`, `Chrome`, `Navigation`, `Input`, `Media`, `Style`). |
+| `Mural/` | App: telas organizadas por área (`Tabs`, `Board`, `Collection`, `Detail`, `Cards`, `Chrome`, `Navigation`, `Input`, `Media`, `Style`, `MenuBar` com o painel da barra de menus e `Covers` com as capas da vitrine). |
 | `MuralTests/` | Testes do app com Swift Testing. |
 | `MuralUITests/` | Testes de interface que abrem o app com um mural de teste isolado. |
 | `Config/Project.xcconfig` | Configurações de build comuns a todos os alvos. |
