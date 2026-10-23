@@ -8,12 +8,27 @@ if [[ "${CI_XCODE_CLOUD:-}" != "TRUE" && "${CI_XCODE_CLOUD:-}" != "true" ]]; the
 fi
 
 tag="${CI_TAG:-}"
-if [[ -z "$tag" ]]; then
-    exit 0
-fi
-
 tag="${tag#refs/tags/}"
 repository_root="${CI_PRIMARY_REPOSITORY_PATH:-$PWD}"
+
+build_number="${CI_BUILD_NUMBER:-}"
+if [[ ! "$build_number" =~ '^[1-9][0-9]*$' ]]; then
+    echo "CI_BUILD_NUMBER is missing or invalid: $build_number" >&2
+    exit 1
+fi
+
+version="1.0.1"
+
+if [[ -z "$tag" ]]; then
+    version_file="$repository_root/Config/CloudVersion.xcconfig"
+    cat > "$version_file" <<EOF
+// Temporary build configuration; do not commit this file.
+CLOUD_MARKETING_VERSION = $version
+CLOUD_BUILD_NUMBER = $build_number
+EOF
+    echo "Using marketing version $version and build $build_number for the Xcode Cloud commit workflow."
+    exit 0
+fi
 
 if [[ "$tag" =~ '^v?([0-9]+)\.([0-9]+)\.([0-9]+)(-[A-Za-z0-9][A-Za-z0-9.-]*-stable|-stable)?$' ]]; then
     major="${match[1]}"
@@ -63,6 +78,7 @@ version_file="$repository_root/Config/CloudVersion.xcconfig"
 cat > "$version_file" <<EOF
 // Temporary build configuration; do not commit this file.
 CLOUD_MARKETING_VERSION = $version
+CLOUD_BUILD_NUMBER = $build_number
 EOF
 
-echo "Using marketing version $version for tag $tag (Xcode Cloud build ${CI_BUILD_NUMBER:-unknown})."
+echo "Using marketing version $version and build $build_number for tag $tag."
