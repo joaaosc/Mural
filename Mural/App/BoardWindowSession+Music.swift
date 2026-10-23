@@ -40,6 +40,24 @@ extension BoardWindowSession {
         await musicPlayback.play(itemID, startingAt: trackID, in: model, boardID: boardID)
     }
 
+    /// Busca a capa e as cores no catálogo quando o cartão tem `catalogID` mas nenhuma capa. Só com acesso já
+    /// concedido: nunca pede permissão.
+    func completeMusicArtwork(_ itemID: UUID, artwork: MusicArtworkCoordinator?) async {
+        guard let model, !isClosed, musicPlayback.access == .granted,
+            let music = model.item(id: itemID)?.music, music.catalogID != nil, music.artworkTemplate == nil
+        else { return }
+        let files = LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: boardID))
+        guard music.artworkFile.flatMap({ files.existingURL(for: $0) }) == nil else { return }
+        guard let found = await musicPlayback.catalogArtwork(for: music), !isClosed else { return }
+        artwork?.download(found.url, for: itemID)
+        // Relê o cartão: pode ter mudado durante a espera.
+        guard var current = model.item(id: itemID)?.music else { return }
+        current.backgroundHex = current.backgroundHex ?? found.backgroundHex
+        current.primaryTextHex = current.primaryTextHex ?? found.primaryTextHex
+        current.secondaryTextHex = current.secondaryTextHex ?? found.secondaryTextHex
+        model.updateMusic(itemID, with: current)
+    }
+
     func musicPhase(of itemID: UUID) -> MusicCardPhase {
         musicPlayback.phase(of: itemID)
     }

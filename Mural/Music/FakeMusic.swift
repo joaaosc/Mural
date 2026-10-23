@@ -17,6 +17,11 @@ final class FakeMusic: MusicProviding {
         MusicTrackRow(id: "faixa-\($0)", number: $0, title: "Faixa \($0)", artist: "Artista", duration: 180)
     }
     var artwork: MusicCatalogArtwork?
+    /// Faz `tracks(for:)` falhar.
+    var tracksError: (any Error)?
+    /// Faixas e espera por título de cartão, para simular respostas fora de ordem; sem entrada, vale `trackRows`.
+    var tracksByTitle: [String: [MusicTrackRow]] = [:]
+    var tracksDelay: [String: Duration] = [:]
     private(set) var status: MusicPlayerStatus = .stopped
 
     // Registro das chamadas.
@@ -66,7 +71,10 @@ final class FakeMusic: MusicProviding {
     }
 
     func tracks(for snapshot: MusicSnapshot) async throws -> [MusicTrackRow] {
-        snapshot.kind == .album || snapshot.kind == .playlist ? trackRows : []
+        if let delay = tracksDelay[snapshot.title] { try? await Task.sleep(for: delay) }
+        if let tracksError { throw tracksError }
+        guard snapshot.kind == .album || snapshot.kind == .playlist else { return [] }
+        return tracksByTitle[snapshot.title] ?? trackRows
     }
 
     func catalogArtwork(for snapshot: MusicSnapshot) async -> MusicCatalogArtwork? { artwork }

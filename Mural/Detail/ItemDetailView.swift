@@ -46,7 +46,7 @@ struct ItemDetailView: View {
         case .reminder:
             ReminderDetailView(item: item)
         case .music:
-            MusicDetailView(item: item)
+            MusicDetailView(item: item, session: session)
         case .checklist:
             ChecklistDetailView(item: item, model: model, session: session)
         case .folder:
@@ -80,17 +80,6 @@ struct ItemDetailView: View {
             actions.append(
                 PillAction(title: "Abrir no Lembretes", symbol: "arrow.up.forward.app") {
                     session.openReminder(item.id)
-                })
-        }
-        if let session, item.kind == .music {
-            let playing = session.musicPhase(of: item.id) == .playing
-            actions.append(
-                PillAction(title: playing ? "Pausar" : "Tocar", symbol: playing ? "pause.fill" : "play.fill") {
-                    Task { await session.toggleMusic(item.id) }
-                })
-            actions.append(
-                PillAction(title: "Abrir no Música", symbol: "arrow.up.forward.app") {
-                    session.openMusicInApp(item.id)
                 })
         }
         actions.append(PillAction(title: "Copiar", symbol: "square.on.square") { PasteboardExporter.copy(item, from: model) })

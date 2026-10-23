@@ -83,6 +83,47 @@ struct MusicArtworkCoordinatorTests {
         #expect(await harness.fetcher.requests.isEmpty)
     }
 
+    @Test("download baixa o endereço pronto, mesmo sem molde")
+    func downloadUsesTheGivenAddress() async throws {
+        let harness = try Harness(template: nil)
+        defer { harness.tearDown() }
+        let coordinator = harness.makeCoordinator()
+
+        coordinator.download(harness.address, for: harness.itemID)
+        await coordinator.waitUntilIdle()
+
+        let name = try #require(harness.music()?.artworkFile)
+        #expect(harness.files.existingURL(for: name) != nil)
+        #expect(await harness.fetcher.requests == [harness.address])
+    }
+
+    @Test("download respeita capa no disco e falha anterior")
+    func downloadHonorsGuards() async throws {
+        let failing = try Harness(template: nil, fails: true)
+        defer { failing.tearDown() }
+        let coordinator = failing.makeCoordinator()
+        coordinator.download(failing.address, for: failing.itemID)
+        await coordinator.waitUntilIdle()
+        coordinator.download(failing.address, for: failing.itemID)
+        await coordinator.waitUntilIdle()
+        #expect(await failing.fetcher.requests.count == 1)
+        #expect(failing.music()?.artworkFile == nil)
+
+        let harness = try Harness(template: nil)
+        defer { harness.tearDown() }
+        let name = try #require(
+            try harness.files.store(
+                imageData: try await FixtureMusicArtworkFetcher().fetchArtwork(at: harness.address), iconData: nil, for: harness.itemID
+            ).image)
+        var music = try #require(harness.music())
+        music.artworkFile = name
+        harness.model.updateMusic(harness.itemID, with: music)
+        let other = harness.makeCoordinator()
+        other.download(harness.address, for: harness.itemID)
+        await other.waitUntilIdle()
+        #expect(await harness.fetcher.requests.isEmpty)
+    }
+
     @Test("Cartão apagado antes de aplicar: nada muda e o arquivo gravado é descartado")
     func deletedCardIsLeftAlone() async throws {
         let harness = try Harness(delay: .milliseconds(150))

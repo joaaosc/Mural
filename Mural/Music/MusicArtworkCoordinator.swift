@@ -47,6 +47,26 @@ final class MusicArtworkCoordinator {
         }
     }
 
+    /// Baixa a capa de um endereço já pronto (sem molde), com as mesmas guardas de `request`.
+    func download(_ url: URL, for itemID: UUID) {
+        guard tasks[itemID] == nil, !failed.contains(itemID),
+            let music = model.item(id: itemID)?.music, !hasArtworkOnDisk(music)
+        else { return }
+        let fetcher = self.fetcher
+        let files = self.files
+        tasks[itemID] = Task { [weak self] in
+            defer { self?.tasks[itemID] = nil }
+            do {
+                let data = try await fetcher.fetchArtwork(at: url)
+                try Task.checkCancellation()
+                let name = try await Self.save(data, for: itemID, in: files)
+                self?.apply(name, to: itemID)
+            } catch {
+                if !(error is CancellationError) { self?.failed.insert(itemID) }
+            }
+        }
+    }
+
     /// Grava a capa que já veio no arrasto, sem baixar.
     func store(_ imageData: Data, for itemID: UUID) {
         guard tasks[itemID] == nil else { return }

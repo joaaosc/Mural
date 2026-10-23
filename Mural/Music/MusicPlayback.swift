@@ -68,6 +68,21 @@ final class MusicPlayback {
         await start(itemID, startingAt: trackID, in: model, boardID: boardID)
     }
 
+    /// Situação da permissão de acesso ao Apple Music.
+    var access: MusicAccess { provider.access }
+
+    func requestAccess() async -> MusicAccess {
+        await provider.requestAccess()
+    }
+
+    func tracks(for snapshot: MusicSnapshot) async throws -> [MusicTrackRow] {
+        try await provider.tracks(for: snapshot)
+    }
+
+    func catalogArtwork(for snapshot: MusicSnapshot) async -> MusicCatalogArtwork? {
+        await provider.catalogArtwork(for: snapshot)
+    }
+
     func stop(itemID: UUID) {
         guard currentItemID == itemID else { return }
         provider.stop()

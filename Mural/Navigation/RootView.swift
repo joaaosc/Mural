@@ -381,7 +381,10 @@ private struct LoadedRootView: View {
     }
 
     private func toggleMusic(_ id: UUID) {
-        Task { await session.toggleMusic(id) }
+        Task {
+            await session.toggleMusic(id)
+            await session.completeMusicArtwork(id, artwork: musicArtworkCoordinator)
+        }
     }
 
     // MARK: Lembretes
