@@ -9,7 +9,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 4: cor nos cartões (`BoardItem.colorTag`).
     /// - 5: imagem colada em nota (`BoardItem.attachments`).
     /// - 6: cartão de lembrete.
-    public static let currentFormatVersion = 6
+    /// - 7: textos livres diretamente no mural.
+    public static let currentFormatVersion = 7
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -20,15 +21,40 @@ public struct Board: Codable, Equatable, Sendable {
     /// com uma revisão nova), e um mural que não usa nada novo continua abrindo nas builds anteriores.
     public var formatVersion: Int
     public var items: [BoardItem]
+    /// Textos livres diretamente no mural. Ausente em murais antigos.
+    public var freeTexts: [BoardFreeText]
 
-    public init(items: [BoardItem] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion, items, freeTexts
+    }
+
+    public init(items: [BoardItem] = [], freeTexts: [BoardFreeText] = []) {
         self.items = items
-        self.formatVersion = Self.minimumFormatVersion(for: items)
+        self.freeTexts = freeTexts
+        self.formatVersion = Self.minimumFormatVersion(for: items, freeTexts: freeTexts)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+        self.items = try container.decode([BoardItem].self, forKey: .items)
+        self.freeTexts = try container.decodeIfPresent([BoardFreeText].self, forKey: .freeTexts) ?? []
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(items, forKey: .items)
+        // An empty collection carries no new content and is omitted so old-format
+        // boards keep their previous shape and required version.
+        if !freeTexts.isEmpty {
+            try container.encode(freeTexts, forKey: .freeTexts)
+        }
     }
 
     /// A menor versão do formato que guarda este conteúdo sem perder nada: numa build anterior a ela, o mural
     /// não abriria ou perderia ao gravar o que ela não conhece. Cada versão nova do formato precisa de uma regra aqui.
-    public var requiredFormatVersion: Int { Self.minimumFormatVersion(for: items) }
+    public var requiredFormatVersion: Int { Self.minimumFormatVersion(for: items, freeTexts: freeTexts) }
 
     static func minimumFormatVersion(for items: [BoardItem]) -> Int {
         var version = 1
@@ -37,6 +63,12 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.colorTag != nil }) { version = max(version, 4) }
         if items.contains(where: { !($0.attachments ?? []).isEmpty }) { version = max(version, 5) }
         if items.contains(where: { $0.kind == .reminder }) { version = max(version, 6) }
+        return version
+    }
+
+    static func minimumFormatVersion(for items: [BoardItem], freeTexts: [BoardFreeText]) -> Int {
+        var version = minimumFormatVersion(for: items)
+        if !freeTexts.isEmpty { version = max(version, 7) }
         return version
     }
 
@@ -52,6 +84,10 @@ public struct Board: Codable, Equatable, Sendable {
 
     public func item(id: UUID) -> BoardItem? {
         items.first { $0.id == id }
+    }
+
+    public func freeText(id: UUID) -> BoardFreeText? {
+        freeTexts.first { $0.id == id }
     }
 
     // MARK: Hierarquia
@@ -114,6 +150,38 @@ public struct Board: Codable, Equatable, Sendable {
     public mutating func add(_ item: BoardItem) {
         items.append(item)
         formatVersion = requiredFormatVersion
+    }
+
+    public mutating func add(_ freeText: BoardFreeText) {
+        var placed = freeText
+        placed.position = BoardLayout.clamped(placed.position)
+        freeTexts.append(placed)
+        formatVersion = requiredFormatVersion
+    }
+
+    public mutating func update(_ freeText: BoardFreeText) {
+        guard let index = freeTexts.firstIndex(where: { $0.id == freeText.id }) else { return }
+        var updated = freeText
+        updated.text = BoardFreeText.normalized(updated.text)
+        updated.position = BoardLayout.clamped(updated.position)
+        freeTexts[index] = updated
+        formatVersion = requiredFormatVersion
+    }
+
+    @discardableResult
+    public mutating func removeFreeText(id: UUID) -> Bool {
+        guard let index = freeTexts.firstIndex(where: { $0.id == id }) else { return false }
+        freeTexts.remove(at: index)
+        formatVersion = requiredFormatVersion
+        return true
+    }
+
+    @discardableResult
+    public mutating func moveFreeText(id: UUID, to position: BoardPoint) -> Bool {
+        guard let index = freeTexts.firstIndex(where: { $0.id == id }) else { return false }
+        freeTexts[index].position = BoardLayout.clamped(position)
+        formatVersion = requiredFormatVersion
+        return true
     }
 
     public mutating func update(_ item: BoardItem) {

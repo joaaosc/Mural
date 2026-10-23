@@ -9,6 +9,7 @@ import SwiftUI
 struct CreationBar: View {
     var onNewNote: () -> Void
     var onNewSticky: () -> Void
+    var onNewFreeText: (() -> Void)? = nil
     /// `nil` quando não dá para criar pasta ali (por exemplo, no último nível de pastas).
     var onNewFolder: (() -> Void)? = nil
     var onAddFiles: () -> Void
@@ -20,6 +21,10 @@ struct CreationBar: View {
                 .help("Novo card de texto (⇧⌘N)")
             Button(ItemKind.sticky.creationTitle, systemImage: ItemKind.sticky.creationSymbol, action: onNewSticky)
                 .help("Novo sticker (⌥⌘N)")
+            if let onNewFreeText {
+                Button("Texto livre", systemImage: "text.aligncenter", action: onNewFreeText)
+                    .help("Novo texto livre")
+            }
             if let onNewFolder {
                 Button(ItemKind.folder.creationTitle, systemImage: ItemKind.folder.creationSymbol, action: onNewFolder)
                     .help("Nova pasta (⌃⌘N)")

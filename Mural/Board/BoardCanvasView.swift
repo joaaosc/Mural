@@ -20,6 +20,9 @@ struct BoardCanvasView: View {
     var onSetColorTag: ((UUID, TagColor?) -> Void)? = nil
     var onToggleReminder: ((UUID) -> Void)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
+    var onFreeTextEdit: ((UUID) -> Void)? = nil
+    var onFreeTextMove: ((UUID, BoardPoint) -> Void)? = nil
+    var onFreeTextDelete: ((UUID) -> Void)? = nil
     /// "Renomear…" no menu da pasta.
     var onRename: ((UUID) -> Void)? = nil
     /// Seletor de ⌘ dos cartões soltos; a prévia de pasta fica de fora.
@@ -30,6 +33,8 @@ struct BoardCanvasView: View {
     @State private var pointerFolder: UUID?
     /// Cartão arrastado e quanto andou, em pontos do mural (sem zoom).
     @State private var drag: CardDrag?
+    /// Texto livre arrastado e quanto andou, em pontos do mural (sem zoom).
+    @State private var freeTextDrag: FreeTextDrag?
     /// Cartão encolhendo em direção à pasta onde está sendo guardado; sai do mural no fim.
     @State private var storing: UUID?
     /// Retângulo de Shift + arrastar aberto: a prévia de pasta não aparece enquanto ele existe.
@@ -56,7 +61,8 @@ struct BoardCanvasView: View {
 
     var body: some View {
         let items = model.rootItems
-        let extent = BoardLayout.extent(of: items)
+        let freeTexts = model.freeTexts
+        let extent = BoardLayout.extent(of: items, freeTexts: freeTexts)
         let viewport = zoom.viewport
         // Como num quadro branco: sempre uma tela de folga à direita e embaixo, para o
         // zoom poder manter parado o ponto sob os dedos (ou o centro da janela).
@@ -77,6 +83,16 @@ struct BoardCanvasView: View {
                         .opacity(storing == item.id ? 0 : 1)
                         .offset(offset(for: item))
                         .zIndex(focus.layer(for: item))
+                }
+                ForEach(freeTexts) { freeText in
+                    BoardFreeTextView(
+                        freeText: freeText,
+                        onEdit: { onFreeTextEdit?(freeText.id) },
+                        onDelete: { onFreeTextDelete?(freeText.id) }
+                    )
+                    .offset(freeTextOffset(for: freeText))
+                    .zIndex(100)
+                    .highPriorityGesture(freeTextMoveGesture(for: freeText))
                 }
             }
             .frame(width: contentSize.width, height: contentSize.height, alignment: .topLeading)
@@ -120,6 +136,10 @@ struct BoardCanvasView: View {
         // principal, para não atropelar o `onEnded` quando ele vier.
         .onChange(of: isDragging) { _, active in
             guard !active else { return }
+            // Um gesto de texto livre também pode ser cancelado sem `onEnded`.
+            // Limpar o deslocamento transitório evita deixar a anotação desenhada
+            // numa posição que nunca foi persistida.
+            freeTextDrag = nil
             Task { @MainActor in
                 // Um cartão sendo guardado ainda precisa do arrasto até o fim da animação.
                 guard drag != nil, storing == nil else { return }
@@ -207,6 +227,11 @@ struct BoardCanvasView: View {
         return CGSize(width: item.position.x + moved.width, height: item.position.y + moved.height)
     }
 
+    private func freeTextOffset(for freeText: BoardFreeText) -> CGSize {
+        let moved = freeTextDrag?.id == freeText.id ? freeTextDrag?.translation ?? .zero : .zero
+        return CGSize(width: freeText.position.x + moved.width, height: freeText.position.y + moved.height)
+    }
+
     /// Ponto para onde o cartão encolhe ao ser guardado: o centro da pasta de destino, medido no
     /// quadro do próprio cartão (por isso pode cair fora de 0...1).
     private func storeAnchor(for item: BoardItem) -> UnitPoint {
@@ -289,6 +314,27 @@ struct BoardCanvasView: View {
             }
     }
 
+    private func freeTextMoveGesture(for freeText: BoardFreeText) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
+            .updating($isDragging) { _, isDragging, _ in isDragging = true }
+            .onChanged { value in
+                freeTextDrag = FreeTextDrag(id: freeText.id, translation: value.translation)
+            }
+            .onEnded { value in
+                let target = BoardPoint(
+                    x: freeText.position.x + value.translation.width,
+                    y: freeText.position.y + value.translation.height
+                )
+                if let onFreeTextMove {
+                    onFreeTextMove(freeText.id, target)
+                } else {
+                    model.moveFreeText(freeText.id, to: target)
+                }
+                freeTextDrag = nil
+                onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
+            }
+    }
+
     /// Aceita o drop no domínio imediatamente. A animação de armazenamento não
     /// pode atrasar a mudança de parentID nem a persistência da sessão.
     private func store(_ item: BoardItem, in folderID: UUID) {
@@ -334,4 +380,9 @@ private struct CardDrag: Equatable {
     var tracker: FolderDropTracker?
     /// Pastas que o domínio aceita como destino, fixadas no começo do arrasto.
     var acceptedFolders: Set<UUID>
+}
+
+private struct FreeTextDrag: Equatable {
+    var id: UUID
+    var translation: CGSize
 }

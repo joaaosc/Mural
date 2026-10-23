@@ -68,8 +68,10 @@ public final class BoardModel {
     // MARK: Leitura
 
     public var rootItems: [BoardItem] { board.rootItems }
+    public var freeTexts: [BoardFreeText] { board.freeTexts }
     public func children(of folderID: UUID) -> [BoardItem] { board.children(of: folderID) }
     public func item(id: UUID) -> BoardItem? { board.item(id: id) }
+    public func freeText(id: UUID) -> BoardFreeText? { board.freeText(id: id) }
     public func fileURL(for item: BoardItem) -> URL? { importer.fileURL(for: item) }
 
     /// URL de uma imagem citada numa nota, em `Items/`; `nil` se o nome não for de anexo seguro.
@@ -441,6 +443,65 @@ public final class BoardModel {
     }
 
     // MARK: Alterações
+
+    /// Cria um texto livre diretamente no mural, em uma posição livre da grade.
+    @discardableResult
+    public func createFreeText(_ text: String = "", at position: BoardPoint? = nil) -> BoardFreeText {
+        let position = BoardLayout.clamped(
+            position ?? BoardLayout.freeTextPosition(avoiding: board.rootItems, freeTexts: board.freeTexts)
+        )
+        let freeText = BoardFreeText(text: text, position: position)
+        board.add(freeText)
+        persist()
+        return freeText
+    }
+
+    /// Atualiza o conteúdo de um texto livre, aplicando o limite de caracteres do domínio.
+    /// - Returns: `false` quando o texto não existe ou já tinha o mesmo conteúdo normalizado.
+    @discardableResult
+    public func updateFreeText(_ freeTextID: UUID, text: String) -> Bool {
+        guard var freeText = board.freeText(id: freeTextID) else { return false }
+        let normalized = BoardFreeText.normalized(text)
+        guard freeText.text != normalized else { return false }
+        freeText.text = normalized
+        board.update(freeText)
+        persist()
+        return true
+    }
+
+    /// Move um texto livre e mantém o ponto dentro do mural.
+    @discardableResult
+    public func moveFreeText(_ freeTextID: UUID, to position: BoardPoint) -> Bool {
+        guard let current = board.freeText(id: freeTextID), current.position != BoardLayout.clamped(position) else {
+            return false
+        }
+        board.moveFreeText(id: freeTextID, to: position)
+        persist()
+        return true
+    }
+
+    /// Apaga um texto livre sem tocar nos arquivos dos cartões.
+    @discardableResult
+    public func deleteFreeText(_ freeTextID: UUID) -> Bool {
+        guard !isPersistenceSuspended else {
+            lastError = "Não foi possível apagar o texto livre: a persistência está suspensa."
+            return false
+        }
+        var candidate = board
+        guard candidate.removeFreeText(id: freeTextID) else { return false }
+        guard persistence == .deferred else {
+            do {
+                try store.save(candidate)
+            } catch {
+                lastError = "Não foi possível apagar o texto livre: \(error.localizedDescription)."
+                return false
+            }
+            board = candidate
+            return true
+        }
+        board = candidate
+        return true
+    }
 
     public func toggleChecklistEntry(_ entryID: UUID, in itemID: UUID) {
         guard var item = board.item(id: itemID), item.checklist != nil else { return }

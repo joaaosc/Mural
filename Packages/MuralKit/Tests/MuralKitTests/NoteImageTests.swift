@@ -124,7 +124,7 @@ struct NoteImageMarkupTests {
         let attachment = NoteAttachment(fileName: name, pixelWidth: 1, pixelHeight: 1)
         let withImage = BoardItem(kind: .text, title: "N", attachments: [attachment])
         #expect(Board(items: [withImage]).requiredFormatVersion == 5)
-        #expect(Board.currentFormatVersion == 6)
+        #expect(Board.currentFormatVersion == 7)
     }
 
     @Test("Mural sem o campo de anexos continua abrindo")

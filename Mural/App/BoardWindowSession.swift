@@ -778,6 +778,30 @@ final class BoardWindowSession {
         return item.id
     }
 
+    /// Cria um texto livre diretamente no mural e deixa a edição para a folha da interface.
+    @discardableResult
+    func createFreeText() -> UUID? {
+        guard restoration.acceptsPersistence, !isClosed, path.isEmpty, let model else { return nil }
+        let freeText = model.createFreeText()
+        captureBoardIfNeeded()
+        return freeText.id
+    }
+
+    func updateFreeText(_ freeTextID: UUID, text: String) {
+        guard !isClosed, model?.updateFreeText(freeTextID, text: text) == true else { return }
+        captureBoardIfNeeded()
+    }
+
+    func moveFreeText(_ freeTextID: UUID, to position: BoardPoint) {
+        guard !isClosed, model?.moveFreeText(freeTextID, to: position) == true else { return }
+        captureBoardIfNeeded()
+    }
+
+    func deleteFreeText(_ freeTextID: UUID) {
+        guard !isClosed, model?.deleteFreeText(freeTextID) == true else { return }
+        captureBoardIfNeeded()
+    }
+
     /// Cria uma pasta na pasta aberta (ou solta no mural) e a abre, vazia, por cima do caminho
     /// atual. Na página de um item ou no último nível de pastas nada é criado.
     @discardableResult

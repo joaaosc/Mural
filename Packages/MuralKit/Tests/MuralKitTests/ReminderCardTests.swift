@@ -102,7 +102,7 @@ struct ReminderCardTests {
 
     @Test("A versão 6 só aparece com lembrete")
     func formatVersion() {
-        #expect(Board.currentFormatVersion == 6)
+        #expect(Board.currentFormatVersion == 7)
         #expect(Board(items: [BoardItem(kind: .sticky, title: "")]).requiredFormatVersion == 1)
         #expect(Board(items: [BoardItem(kind: .reminder, title: "x", reminder: snapshot())]).requiredFormatVersion == 6)
     }

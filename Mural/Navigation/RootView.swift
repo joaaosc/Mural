@@ -30,6 +30,7 @@ private struct LoadedRootView: View {
     @State private var boardNameDraft = ""
     @State private var isNewFolderPresented = false
     @State private var isReminderPickerPresented = false
+    @State private var freeTextEditor: BoardFreeTextEditorRequest?
     @State private var folderNameDraft = ""
     /// Pasta esperando o nome novo (Renomear… no menu dela).
     @State private var renamingFolder: FolderRenameRequest?
@@ -109,6 +110,9 @@ private struct LoadedRootView: View {
             onSetColorTag: { session.setColorTag($1, for: $0) },
             onToggleReminder: toggleReminder,
             onMove: session.move,
+            onFreeTextEdit: beginEditingFreeText,
+            onFreeTextMove: session.moveFreeText,
+            onFreeTextDelete: session.deleteFreeText,
             onRename: beginRenameFolder,
             selection: canvasSelection
         )
@@ -349,6 +353,7 @@ private struct LoadedRootView: View {
     @ViewBuilder
     private var bottomBar: some View {
         if session.acceptsNewContent {
+            let newFreeTextAction: (() -> Void)? = path.isEmpty ? { beginNewFreeText() } : nil
             Group {
                 if session.isSelecting {
                     SelectionBar(
@@ -362,6 +367,7 @@ private struct LoadedRootView: View {
                     CreationBar(
                         onNewNote: { createCard(.text) },
                         onNewSticky: { createCard(.sticky) },
+                        onNewFreeText: newFreeTextAction,
                         onNewFolder: newFolderAction,
                         onAddFiles: { session.beginFileImport(folderID: currentFolderID) },
                         onAddReminders: { isReminderPickerPresented = true })
@@ -419,6 +425,27 @@ private struct LoadedRootView: View {
             }
             .sheet(isPresented: $isReminderPickerPresented) {
                 ReminderPickerSheet(session: session)
+            }
+            .sheet(item: $freeTextEditor) { request in
+                if let freeText = model.freeText(id: request.id) {
+                    BoardFreeTextEditorView(
+                        initialText: freeText.text,
+                        onSave: { text in
+                            if request.isNew && BoardFreeText.normalized(text).isEmpty {
+                                session.deleteFreeText(request.id)
+                            } else {
+                                session.updateFreeText(request.id, text: text)
+                            }
+                            freeTextEditor = nil
+                            isCanvasFocused = true
+                        },
+                        onCancel: {
+                            if request.isNew { session.deleteFreeText(request.id) }
+                            freeTextEditor = nil
+                            isCanvasFocused = true
+                        }
+                    )
+                }
             }
             .alert(
                 "Importação concluída",
@@ -581,7 +608,7 @@ private struct LoadedRootView: View {
             session.registerUndo(of: arrangement, in: undoManager, animation: animation)
         }
         // O mural ainda não mediu a extensão nova: atualiza antes de ajustar o zoom.
-        let extent = BoardLayout.extent(of: model.rootItems)
+        let extent = BoardLayout.extent(of: model.rootItems, freeTexts: model.freeTexts)
         session.zoom.contentExtent = CGSize(width: extent.width, height: extent.height)
         session.zoom.fitToWindow()
     }
@@ -607,6 +634,16 @@ private struct LoadedRootView: View {
         }
         isFolderInfoPresented = false
         isCanvasFocused = true
+    }
+
+    private func beginNewFreeText() {
+        guard path.isEmpty, let id = session.createFreeText() else { return }
+        freeTextEditor = BoardFreeTextEditorRequest(id: id, isNew: true)
+    }
+
+    private func beginEditingFreeText(_ id: UUID) {
+        guard path.isEmpty, model.freeText(id: id) != nil else { return }
+        freeTextEditor = BoardFreeTextEditorRequest(id: id, isNew: false)
     }
 
     /// Pede o nome novo da pasta, começando pelo atual.
