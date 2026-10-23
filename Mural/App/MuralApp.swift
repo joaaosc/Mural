@@ -45,8 +45,8 @@ struct MuralApp: App {
         delivery.tabs = tabs
         _tabs = State(initialValue: tabs)
 
-        // O ícone na barra de menus e o painel de vidro que ele abre. O conteúdo é montado a cada apresentação, com um
-        // modelo novo: a lista e o mural do centro nascem do instante em que o painel abre.
+        // O painel de vidro que o ícone da barra de menus abre. O conteúdo é montado a cada apresentação, com um modelo
+        // novo: a lista e o mural do centro nascem do instante em que o painel abre.
         MenuBarController.shared.install { _ in
             let model = MenuBarPanelModel(
                 library: library, covers: coverService, activeBoard: { tabs.selected?.boardID },
@@ -61,6 +61,9 @@ struct MuralApp: App {
                 .panelGlassSurface()
             )
         }
+        // Com duas cópias abertas (a instalada e uma de desenvolvimento ou de teste), só uma mostra o ícone; a outra assume
+        // quando ela fecha.
+        MenuBarIconCoordinator.shared.start()
     }
 
     var body: some Scene {
@@ -72,6 +75,9 @@ struct MuralApp: App {
                 // vidro, e acompanha a janela ativa ou inativa. O mural e as páginas o cobrem em parte (`SurfaceFill`).
                 .containerBackground(Material.thin, for: .window)
         }
+        // A janela não abre sozinha no lançamento (a restauração do macOS continua): quem a abre é o delegate, que sabe se
+        // o app foi aberto pelo início de sessão, quando ele fica só na barra de menus.
+        .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(LaunchConfiguration.isUITesting ? .disabled : .automatic)
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1240, height: 800)

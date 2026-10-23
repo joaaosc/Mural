@@ -43,19 +43,34 @@ final class MenuBarController: NSObject {
 
     var isPresented: Bool { panel?.isVisible == true }
 
-    /// Põe o ícone na barra de menus. Uma segunda chamada só troca o construtor do conteúdo.
+    /// Guarda como montar o conteúdo do painel. Não cria o ícone: quem decide se esta cópia do Mural o mostra é o
+    /// `MenuBarIconCoordinator`, por `setStatusItemVisible(_:)`. Uma segunda chamada só troca o construtor.
     ///
     /// - Parameter content: monta o conteúdo do painel para uma apresentação. É chamado a cada apresentação, e não uma
     ///   vez, para o conteúdo nascer com o estado do instante em que o painel abre.
     func install(content: @escaping @MainActor (MenuBarPresentation) -> NSView) {
         makeContent = content
-        guard statusItem == nil else { return }
+    }
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "Mural")
-        item.button?.toolTip = "Mural"
-        item.expandedInterfaceDelegate = self
-        statusItem = item
+    /// Põe o ícone na barra de menus ou o tira de lá. Pode ser chamado quantas vezes for: pedir o que já está assim não
+    /// faz nada.
+    ///
+    /// Sem o ícone, `presentCentered()` continua abrindo o painel no meio da tela.
+    func setStatusItemVisible(_ visible: Bool) {
+        if visible {
+            guard statusItem == nil else { return }
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "Mural")
+            item.button?.toolTip = "Mural"
+            item.expandedInterfaceDelegate = self
+            statusItem = item
+        } else {
+            guard let item = statusItem else { return }
+            // O painel ancorado pende do ícone e sai com ele; o centralizado não depende do ícone e fica.
+            if presentation == .anchored { dismiss() }
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
     }
 
     /// Abre o painel no meio da tela sob o ponteiro, para um pedido que não nasce do ícone (o menu do app).
