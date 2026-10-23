@@ -171,8 +171,11 @@ final class CanvasZoomController {
 
     /// Aproxima ou afasta mantendo parado o centro da janela.
     private func zoom(to target: CGFloat) {
-        let origin = visibleRect.isEmpty ? scrollOffset : visibleRect.origin
-        liveAnchor = CGPoint(x: origin.x + viewport.width / 2, y: origin.y + viewport.height / 2)
+        if visibleRect.isEmpty {
+            liveAnchor = CGPoint(x: scrollOffset.x + viewport.width / 2, y: scrollOffset.y + viewport.height / 2)
+        } else {
+            liveAnchor = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
+        }
         settle(to: CanvasZoom.clamped(target))
     }
 

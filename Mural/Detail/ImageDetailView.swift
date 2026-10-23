@@ -131,6 +131,10 @@ struct ImageDetailView: View {
 
     private func saveCaptionIfChanged() {
         guard caption != (model.item(id: item.id)?.caption ?? "") else { return }
-        model.setCaption(caption, for: item.id)
+        if let session {
+            session.setCaption(caption, for: item.id)
+        } else {
+            model.setCaption(caption, for: item.id)
+        }
     }
 }

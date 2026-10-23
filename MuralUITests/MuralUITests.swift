@@ -836,16 +836,16 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["This week"].firstMatch.waitForExistence(timeout: 5), "o post-it aparece dentro da subpasta")
     }
 
-    /// Botão direito na pasta › Renomear…: a folha começa com o nome atual e o cartão passa a mostrar o novo.
+    /// Botão direito num cartão › Renomear…: a folha começa com o nome atual e o cartão passa a mostrar o novo.
     @MainActor
-    func testContextMenuRenamesFolder() throws {
+    func testContextMenuRenamesCard() throws {
         let app = launch()
         let folder = app.buttons["44th Street"].firstMatch
         XCTAssertTrue(folder.waitForExistence(timeout: 10))
         folder.rightClick()
         app.menuItems["Renomear…"].firstMatch.click()
 
-        let name = app.textFields["Nome da pasta"].firstMatch
+        let name = app.textFields["Nome do cartão"].firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5), "renomear pede o nome")
         XCTAssertEqual(name.value as? String, "44th Street", "o campo começa com o nome atual")
         name.click()
@@ -855,6 +855,27 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(
             app.buttons["Obra da Rua 44"].firstMatch.waitForExistence(timeout: 5), "o cartão da pasta mostra o nome novo")
         XCTAssertFalse(app.buttons["44th Street"].exists)
+    }
+
+    /// A legenda é independente do nome e pode ser adicionada pelo menu de qualquer cartão.
+    @MainActor
+    func testContextMenuAddsCaptionToCard() throws {
+        let app = launch()
+        let card = app.buttons["Running list of stuff"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        card.rightClick()
+        app.menuItems["Adicionar legenda…"].firstMatch.click()
+
+        let caption = app.textFields["Legenda"].firstMatch
+        XCTAssertTrue(caption.waitForExistence(timeout: 5), "adicionar legenda abre o campo")
+        caption.click()
+        caption.typeText("Contexto importante")
+        app.buttons["Salvar"].firstMatch.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Contexto importante"].firstMatch.waitForExistence(timeout: 5),
+            "a legenda aparece no cartão sem substituir o nome")
+        XCTAssertTrue(app.buttons["Running list of stuff"].exists)
     }
 
     /// Ponto da janela em coordenadas de tela (as de `frame`).

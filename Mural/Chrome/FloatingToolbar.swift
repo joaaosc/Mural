@@ -30,6 +30,7 @@ struct FloatingToolbar: View {
                         .labelStyle(ToolbarLabelStyle(showsTitle: isRail))
                         .buttonStyle(.glass)
                         .buttonBorderShape(.roundedRectangle(radius: 14))
+                        .contentShape(.rect)
                         .glassEffectID("back", in: glass)
                         .accessibilityLabel("Voltar")
                         .keyboardShortcut("[", modifiers: .command)

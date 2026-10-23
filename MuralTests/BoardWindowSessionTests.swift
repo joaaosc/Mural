@@ -308,7 +308,7 @@ struct BoardWindowSessionTests {
         await session.flushAndPrepareToLeave()
         #expect(!session.isDirty)
         let snapshot = try #require(await failingLibrary.open(route))
-        #expect(snapshot.board.item(id: item.id)?.text == "snapshot 2")
+        #expect(snapshot.board.item(id: item.id)?.caption == "snapshot 2")
     }
 
     @Test("Posições de leitura usam âncora, fallback e limites reais")
@@ -634,7 +634,26 @@ struct BoardWindowSessionTests {
             route: route,
             registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: directory)))
         await reloaded.load()
-        #expect(reloaded.model?.item(id: item.id)?.text == "última tecla")
+        #expect(reloaded.model?.item(id: item.id)?.caption == "última tecla")
+    }
+
+    @Test("Legenda pelo menu é aparada, gravada e não substitui o nome")
+    func cardCaptionRoundTrip() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Legenda do cartão")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let item = try #require(session.model?.importText("Corpo da nota"))
+
+        session.setCaption("  Contexto importante  ", for: item.id)
+        await session.flushAndPrepareToLeave()
+
+        let reloaded = try #require(await library.open(route))
+        #expect(reloaded.board.item(id: item.id)?.caption == "Contexto importante")
+        #expect(reloaded.board.item(id: item.id)?.title == item.title)
+        #expect(reloaded.board.item(id: item.id)?.text == item.text)
     }
 
     @Test("Draft de imagem falha sem perder texto e o retry persiste")
@@ -663,7 +682,7 @@ struct BoardWindowSessionTests {
         await session.flushAndPrepareToLeave()
         #expect(!session.isDirty)
         let reloaded = try #require(await failing.open(route))
-        #expect(reloaded.board.item(id: item.id)?.text == "texto final")
+        #expect(reloaded.board.item(id: item.id)?.caption == "texto final")
     }
 
     @Test("Reading position sobrevive A/B/A e novo registry")

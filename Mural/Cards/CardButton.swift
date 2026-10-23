@@ -16,8 +16,10 @@ struct CardButton: View {
     var onMoveIntoFolder: ((UUID, UUID) -> Void)? = nil
     var onSetColorTag: ((UUID, TagColor?) -> Void)? = nil
     var onMoveUp: ((UUID) -> Void)? = nil
-    /// Pede o nome novo da pasta; `nil` esconde o item (por exemplo, na prévia de pasta).
+    /// Pede o nome novo do cartão; `nil` esconde a ação (por exemplo, na prévia de pasta).
     var onRename: ((UUID) -> Void)? = nil
+    /// Abre a edição da legenda persistente; `nil` esconde a ação na prévia de pasta.
+    var onEditCaption: ((UUID) -> Void)? = nil
     /// Marca ou reabre o lembrete; `nil` onde a bolinha não é clicável (a prévia de pasta).
     var onToggleReminder: ((UUID) -> Void)? = nil
     /// `nil` onde não há seletor (a prévia de pasta que aparece ao passar o ponteiro).
@@ -39,7 +41,7 @@ struct CardButton: View {
             }
             .buttonStyle(.plain)
             // Só no botão do cartão: aplicado depois das sobreposições, o rótulo cobriria também o da bolinha.
-            .accessibilityLabel(item.caption.map { "\(item.title), \($0)" } ?? item.title)
+            .accessibilityLabel(item.title)
             .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .overlay {
@@ -63,6 +65,11 @@ struct CardButton: View {
                 Button("Abrir", action: onOpen)
                 if let onRename {
                     Button("Renomear…") { onRename(item.id) }
+                }
+                if let onEditCaption {
+                    Button(item.caption == nil ? "Adicionar legenda…" : "Editar legenda…") {
+                        onEditCaption(item.id)
+                    }
                 }
                 linkMenu
                 musicMenu
@@ -103,6 +110,7 @@ struct CardButton: View {
     /// Site do link e cor da tag, separados por vírgula; vazio quando o cartão não tem nenhum dos dois.
     private var accessibilityDetail: String {
         var parts: [String] = []
+        if let caption = item.caption, !caption.isEmpty { parts.append(caption) }
         if item.kind == .link, let site = item.link?.displaySiteName, !site.isEmpty { parts.append(site) }
         if let color = item.colorTag { parts.append("Cor: \(color.displayName)") }
         return parts.joined(separator: ", ")

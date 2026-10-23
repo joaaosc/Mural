@@ -110,6 +110,16 @@ struct CanvasWorkspaceRestorationTests {
                 == CGPoint(x: 2_540, y: 2_132))
     }
 
+    @Test("Ponto de drop respeita rolagem e zoom")
+    func dropPointUsesVisibleOriginAndZoom() {
+        let point = CanvasWorkspaceMath.logicalPoint(
+            localPoint: CGPoint(x: 300, y: 180),
+            visibleRect: CGRect(x: 900, y: 420, width: 800, height: 600),
+            zoom: 1.5)
+
+        #expect(point == CGPoint(x: 800, y: 400))
+    }
+
     @Test("Cem ciclos não acumulam drift")
     func repeatedCaptureRestoreDoesNotDrift() {
         let viewport = CGSize(width: 900, height: 700)

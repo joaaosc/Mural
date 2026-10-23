@@ -23,8 +23,10 @@ struct BoardCanvasView: View {
     var onFreeTextEdit: ((UUID) -> Void)? = nil
     var onFreeTextMove: ((UUID, BoardPoint) -> Void)? = nil
     var onFreeTextDelete: ((UUID) -> Void)? = nil
-    /// "Renomear…" no menu da pasta.
+    /// "Renomear…" no menu de qualquer cartão.
     var onRename: ((UUID) -> Void)? = nil
+    /// "Adicionar/Editar legenda…" no menu de qualquer cartão.
+    var onEditCaption: ((UUID) -> Void)? = nil
     /// Seletor de ⌘ dos cartões soltos; a prévia de pasta fica de fora.
     var selection: CardSelection? = nil
 
@@ -217,6 +219,7 @@ struct BoardCanvasView: View {
             onMoveIntoFolder: onMoveIntoFolder,
             onSetColorTag: onSetColorTag,
             onRename: onRename,
+            onEditCaption: onEditCaption,
             onToggleReminder: onToggleReminder,
             selection: selection)
     }

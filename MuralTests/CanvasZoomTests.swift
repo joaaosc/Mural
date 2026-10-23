@@ -73,6 +73,26 @@ struct CanvasZoomTests {
         #expect(published?.logicalCenter == BoardPoint(x: 1_000, y: 800))
     }
 
+    @Test("Comandos de zoom usam o centro real do retângulo visível")
+    @MainActor
+    func zoomCommandUsesVisibleRectCenter() {
+        let controller = CanvasZoomController { changes, completion in
+            changes()
+            completion()
+        }
+        controller.apply(
+            CanvasScrollMetrics(
+                contentOffset: CGPoint(x: 200, y: 100),
+                containerSize: CGSize(width: 800, height: 600),
+                contentSize: CGSize(width: 3_000, height: 2_000),
+                visibleRect: CGRect(x: 200, y: 100, width: 600, height: 400)))
+
+        controller.zoomIn()
+
+        #expect(controller.zoom == 1.25)
+        #expect(controller.scrollRequest?.point == CGPoint(x: 325, y: 175))
+    }
+
     @Test("Dentro dos limites, a pinça é direta")
     func insideRangeIsDirect() {
         #expect(CanvasZoom.rubberBanded(1.3) == 1.3)

@@ -44,4 +44,23 @@ struct BoardCaptionAndImportTests {
             }
         }
     }
+
+    @Test("Fallback de importação respeita o tamanho real dos cartões existentes")
+    func importFallbackPreservesOccupiedSizes() {
+        let anchor = BoardPoint(x: 500, y: 400)
+        let blockerPositions = BoardLayout.importPositions(
+            kinds: [.sticky, .sticky, .sticky, .sticky], anchor: anchor, avoiding: [])
+        let blockers = blockerPositions.map {
+            BoardItem(kind: .video, title: "Vídeo", position: $0)
+        }
+
+        let position = BoardLayout.importPositions(kinds: [.sticky], anchor: anchor, avoiding: blockers)[0]
+        let size = BoardLayout.cardSize(for: .sticky)
+
+        for blocker in blockers {
+            #expect(
+                !BoardLayout.overlaps(
+                    position, size, blocker.position, BoardLayout.cardSize(for: blocker.kind), gap: 24))
+        }
+    }
 }

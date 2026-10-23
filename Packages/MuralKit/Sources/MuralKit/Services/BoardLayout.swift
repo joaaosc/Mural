@@ -158,6 +158,19 @@ public enum BoardLayout {
         let occupied = items.map { item -> (BoardPoint, (width: Double, height: Double)) in
             (item.position, cardSize(for: item.kind))
         }
+        return freePosition(
+            size: size, avoiding: occupied, origin: origin, step: step, columns: columns, gap: gap)
+    }
+
+    /// Variante usada por lotes, que preserva o tamanho real de cada cartão já ocupado.
+    private static func freePosition(
+        size: (width: Double, height: Double),
+        avoiding occupied: [(BoardPoint, (width: Double, height: Double))],
+        origin: BoardPoint,
+        step: Double = 40,
+        columns: Int = 24,
+        gap: Double = 24
+    ) -> BoardPoint {
         var row = 0
         while row < 200 {
             for column in 0..<columns {
@@ -169,7 +182,7 @@ public enum BoardLayout {
             }
             row += 1
         }
-        return BoardPoint(x: origin.x, y: origin.y + Double(items.count) * step)
+        return BoardPoint(x: origin.x, y: origin.y + Double(occupied.count) * step)
     }
 
     /// Distribui um lote perto da âncora indicada, usando o centro da janela ou
@@ -191,14 +204,14 @@ public enum BoardLayout {
         for (index, kind) in kinds.enumerated() {
             let size = cardSize(for: kind)
             let candidates = importCandidates(anchor: anchor, size: size, index: index)
-            let position = candidates.first { candidate in
-                occupied.allSatisfy { other in !overlaps(candidate, size, other.0, other.1, gap: gap) }
-            } ?? freePosition(
-                for: kind,
-                avoiding: occupied.enumerated().map { offset, other in
-                    BoardItem(kind: kind, title: "", position: other.0)
-                },
-                origin: anchor)
+            let position =
+                candidates.first { candidate in
+                    occupied.allSatisfy { other in !overlaps(candidate, size, other.0, other.1, gap: gap) }
+                }
+                ?? freePosition(
+                    size: size,
+                    avoiding: occupied,
+                    origin: anchor)
             result.append(position)
             occupied.append((position, size))
         }
@@ -213,7 +226,7 @@ public enum BoardLayout {
         return [
             clamped(BoardPoint(x: center.x + cos(angle) * size.width * ring, y: center.y + sin(angle) * size.height * ring)),
             clamped(BoardPoint(x: center.x + size.width * Double(index), y: center.y)),
-            clamped(BoardPoint(x: center.x, y: center.y + size.height * Double(index)))
+            clamped(BoardPoint(x: center.x, y: center.y + size.height * Double(index))),
         ]
     }
 

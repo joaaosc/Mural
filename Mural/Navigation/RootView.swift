@@ -33,8 +33,11 @@ private struct LoadedRootView: View {
     @State private var freeTextEditor: BoardFreeTextEditorRequest?
     @State private var folderNameDraft = ""
     /// Cartão esperando o nome novo (Renomear… no menu dele).
-    @State private var renamingFolder: FolderRenameRequest?
-    @State private var folderRenameDraft = ""
+    @State private var renamingCard: CardRenameRequest?
+    @State private var cardNameDraft = ""
+    /// Cartão esperando uma legenda nova (Adicionar/Editar legenda… no menu dele).
+    @State private var captioningCard: CardCaptionRequest?
+    @State private var cardCaptionDraft = ""
     @State private var isConfirmingSelectionDelete = false
     /// Espera curta antes de abrir o seletor ao segurar ⌘: some se o ⌘ era de um atalho.
     @State private var commandHoldTask: Task<Void, Never>?
@@ -81,10 +84,8 @@ private struct LoadedRootView: View {
     }
 
     var body: some View {
-        ZStack {
-            withReminderSync(withDialogs(withSelection(boardContent)))
-            SaveCopyExporter(session: session)
-        }
+        withReminderSync(withDialogs(withSelection(boardContent)))
+            .background { SaveCopyExporter(session: session) }
     }
 
     /// O mural livre, com tudo o que os cartões chamam.
@@ -116,7 +117,8 @@ private struct LoadedRootView: View {
             onFreeTextEdit: beginEditingFreeText,
             onFreeTextMove: session.moveFreeText,
             onFreeTextDelete: session.deleteFreeText,
-            onRename: beginRenameFolder,
+            onRename: beginRenameCard,
+            onEditCaption: beginEditingCaption,
             selection: canvasSelection
         )
     }
@@ -151,6 +153,7 @@ private struct LoadedRootView: View {
             .padding(12)
             .containerCornerOffset(.top)
             .disabled(session.restorationPhase != .ready)
+            .zIndex(100)
         }
         .overlay(alignment: .topTrailing) {
             folderInfoOverlay
@@ -254,7 +257,6 @@ private struct LoadedRootView: View {
     private func restoreCanvasFocus(afterEditing itemID: UUID?) {
         if itemID == nil { isCanvasFocused = true }
     }
-
 
     private func handleDrop(urls: [URL], location: CGPoint) -> Bool {
         let files = urls.filter(\.isFileURL)
@@ -449,13 +451,16 @@ private struct LoadedRootView: View {
                     createFolder(named: folderNameDraft)
                 }
             }
-            .sheet(item: $renamingFolder) { request in
+            .sheet(item: $renamingCard) { request in
                 nameSheet(
-                    title: "Renomear cartão", placeholder: "Nome do cartão", text: $folderRenameDraft,
+                    title: "Renomear cartão", placeholder: "Nome do cartão", text: $cardNameDraft,
                     actionTitle: "Renomear"
                 ) {
-                    renameFolder(request.id)
+                    renameCard(request.id)
                 }
+            }
+            .sheet(item: $captioningCard) { request in
+                captionSheet(for: request.id)
             }
             .sheet(isPresented: $isReminderPickerPresented) {
                 ReminderPickerSheet(session: session)
@@ -521,7 +526,7 @@ private struct LoadedRootView: View {
                 Button("Cancelar", role: .cancel) {
                     isRenamePresented = false
                     isNewFolderPresented = false
-                    renamingFolder = nil
+                    renamingCard = nil
                 }
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
@@ -529,6 +534,32 @@ private struct LoadedRootView: View {
         }
         .padding(24)
         .frame(width: 360)
+    }
+
+    @ViewBuilder
+    private func captionSheet(for itemID: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(model.item(id: itemID)?.caption == nil ? "Adicionar legenda" : "Editar legenda")
+                .font(.headline)
+            TextField("Legenda", text: $cardCaptionDraft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...4)
+                .onSubmit { saveCaption(for: itemID) }
+            Text("Deixe o campo vazio para remover a legenda.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancelar", role: .cancel) {
+                    captioningCard = nil
+                    isCanvasFocused = true
+                }
+                Button("Salvar") { saveCaption(for: itemID) }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
     }
 
     private func handle(_ request: FocusedBoardActionRequest) {
@@ -585,7 +616,8 @@ private struct LoadedRootView: View {
             if let folder = model.item(id: id) {
                 CollectionView(
                     folder: folder, model: model, session: session, hero: hero, filter: filter,
-                    colorFilter: session.colorFilter, onRenameFolder: beginRenameFolder
+                    colorFilter: session.colorFilter, onRename: beginRenameCard,
+                    onEditCaption: beginEditingCaption
                 ) {
                     childID in
                     // Pasta abre outro nível de pasta; o resto abre a página do item.
@@ -680,15 +712,26 @@ private struct LoadedRootView: View {
         freeTextEditor = BoardFreeTextEditorRequest(id: id, isNew: false)
     }
 
-    /// Pede o nome novo da pasta, começando pelo atual.
-    private func beginRenameFolder(_ folderID: UUID) {
-        folderRenameDraft = model.item(id: folderID)?.title ?? ""
-        renamingFolder = FolderRenameRequest(id: folderID)
+    /// Pede o nome novo de qualquer cartão, começando pelo atual.
+    private func beginRenameCard(_ itemID: UUID) {
+        cardNameDraft = model.item(id: itemID)?.title ?? ""
+        renamingCard = CardRenameRequest(id: itemID)
     }
 
-    private func renameFolder(_ folderID: UUID) {
-        renamingFolder = nil
-        session.renameItem(folderID, to: folderRenameDraft)
+    private func renameCard(_ itemID: UUID) {
+        renamingCard = nil
+        session.renameItem(itemID, to: cardNameDraft)
+        isCanvasFocused = true
+    }
+
+    private func beginEditingCaption(_ itemID: UUID) {
+        cardCaptionDraft = model.item(id: itemID)?.caption ?? ""
+        captioningCard = CardCaptionRequest(id: itemID)
+    }
+
+    private func saveCaption(for itemID: UUID) {
+        session.setCaption(cardCaptionDraft, for: itemID)
+        captioningCard = nil
         isCanvasFocused = true
     }
 
@@ -717,6 +760,8 @@ private struct SaveCopyExporter: View {
 
     var body: some View {
         Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
             .fileExporter(
                 isPresented: $session.isExporterPresented,
                 document: session.exportDocument,

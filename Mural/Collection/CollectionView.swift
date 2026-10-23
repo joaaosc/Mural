@@ -12,8 +12,10 @@ struct CollectionView: View {
     let hero: HeroContext
     let filter: BoardFilter?
     var colorFilter: TagColor? = nil
-    /// "Renomear…" no menu das pastas de dentro desta.
-    var onRenameFolder: ((UUID) -> Void)? = nil
+    /// "Renomear…" no menu dos cartões desta pasta.
+    var onRename: ((UUID) -> Void)? = nil
+    /// "Adicionar/Editar legenda…" no menu dos cartões desta pasta.
+    var onEditCaption: ((UUID) -> Void)? = nil
     var onOpenItem: (UUID) -> Void
 
     @State private var scrollPosition = ScrollPosition(idType: UUID.self)
@@ -137,7 +139,8 @@ struct CollectionView: View {
             onMoveIntoFolder: session?.moveIntoFolder,
             onSetColorTag: { session?.setColorTag($1, for: $0) },
             onMoveUp: session?.moveUp,
-            onRename: onRenameFolder,
+            onRename: onRename,
+            onEditCaption: onEditCaption,
             onToggleReminder: { id in Task { await session?.toggleReminder(id) } },
             selection: selection
         )

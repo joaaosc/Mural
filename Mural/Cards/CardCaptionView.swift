@@ -8,7 +8,7 @@ struct CardCaptionView: View {
     var body: some View {
         if let caption, !caption.isEmpty {
             Text(caption)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .padding(.horizontal, 6)

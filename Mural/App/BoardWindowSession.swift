@@ -810,7 +810,8 @@ final class BoardWindowSession {
     func createCard(_ kind: ItemKind) -> UUID? {
         guard restoration.acceptsPersistence, let model, kind == .text || kind == .sticky else { return nil }
         let folderID = currentFolderID
-        let item = kind == .text
+        let item =
+            kind == .text
             ? model.createNote(into: folderID)
             : model.createSticky(into: folderID, at: folderID.flatMap { folderVisibleCenters[$0] })
         newItemIDs.insert(item.id)
@@ -895,7 +896,8 @@ final class BoardWindowSession {
     }
 
     func dropAnchor(localPoint: CGPoint) -> BoardPoint {
-        let rect = zoom.visibleRect.isEmpty
+        let rect =
+            zoom.visibleRect.isEmpty
             ? CGRect(origin: zoom.scrollOffset, size: zoom.viewport)
             : zoom.visibleRect
         let point = CanvasWorkspaceMath.logicalPoint(localPoint: localPoint, visibleRect: rect, zoom: zoom.zoom)
@@ -1194,7 +1196,7 @@ final class BoardWindowSession {
     }
 
     func captionDraft(for itemID: UUID) -> String {
-        captionDrafts[itemID] ?? model?.item(id: itemID)?.text ?? ""
+        captionDrafts[itemID] ?? model?.item(id: itemID)?.caption ?? ""
     }
 
     func setCaptionDraft(_ text: String, for itemID: UUID) {
@@ -1207,8 +1209,10 @@ final class BoardWindowSession {
     func commitCaptionDrafts() {
         guard let model else { return }
         for (itemID, text) in captionDrafts {
+            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = clean.isEmpty ? nil : clean
             guard model.item(id: itemID) != nil,
-                model.item(id: itemID)?.text != (text.isEmpty ? nil : text)
+                model.item(id: itemID)?.caption != normalized
             else { continue }
             model.setCaption(text, for: itemID)
         }
@@ -1368,6 +1372,17 @@ final class BoardWindowSession {
     /// Renomeia qualquer cartão, preservando corpo, legenda e metadados.
     func renameItem(_ itemID: UUID, to name: String) {
         guard !isClosed, model?.renameItem(itemID, to: name) == true else { return }
+        captureBoardIfNeeded()
+    }
+
+    /// Define ou remove a legenda de qualquer cartão e mantém o rascunho da página de imagem sincronizado.
+    func setCaption(_ text: String, for itemID: UUID) {
+        guard !isClosed, let model, model.item(id: itemID) != nil else { return }
+        let previous = model.item(id: itemID)?.caption
+        model.setCaption(text, for: itemID)
+        let updated = model.item(id: itemID)?.caption
+        captionDrafts[itemID] = updated ?? ""
+        guard previous != updated else { return }
         captureBoardIfNeeded()
     }
 
