@@ -20,7 +20,7 @@ struct FolderPeekItem: Identifiable, Equatable {
     ) -> [FolderPeekItem] {
         children.suffix(max(limit, 0)).map { child in
             let url: URL? =
-                if child.kind == .link { linkPreviewURL(child) } else { child.kind.storesFile ? fileURL(child) : nil }
+                if child.kind == .link || child.kind == .music { linkPreviewURL(child) } else { child.kind.storesFile ? fileURL(child) : nil }
             return FolderPeekItem(
                 id: child.id,
                 kind: child.kind,
@@ -32,10 +32,10 @@ struct FolderPeekItem: Identifiable, Equatable {
 }
 
 extension FolderPeekItem {
-    /// A imagem de prévia de um link, só se o arquivo estiver na pasta de prévias. Arquivo que sumiu (mural
+    /// A imagem de prévia de um link (ou a capa de uma música), só se o arquivo estiver na pasta de prévias. Arquivo que sumiu (mural
     /// promovido ou importado sem as prévias) não espia: o link aparece pelo título.
     static func linkPreviewURL(of item: BoardItem, in files: LinkPreviewFiles?) -> URL? {
-        guard let name = item.link?.previewImageFile else { return nil }
+        guard let name = item.link?.previewImageFile ?? item.music?.artworkFile else { return nil }
         return files?.existingURL(for: name)
     }
 }
@@ -66,9 +66,9 @@ struct FolderPeekTile: View {
         case .sticky:
             label(ink: Theme.stickyInk, design: .monospaced)
                 .background(Theme.sticky(item.stickyColor))
-        case .link where item.fileURL != nil:
+        case .link where item.fileURL != nil, .music where item.fileURL != nil:
             ThumbnailView(url: item.fileURL, kind: .image, maxPixelSize: 240)
-        case .text, .checklist, .folder, .link, .reminder:
+        case .text, .checklist, .folder, .link, .reminder, .music:
             label(ink: .secondary, design: .default)
         }
     }

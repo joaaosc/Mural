@@ -31,8 +31,8 @@ struct BoardFreeTextTests {
         #expect(Board().formatVersion == 1)
         let text = BoardFreeText(text: "Olá")
         let board = Board(freeTexts: [text])
-        #expect(board.formatVersion == Board.currentFormatVersion)
-        #expect(board.requiredFormatVersion == Board.currentFormatVersion)
+        #expect(board.formatVersion == 7)
+        #expect(board.requiredFormatVersion == 7)
     }
 
     @Test("Geometria quadrada, extent, hit-test e posição livre")

@@ -62,6 +62,7 @@ struct CardButton: View {
                     Button("Renomear…") { onRename(item.id) }
                 }
                 linkMenu
+                musicMenu
                 notesMenu
                 moveMenu
                 Divider()
@@ -121,6 +122,14 @@ struct CardButton: View {
             Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
             Button("Atualizar prévia") { linkPreviewCoordinator?.request([item.id], force: true) }
                 .disabled(linkPreviewCoordinator == nil)
+        }
+    }
+
+    /// Só para música com endereço: copiar o link do Apple Music.
+    @ViewBuilder
+    private var musicMenu: some View {
+        if item.kind == .music, item.music?.url != nil {
+            Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
         }
     }
 

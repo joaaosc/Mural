@@ -13,6 +13,7 @@ extension ItemKind {
         case .folder: "Pasta"
         case .link: "Link"
         case .reminder: "Lembrete"
+        case .music: "Apple Music"
         }
     }
 
@@ -28,6 +29,7 @@ extension ItemKind {
         case .folder: "folder"
         case .link: "link"
         case .reminder: "checklist.checked"
+        case .music: "music.note"
         }
     }
 }

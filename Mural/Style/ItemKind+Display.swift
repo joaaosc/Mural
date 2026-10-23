@@ -13,6 +13,7 @@ extension ItemKind {
         case .sticky: ("post-it", "post-its")
         case .link: ("link", "links")
         case .reminder: ("lembrete", "lembretes")
+        case .music: ("música", "músicas")
         case .folder: ("pasta", "pastas")
         }
     }
@@ -40,6 +41,9 @@ extension ItemKind {
         }
         if item.kind == .reminder {
             return "O cartão será removido. O lembrete no app Lembretes não é afetado."
+        }
+        if item.kind == .music {
+            return "O cartão será removido. O item no app Música não é afetado."
         }
         guard item.kind == .folder else {
             return "O cartão e o arquivo guardado pelo Mural serão removidos. O arquivo original não é tocado."

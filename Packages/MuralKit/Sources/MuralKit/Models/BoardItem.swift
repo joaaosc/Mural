@@ -27,6 +27,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var link: LinkInfo?
     /// Último estado conhecido do lembrete, quando `kind == .reminder`. Murais antigos não têm o campo.
     public var reminder: ReminderSnapshot?
+    /// Último estado conhecido do item do Apple Music, quando `kind == .music`. Murais antigos não têm o campo.
+    public var music: MusicSnapshot?
     /// Cor escolhida pela pessoa no menu do cartão, como as tags do Finder.
     public var colorTag: TagColor?
     /// Imagens coladas no corpo, quando `kind == .text`. Murais antigos não têm o campo.
@@ -48,6 +50,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         keySentences: KeySentenceRecord? = nil,
         link: LinkInfo? = nil,
         reminder: ReminderSnapshot? = nil,
+        music: MusicSnapshot? = nil,
         colorTag: TagColor? = nil,
         attachments: [NoteAttachment]? = nil
     ) {
@@ -66,6 +69,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.keySentences = keySentences
         self.link = link
         self.reminder = reminder
+        self.music = music
         self.colorTag = colorTag
         self.attachments = attachments
     }

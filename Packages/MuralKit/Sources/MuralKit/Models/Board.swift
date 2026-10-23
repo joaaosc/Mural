@@ -10,7 +10,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 5: imagem colada em nota (`BoardItem.attachments`).
     /// - 6: cartão de lembrete.
     /// - 7: textos livres diretamente no mural.
-    public static let currentFormatVersion = 7
+    /// - 8: cartão de música (Apple Music).
+    public static let currentFormatVersion = 8
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -63,6 +64,7 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.colorTag != nil }) { version = max(version, 4) }
         if items.contains(where: { !($0.attachments ?? []).isEmpty }) { version = max(version, 5) }
         if items.contains(where: { $0.kind == .reminder }) { version = max(version, 6) }
+        if items.contains(where: { $0.kind == .music }) { version = max(version, 8) }
         return version
     }
 

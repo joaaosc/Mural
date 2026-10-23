@@ -16,6 +16,17 @@ enum PasteboardExporter {
             entry.setString(item.title, forType: urlNameType)
             entry.setString(address, forType: .string)
             pasteboard.writeObjects([entry])
+        } else if item.kind == .music, let music = item.music {
+            if let url = music.url {
+                let address = url.absoluteString
+                let entry = NSPasteboardItem()
+                entry.setString(address, forType: .URL)
+                entry.setString(item.title, forType: urlNameType)
+                entry.setString(address, forType: .string)
+                pasteboard.writeObjects([entry])
+            } else {
+                pasteboard.setString(text(of: music, title: item.title), forType: .string)
+            }
         } else if item.kind == .reminder, let reminder = item.reminder {
             pasteboard.setString(text(of: reminder), forType: .string)
         } else if let url = model.fileURL(for: item) {
@@ -27,6 +38,11 @@ enum PasteboardExporter {
         } else {
             pasteboard.setString(item.displayText, forType: .string)
         }
+    }
+
+    /// Título e artista da música, um por linha (sem linha vazia quando falta o artista).
+    static func text(of music: MusicSnapshot, title: String) -> String {
+        [title, music.subtitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// Título do lembrete e, se houver, a data, uma por linha.

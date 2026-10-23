@@ -27,6 +27,9 @@ struct CardView: View {
                 ReminderCard(reminder: reminder)
                     .colorTagDot(item.colorTag)
             }
+        case .music:
+            MusicCard(item: item)
+                .colorTagDot(item.colorTag)
         case .image, .video, .pdf:
             MediaCard(url: model.fileURL(for: item), kind: item.kind)
                 .colorTagDot(item.colorTag)

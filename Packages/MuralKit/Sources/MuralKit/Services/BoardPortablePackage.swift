@@ -52,6 +52,7 @@ public enum BoardPortablePackageError: Error, Equatable, Sendable {
     case invalidItemPosition(UUID)
     case invalidFileName(UUID)
     case invalidReminder(UUID)
+    case invalidMusic(UUID)
     case missingAsset(String)
     case duplicateAsset(String)
     case unreferencedAsset(String)
@@ -337,6 +338,7 @@ public actor BoardPortablePackageService {
                 throw BoardPortablePackageError.invalidFileName(item.id)
             }
             try validateReminder(of: item)
+            try validateMusic(of: item)
             if item.kind.storesFile {
                 guard let fileName = item.fileName else {
                     throw BoardPortablePackageError.missingAsset("\(item.id.uuidString):fileName")
@@ -394,6 +396,20 @@ public actor BoardPortablePackageService {
         guard let reminder = item.reminder, item.fileName == nil,
             item.title.count <= 1_000, reminder.title.count <= 1_000, (reminder.notes?.count ?? 0) <= 100_000
         else { throw BoardPortablePackageError.invalidReminder(item.id) }
+    }
+
+    /// Um cartão de música guarda só o estado, sem arquivo de mídia; a capa não viaja no pacote.
+    private func validateMusic(of item: BoardItem) throws {
+        guard item.kind == .music else {
+            if item.music != nil { throw BoardPortablePackageError.invalidMusic(item.id) }
+            return
+        }
+        guard let music = item.music, item.fileName == nil,
+            item.title.count <= 1_000, music.title.count <= 1_000,
+            (music.subtitle?.count ?? 0) <= 1_000, (music.albumTitle?.count ?? 0) <= 1_000,
+            (music.libraryPlaylistName?.count ?? 0) <= 1_000,
+            music.artworkFile.map(isSafeFileName) ?? true
+        else { throw BoardPortablePackageError.invalidMusic(item.id) }
     }
 
     /// Um anexo de nota é uma imagem legível, com nome seguro, tamanho positivo e sem colidir com a mídia de um cartão.

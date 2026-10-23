@@ -35,7 +35,7 @@ public enum NoteExport {
             return isBlank(text) ? [] : [.paragraph(text)]
         case .checklist:
             return checklistBlocks(item.checklistDocument)
-        case .image, .video, .pdf, .folder, .link, .reminder:
+        case .image, .video, .pdf, .folder, .link, .reminder, .music:
             return []
         }
     }
