@@ -137,6 +137,21 @@ public struct Board: Codable, Equatable, Sendable {
         ancestors(of: id).count
     }
 
+    /// A cadeia de pais chega ao mural passando só por pastas e sem passar de `Board.maximumFolderDepth` níveis
+    /// (uma pasta ocupa um nível; um cartão que não é pasta cabe em qualquer pasta). Um ciclo nunca chega ao mural
+    /// e acaba no limite de níveis.
+    static func hasValidParentChain(_ item: BoardItem, in itemsByID: [UUID: BoardItem]) -> Bool {
+        var foldersAbove = 0
+        var next = item.parentID
+        while let parentID = next {
+            guard let parent = itemsByID[parentID], parent.kind == .folder else { return false }
+            foldersAbove += 1
+            guard foldersAbove <= maximumFolderDepth else { return false }
+            next = parent.parentID
+        }
+        return item.kind != .folder || foldersAbove < maximumFolderDepth
+    }
+
     /// As pastas para onde o cartão pode ir agora, ordenadas pelo caminho. Ficam de fora o próprio cartão, o que há dentro dele
     /// (se for pasta), a pasta onde ele já está e as que fariam a pasta movida passar de `maximumFolderDepth` níveis.
     public func folderDestinations(for id: UUID) -> [FolderDestination] {
