@@ -44,6 +44,7 @@ private struct LoadedRootView: View {
     /// Texto solto colado, esperando a escolha do tipo no popup.
     @State private var pendingPaste: PendingPaste?
     @State private var linkPreviewCoordinator: LinkPreviewCoordinator?
+    @State private var musicArtworkCoordinator: MusicArtworkCoordinator?
     @FocusState private var isCanvasFocused: Bool
     @Namespace private var heroNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -138,6 +139,7 @@ private struct LoadedRootView: View {
         }
         .environment(\.linkPreviewFiles, LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)))
         .environment(\.linkPreviewCoordinator, linkPreviewCoordinator)
+        .environment(\.musicArtworkCoordinator, musicArtworkCoordinator)
         // Passa por baixo da barra da janela, mas não da barra lateral: um cartão atrás dela não
         // teria como ser clicado.
         .ignoresSafeArea(edges: .vertical)
@@ -178,13 +180,17 @@ private struct LoadedRootView: View {
             Task { @MainActor in isCanvasFocused = true }
         }
         .onKeyPress(.escape) { handleEscape() }
-        .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in handlePaste() }
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in handlePaste() }
         .sheet(item: $pendingPaste) { paste in
             PasteChoiceSheet(paste: paste, onChoose: { kind in importPaste(paste, as: kind) }, onCancel: cancelPaste)
         }
         .dropDestination(for: URL.self) { urls, location in
             handleDrop(urls: urls, location: location)
         }
+        .onDrop(
+            of: MusicPasteboardReader.dropTypeIdentifiers,
+            delegate: MusicDropDelegate { drafts, location in handleMusicDrop(drafts, location: location) }
+        )
         .fileImporter(
             isPresented: $session.isImporterPresented,
             allowedContentTypes: PasteboardImporter.importableTypes,
@@ -205,9 +211,12 @@ private struct LoadedRootView: View {
             restoreCanvasFocus(afterEditing: editingItemID)
         }
         .task {
-            setupLinkPreview()
+            setupPreviewCoordinators()
         }
-        .onDisappear { linkPreviewCoordinator?.cancelAll() }
+        .onDisappear {
+            linkPreviewCoordinator?.cancelAll()
+            musicArtworkCoordinator?.cancelAll()
+        }
     }
 
     private var backgroundCanvas: some View {
@@ -246,12 +255,16 @@ private struct LoadedRootView: View {
         }
     }
 
-    private func setupLinkPreview() {
-        guard linkPreviewCoordinator == nil else { return }
-        linkPreviewCoordinator = LinkPreviewCoordinator(
-            model: model,
-            files: LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)),
-            fetcher: LaunchConfiguration.linkPreviewFetcher())
+    private func setupPreviewCoordinators() {
+        let files = LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID))
+        if linkPreviewCoordinator == nil {
+            linkPreviewCoordinator = LinkPreviewCoordinator(
+                model: model, files: files, fetcher: LaunchConfiguration.linkPreviewFetcher())
+        }
+        if musicArtworkCoordinator == nil {
+            musicArtworkCoordinator = MusicArtworkCoordinator(
+                model: model, files: files, fetcher: LaunchConfiguration.musicArtworkFetcher())
+        }
     }
 
     private func restoreCanvasFocus(afterEditing itemID: UUID?) {
@@ -260,11 +273,23 @@ private struct LoadedRootView: View {
 
     private func handleDrop(urls: [URL], location: CGPoint) -> Bool {
         let files = urls.filter(\.isFileURL)
-        guard !files.isEmpty else { return false }
         let folder = currentFolderID
         let animation = importAnimation
         let anchor = session.dropAnchor(localPoint: location)
-        Task { await session.importPasted(.files(files), into: folder, anchor: anchor, animation: animation) }
+        if !files.isEmpty {
+            Task { await session.importPasted(.files(files), into: folder, anchor: anchor, animation: animation) }
+        }
+        let music = urls.filter { !$0.isFileURL }.compactMap {
+            AppleMusicLink.snapshot(from: $0, title: nil).map { MusicDraft(snapshot: $0) }
+        }
+        if !music.isEmpty { importMusic(music, into: folder, anchor: anchor, animation: animation) }
+        return !files.isEmpty || !music.isEmpty
+    }
+
+    private func handleMusicDrop(_ drafts: [MusicDraft], location: CGPoint) -> Bool {
+        guard !drafts.isEmpty else { return false }
+        importMusic(
+            drafts, into: currentFolderID, anchor: session.dropAnchor(localPoint: location), animation: importAnimation)
         return true
     }
 
@@ -276,6 +301,13 @@ private struct LoadedRootView: View {
             Task { await session.appendImages(pieces, toNote: noteID) }
             return
         }
+        let pasteboard = NSPasteboard.general
+        if MusicPasteboardReader.containsMusic(pasteboard) {
+            importMusic(
+                MusicPasteboardReader.drafts(from: pasteboard), into: currentFolderID,
+                anchor: session.visibleBoardAnchor, animation: importAnimation)
+            return
+        }
         let content = PasteboardImporter.read()
         let folder = currentFolderID
         if case .text(let text) = content {
@@ -285,6 +317,14 @@ private struct LoadedRootView: View {
         let animation = importAnimation
         let anchor = session.visibleBoardAnchor
         Task { await session.importPasted(content, into: folder, anchor: anchor, animation: animation) }
+    }
+
+    private func importMusic(
+        _ drafts: [MusicDraft], into folderID: UUID?, anchor: BoardPoint?, animation: Animation?
+    ) {
+        let ids = session.importMusic(
+            drafts, into: folderID, at: anchor, artwork: musicArtworkCoordinator, animation: animation)
+        musicArtworkCoordinator?.request(ids)
     }
 
     private func handleEscape() -> KeyPress.Result {

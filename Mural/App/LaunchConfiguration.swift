@@ -63,6 +63,12 @@ enum LaunchConfiguration {
         return SystemLinkPreviewFetcher()
     }
 
+    /// Quem baixa as capas de música: nos testes de interface, um buscador falso, sem rede; no resto, o de verdade.
+    static func musicArtworkFetcher(arguments: [String] = ProcessInfo.processInfo.arguments) -> any MusicArtworkFetching {
+        if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return FixtureMusicArtworkFetcher() }
+        return SystemMusicArtworkFetcher()
+    }
+
     /// Se o detalhe de um link carrega a página de verdade: nos testes de interface, não; ele mostra uma página
     /// local de exemplo (`FixtureLinkPage`), sem rede.
     static func loadsLivePages(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {

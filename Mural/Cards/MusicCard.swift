@@ -38,6 +38,9 @@ struct MusicArtwork: View {
 struct MusicCard: View {
     let item: BoardItem
 
+    @Environment(\.musicArtworkCoordinator) private var artwork
+    @Environment(\.linkPreviewFiles) private var files
+
     private var music: MusicSnapshot? { item.music }
     private var primary: Color { Color(muralHex: music?.primaryTextHex) ?? .primary }
     private var secondary: Color { Color(muralHex: music?.secondaryTextHex) ?? Color.secondary }
@@ -73,6 +76,11 @@ struct MusicCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
+        // Sem a capa na pasta (cartão novo, pasta apagada), pede ao coordenador da janela.
+        .task(id: music?.artworkFile) {
+            guard let music, music.artworkFile.flatMap({ files?.existingURL(for: $0) }) == nil else { return }
+            artwork?.request([item.id])
+        }
     }
 
     @ViewBuilder

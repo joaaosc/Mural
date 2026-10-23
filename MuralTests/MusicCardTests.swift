@@ -61,7 +61,8 @@ struct MusicCardTests {
 
     private func makeModel() -> BoardModel {
         BoardModel(
-            store: BoardStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent("MuralMusicExport-\(UUID().uuidString)")),
+            store: BoardStore(
+                directory: FileManager.default.temporaryDirectory.appendingPathComponent("MuralMusicExport-\(UUID().uuidString)")),
             seedIfEmpty: false)
     }
 
@@ -86,7 +87,8 @@ struct MusicCardTests {
         let pasteboard = makePasteboard()
         defer { pasteboard.releaseGlobally() }
         let model = makeModel()
-        let item = BoardItem(kind: .music, title: "Something", music: MusicSnapshot(kind: .song, title: "Something", subtitle: "The Beatles"))
+        let item = BoardItem(
+            kind: .music, title: "Something", music: MusicSnapshot(kind: .song, title: "Something", subtitle: "The Beatles"))
 
         PasteboardExporter.copy(item, from: model, to: pasteboard)
         #expect(pasteboard.string(forType: .string) == "Something\nThe Beatles")
@@ -101,7 +103,8 @@ struct MusicCardTests {
 
     @Test("Música espia pela capa guardada; sem ela, pelo título")
     func folderPeekUsesArtwork() {
-        let withArt = BoardItem(kind: .music, title: "Com capa", music: MusicSnapshot(kind: .album, title: "Com capa", artworkFile: "capa.jpg"))
+        let withArt = BoardItem(
+            kind: .music, title: "Com capa", music: MusicSnapshot(kind: .album, title: "Com capa", artworkFile: "capa.jpg"))
         let without = BoardItem(kind: .music, title: "Sem capa", music: MusicSnapshot(kind: .album, title: "Sem capa"))
         let artwork = URL(fileURLWithPath: "/tmp/LinkPreviews/capa.jpg")
 
@@ -115,7 +118,8 @@ struct MusicCardTests {
 
     @Test("linkPreviewURL lê a capa da música na pasta de prévias")
     func peekURLReadsArtworkFile() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MuralMusicPeek-\(UUID().uuidString)", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "MuralMusicPeek-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try Data([1]).write(to: directory.appendingPathComponent("capa.jpg"))
