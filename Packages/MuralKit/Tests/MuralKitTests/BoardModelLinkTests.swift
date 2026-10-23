@@ -232,18 +232,31 @@ struct BoardModelLinkTests {
 
     // MARK: Gravação
 
-    @Test("A ordem do lote na pasta sobrevive ao reabrir, mesmo com as datas gravadas em segundos inteiros")
-    func batchOrderSurvivesReopen() throws {
+    @Test("Com as datas gravadas em segundos inteiros, o lote volta inteiro e os empates saem pelo id")
+    func batchTiesFollowTheIDAfterReopen() throws {
         let store = makeStore()
         defer { try? FileManager.default.removeItem(at: store.directory) }
         let model = BoardModel(store: store)
         let folder = try #require(model.rootItems.first { $0.kind == .folder })
 
         // Os 80 links nascem com poucos milissegundos de diferença: depois de gravados, quase todos empatam em `createdAt`.
+        // A ordem do lote já não está nos dados, e o empate se resolve pelo id, igual em qualquer Mac.
         let created = model.importLinks(try drafts(80), into: folder.id)
 
         let reopened = BoardModel(store: store)
-        #expect(reopened.children(of: folder.id).filter { $0.kind == .link }.map(\.id) == created.map(\.id))
+        let links = reopened.children(of: folder.id).filter { $0.kind == .link }
+        #expect(Set(links.map(\.id)) == Set(created.map(\.id)))
+        #expect(Set(links.map(\.createdAt)).count < links.count, "controle: a gravação deixou datas empatadas")
+        for (earlier, later) in zip(links, links.dropFirst()) {
+            let inOrder =
+                earlier.createdAt < later.createdAt
+                || (earlier.createdAt == later.createdAt && earlier.id.uuidString < later.id.uuidString)
+            #expect(inOrder, "\(earlier.title) antes de \(later.title)")
+        }
+        // A ordem não depende da ordem da lista gravada.
+        var reversed = reopened.board
+        reversed.items.reverse()
+        #expect(reversed.children(of: folder.id).filter { $0.kind == .link }.map(\.id) == links.map(\.id))
     }
 
     @Test("Links gravados reaparecem iguais ao reabrir o mural")

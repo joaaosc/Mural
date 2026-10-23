@@ -86,9 +86,16 @@ public struct Board: Codable, Equatable, Sendable {
         items.filter { $0.parentID == nil }
     }
 
-    /// Cartões dentro de uma pasta, na ordem de criação.
+    /// Cartões dentro de uma pasta, na ordem de criação (em empate de data, pelo `id.uuidString`).
     public func children(of folderID: UUID) -> [BoardItem] {
-        items.filter { $0.parentID == folderID }.sorted { $0.createdAt < $1.createdAt }
+        items.filter { $0.parentID == folderID }.sorted(by: Self.isCreatedBefore)
+    }
+
+    /// A ordem de criação: pela data e, em empate, pelo `id.uuidString`. Datas iguais acontecem, e sem o desempate cada Mac
+    /// poderia ordenar os cartões de um jeito, conforme a ordem da própria lista.
+    static func isCreatedBefore(_ lhs: BoardItem, _ rhs: BoardItem) -> Bool {
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     /// Post-its soltos num lugar livre da pasta, na ordem da lista: o último fica por cima.
@@ -345,7 +352,7 @@ public struct Board: Codable, Equatable, Sendable {
         for item in items {
             if let parentID = item.parentID { grouped[parentID, default: []].append(item) }
         }
-        return grouped.mapValues { $0.sorted { $0.createdAt < $1.createdAt } }
+        return grouped.mapValues { $0.sorted(by: Self.isCreatedBefore) }
     }
 
     private func descendants(of folderID: UUID, byParent: [UUID: [BoardItem]]) -> [BoardItem] {
