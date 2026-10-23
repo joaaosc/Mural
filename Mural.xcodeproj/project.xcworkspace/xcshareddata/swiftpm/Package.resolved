@@ -1,0 +1,15 @@
+{
+  "originHash" : "d9a40f175b82aa716cd7434cf5f7957bc09e0ad549b213e1bec0cf0b7ad49443",
+  "pins" : [
+    {
+      "identity" : "stretchtext",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/joaaosc/StretchText.git",
+      "state" : {
+        "revision" : "7e35fd6807df4e0b696e4b9af75f68bd0b1c51bb",
+        "version" : "1.0.2"
+      }
+    }
+  ],
+  "version" : 3
+}
