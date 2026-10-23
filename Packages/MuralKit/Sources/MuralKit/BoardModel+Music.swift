@@ -11,7 +11,9 @@ extension BoardModel {
     /// é consultado: o mesmo item pode entrar de novo em outra pasta. O título do cartão é o do item.
     /// - Returns: os cartões criados, na ordem do lote.
     @discardableResult
-    public func importMusic(_ snapshots: [MusicSnapshot], into parentID: UUID? = nil) -> [BoardItem] {
+    public func importMusic(
+        _ snapshots: [MusicSnapshot], into parentID: UUID? = nil, at anchor: BoardPoint? = nil
+    ) -> [BoardItem] {
         let now = Date.now
         var seen = Set<String>()
         var created: [BoardItem] = []
@@ -23,7 +25,7 @@ extension BoardModel {
                 parentID: parentID,
                 music: snapshot
             )
-            created.append(insert(item))
+            created.append(insert(item, anchor: anchor))
         }
         if !created.isEmpty { persist() }
         return created

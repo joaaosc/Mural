@@ -34,7 +34,9 @@ struct MusicCardTests {
     func formatVersion() {
         #expect(Board.currentFormatVersion >= 8)
         #expect(Board(items: [BoardItem(kind: .sticky, title: "")]).requiredFormatVersion == 1)
-        #expect(Board(items: [BoardItem(kind: .reminder, title: "x", reminder: ReminderSnapshot(identifier: "R", title: "x"))]).requiredFormatVersion == 6)
+        #expect(
+            Board(items: [BoardItem(kind: .reminder, title: "x", reminder: ReminderSnapshot(identifier: "R", title: "x"))])
+                .requiredFormatVersion == 6)
         #expect(Board(items: [BoardItem(kind: .music, title: "x", music: snapshot())]).requiredFormatVersion == 8)
         #expect(!ItemKind.music.storesFile)
     }
@@ -76,6 +78,18 @@ struct MusicCardTests {
         #expect(inside.first?.parentID == folder.id)
         #expect(model.musicItems.count == 3)
         #expect(BoardModel(store: BoardStore(directory: store.directory), seedIfEmpty: false).musicItems.count == 3)
+    }
+
+    @Test("Importação no mural centraliza a primeira música na âncora")
+    func importUsesAnchor() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.directory) }
+        let model = BoardModel(store: store, seedIfEmpty: false)
+
+        let item = try #require(model.importMusic([snapshot()], at: BoardPoint(x: 500, y: 400)).first)
+
+        let size = BoardLayout.cardSize(for: .music)
+        #expect(item.position == BoardPoint(x: 500 - size.width / 2, y: 400 - size.height / 2))
     }
 
     @Test("Lote vazio não grava nada")
@@ -148,6 +162,7 @@ struct MusicCardTests {
         longPlaylist.libraryPlaylistName = String(repeating: "a", count: 1_001)
         try await assertPackageError(Board(items: [BoardItem(id: id, kind: .music, title: "x", music: longPlaylist)]), .invalidMusic(id))
         try await assertPackageError(
-            Board(items: [BoardItem(id: id, kind: .music, title: String(repeating: "a", count: 1_001), music: snapshot())]), .invalidMusic(id))
+            Board(items: [BoardItem(id: id, kind: .music, title: String(repeating: "a", count: 1_001), music: snapshot())]),
+            .invalidMusic(id))
     }
 }
