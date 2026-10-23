@@ -157,6 +157,13 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 - O painel cola pela aba quando o mural está aberto; fechado, o mural é aberto por um instante, gravado
   e fechado, e uma aba aberta nesse meio-tempo assume o lugar, sem perder o cartão. As capas ficam em
   `BoardCovers/`, ao lado dos murais, e são refeitas quando o mural muda.
+- **Sem janela, fora do Dock**: com a janela fechada, o Mural sai do Dock e fica só o ícone na barra de
+  menus; abrir um mural pelo painel (ou o app pelo Finder) traz a janela, o Dock e os menus de volta.
+  Com mais de um Mural aberto (o instalado e uma cópia de desenvolvimento), só um mostra o ícone: o de
+  Aplicativos e, entre cópias, o aberto há mais tempo.
+- **Abrir ao Iniciar Sessão**, no menu "Mais opções" do painel e no menu Mural (começa desligado):
+  aberto assim, o Mural fica só na barra de menus, sem janela. Se o macOS pedir, "Permitir nos Ajustes
+  do Sistema…" leva aos Itens de Início de Sessão.
 
 ## Requisitos
 
