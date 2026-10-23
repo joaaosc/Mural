@@ -54,6 +54,8 @@ public enum PasteOptions {
             return [only(.asRead, kind: .pdf, count: 1)]
         case .files(let count):
             return [only(count > 0 ? .asRead : .read, kind: nil, count: count)]
+        case .music(let count):
+            return [only(count > 0 ? .asRead : .read, kind: .music, count: count)]
         case .text(let text):
             guard let text else { return [only(.read, kind: nil, count: 0)] }
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }

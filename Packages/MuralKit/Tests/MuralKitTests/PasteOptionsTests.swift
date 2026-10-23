@@ -48,6 +48,12 @@ struct PasteOptionsTests {
         #expect(PasteOptions.options(for: .files(count: 0)) == [option(.read, nil, 0, suggested: true)])
     }
 
+    @Test("Música lida: uma opção que cola os cartões de música, com a contagem; sem ler, uma que lê na hora")
+    func music() {
+        #expect(PasteOptions.options(for: .music(count: 2)) == [option(.asRead, .music, 2, suggested: true)])
+        #expect(PasteOptions.options(for: .music(count: 0)) == [option(.read, .music, 0, suggested: true)])
+    }
+
     @Test("Texto ainda não lido: uma opção que lê na hora, sem tipo e sem contagem")
     func unreadText() {
         #expect(PasteOptions.options(for: .text(nil)) == [option(.read, nil, 0, suggested: true)])
@@ -202,9 +208,27 @@ struct ClipboardKindTests {
             (.links(count: 2), true), (.links(count: 0), false),
             (.files(count: 2), true), (.files(count: 0), false),
             (.text("oi"), true), (.text(""), true), (.text("   "), true), (.text(nil), false),
+            (.music(count: 1), true), (.music(count: 0), false),
         ])
     func isReadByKind(kind: ClipboardKind, expected: Bool) {
         #expect(kind.isRead == expected, "\(kind)")
+    }
+
+    // MARK: Música
+
+    @Test(
+        "Os tipos do app Música valem mais que tudo, como no ⌘V, que lê o Música antes do resto",
+        arguments: ["com.apple.musicui.genericmusicitem", "com.apple.tv.metadata", "com.apple.music.playlist.name"])
+    func musicTypesComeFirst(musicType: String) {
+        #expect(ClipboardKind.hint(typeIdentifiers: [musicType]) == .music(count: 0))
+        #expect(ClipboardKind.hint(typeIdentifiers: ["public.utf8-plain-text", musicType]) == .music(count: 0))
+        #expect(ClipboardKind.hint(typeIdentifiers: ["public.url", "public.png", musicType]) == .music(count: 0))
+        #expect(ClipboardKind.hint(typeIdentifiers: ["public.file-url", musicType], fileContentType: "public.png") == .music(count: 0))
+    }
+
+    @Test("Um link sozinho continua link no palpite: só a leitura diz se é do Apple Music")
+    func appleMusicLinksAreLinksUntilRead() {
+        #expect(ClipboardKind.hint(typeIdentifiers: ["public.url", "public.utf8-plain-text"]) == .links(count: 0))
     }
 
     // MARK: Arquivos
@@ -325,6 +349,7 @@ struct ClipboardKindTests {
         let table: [([String], [PasteOption.Action])] = [
             (["public.png"], [.asRead]), (["com.adobe.pdf"], [.asRead]), (["public.url"], [.read]),
             (["public.file-url"], [.read]), (["public.utf8-plain-text"], [.read]), ([], []),
+            (["com.apple.tv.metadata", "public.utf8-plain-text"], [.read]),
         ]
 
         for (identifiers, actions) in table {
