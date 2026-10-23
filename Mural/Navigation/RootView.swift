@@ -301,11 +301,10 @@ private struct LoadedRootView: View {
             Task { await session.appendImages(pieces, toNote: noteID) }
             return
         }
-        let pasteboard = NSPasteboard.general
-        if MusicPasteboardReader.containsMusic(pasteboard) {
-            importMusic(
-                MusicPasteboardReader.drafts(from: pasteboard), into: currentFolderID,
-                anchor: session.visibleBoardAnchor, animation: importAnimation)
+        // Do Música (⌘C de faixa, link music.apple.com): cartão de música. Sem nada legível, segue o colar comum.
+        let music = MusicPasteboardReader.drafts(from: .general)
+        if !music.isEmpty {
+            importMusic(music, into: currentFolderID, anchor: session.visibleBoardAnchor, animation: importAnimation)
             return
         }
         let content = PasteboardImporter.read()
