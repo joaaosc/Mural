@@ -46,6 +46,8 @@ struct MenuBarPanelView: View {
             footer
         }
         .frame(width: PanelMetrics.panelWidth)
+        // A pessoa pode ter mudado "Abrir ao Iniciar Sessão" nos Ajustes do Sistema desde a última abertura.
+        .onAppear { loginItem.refresh() }
         .task {
             await model.load()
             resize()
@@ -229,15 +231,41 @@ struct MenuBarPanelView: View {
 
             Spacer()
 
-            Button("Sair do Mural", systemImage: "power") {
-                NSApplication.shared.terminate(nil)
+            // O que é raro fica num menu: a opção de abrir ao iniciar a sessão e, por último, a saída.
+            Menu {
+                // O estado é lido aqui, e não dentro do `Binding`, para o menu acompanhar a mudança.
+                let isOn = loginItem.isOn
+                Toggle("Abrir ao Iniciar Sessão", isOn: Binding(get: { isOn }, set: { loginItem.setOn($0) }))
+                // Se o macOS recusou o pedido, o interruptor volta sozinho: o motivo aparece logo abaixo dele.
+                if let message = loginItem.errorMessage {
+                    Text(message)
+                }
+                // Registrado, mas a pessoa ainda precisa permitir o Mural nos Ajustes do Sistema.
+                if loginItem.needsApproval {
+                    Button("Permitir nos Ajustes do Sistema…") {
+                        loginItem.openSystemSettings()
+                    }
+                }
+                Divider()
+                Button("Sair do Mural", systemImage: "power") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .accessibilityIdentifier("menu-bar-quit")
+            } label: {
+                Label("Mais opções", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
             }
-            .labelStyle(.iconOnly)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
             .focusable(false)
-            .help("Sair do Mural")
-            .accessibilityIdentifier("menu-bar-quit")
+            .help("Mais opções")
+            .accessibilityIdentifier("menu-bar-more")
         }
         .buttonStyle(.borderless)
         .padding(PanelMetrics.contentPadding)
     }
+
+    /// A opção "Abrir ao Iniciar Sessão", a mesma do menu do app.
+    private var loginItem: LoginItemModel { .shared }
 }

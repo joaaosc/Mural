@@ -25,6 +25,13 @@ struct MuralCommands: Commands {
         // Os comandos existem mesmo sem janelas: daqui as abas e o delegate conseguem abrir a janela.
         let _ = tabs.registerWindowOpener { [openWindow] in openWindow(id: MuralWindowView.sceneID) }
         let _ = MainWindowOpener.shared.register { [tabs] in tabs.showWindow() }
+        CommandGroup(after: .appInfo) {
+            // Começa desligada; o mesmo estado do menu "Mais opções" do painel da barra de menus. O estado é lido aqui, e
+            // não dentro do `Binding`, para o menu acompanhar a mudança.
+            let loginItem = LoginItemModel.shared
+            let isOn = loginItem.isOn
+            Toggle("Abrir ao Iniciar Sessão", isOn: Binding(get: { isOn }, set: { loginItem.setOn($0) }))
+        }
         CommandGroup(replacing: .newItem) {
             Button("Novo Mural…") { tabs.requestNewBoard() }
                 .keyboardShortcut("n", modifiers: .command)
