@@ -37,7 +37,8 @@ struct BoardCloudManifestTests {
     private static let boardID096 = BoardID(rawValue: UUID(uuidString: "5B0F4C2E-8C0B-4B1F-9D75-3E1A7F2A9C01")!)
 
     private func temporaryRoot() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("MuralCloudManifest-\(UUID().uuidString)", isDirectory: true)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "MuralCloudManifest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -262,6 +263,51 @@ struct BoardCloudManifestTests {
         #expect(shared.manifest.cloud == Self.receivedInfo && shared.manifest.schemaVersion == 2)
         let local = try #require(report.entries.last)
         #expect(local.manifest.cloud == nil && local.manifest.schemaVersion == 1)
+    }
+
+    @Test("Mudar só a permissão, sem revisão nova, é gravado")
+    func permissionChangeWithoutRevisionIsSaved() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = BoardRepository(rootDirectory: root)
+        let id = BoardID()
+        var editable = Self.receivedInfo
+        editable.permission = .readWrite
+        let manifest = BoardManifest(id: id, contentRevision: 1, cloud: editable)
+        try await repository.save(BoardRepositorySnapshot(manifest: manifest, board: Board(), workspace: .default))
+        let loaded = try #require(await repository.load(id)).snapshot
+
+        var downgraded = loaded.manifest
+        downgraded.cloud?.permission = .readOnly
+        try await repository.save(BoardRepositorySnapshot(manifest: downgraded, board: loaded.board, workspace: loaded.workspace))
+
+        #expect(try #require(await repository.load(id)).snapshot.manifest.cloud?.permission == .readOnly)
+    }
+
+    @Test("Exportar e importar um mural compartilhado dá um pacote e um mural só locais")
+    func exportAndImportDropTheCloud() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = BoardLibrary(rootDirectory: root, discardPackage: { try FileManager.default.removeItem(at: $0) })
+        let route = try await library.createNamedBoard("Compartilhado")
+        let snapshot = try #require(await library.open(route))
+        var manifest = snapshot.manifest
+        manifest.cloud = Self.ownInfo
+        manifest.contentRevision += 1
+        try await library.repository(for: route).save(
+            BoardRepositorySnapshot(manifest: manifest, board: snapshot.board, workspace: snapshot.workspace))
+
+        let exported = try await library.exportPackage(route)
+        let stored = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: exported.appendingPathComponent("manifest.json")))
+                as? [String: Any])
+        #expect(Set(stored.keys) == Self.plainKeys)
+        #expect(stored["schemaVersion"] as? Int == 1)
+
+        let imported = try await library.importPackage(from: exported)
+        let importedManifest = try #require(await library.open(imported)).manifest
+        #expect(importedManifest.cloud == nil && importedManifest.schemaVersion == 1)
+        #expect(try #require(await library.open(route)).manifest.cloud == Self.ownInfo)
     }
 
     // MARK: Versão futura

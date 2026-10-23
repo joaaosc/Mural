@@ -426,6 +426,8 @@ public actor BoardLibrary {
             let newID = BoardID()
             var manifest = loaded.snapshot.manifest
             manifest.id = newID
+            // O mural importado é um mural novo, só deste Mac: não herda a zona do iCloud do mural de origem.
+            manifest.cloud = nil
             let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: loaded.snapshot.workspace)
             try await savedRepository.save(
                 snapshot,
