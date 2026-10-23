@@ -7,11 +7,14 @@ struct PendingPaste: Identifiable, Equatable {
     let text: String
     /// Pasta aberta no momento de colar: o cartão entra nela.
     let folderID: UUID?
+    /// Centro visível no momento de colar, em coordenadas lógicas do mural.
+    let anchor: BoardPoint?
     let choice: PasteChoice
 
-    init(text: String, folderID: UUID?) {
+    init(text: String, folderID: UUID?, anchor: BoardPoint? = nil) {
         self.text = text
         self.folderID = folderID
+        self.anchor = anchor
         self.choice = ContentClassifier.pasteChoice(forText: text)
     }
 

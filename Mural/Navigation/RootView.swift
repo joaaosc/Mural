@@ -32,7 +32,7 @@ private struct LoadedRootView: View {
     @State private var isReminderPickerPresented = false
     @State private var freeTextEditor: BoardFreeTextEditorRequest?
     @State private var folderNameDraft = ""
-    /// Pasta esperando o nome novo (Renomear… no menu dela).
+    /// Cartão esperando o nome novo (Renomear… no menu dele).
     @State private var renamingFolder: FolderRenameRequest?
     @State private var folderRenameDraft = ""
     @State private var isConfirmingSelectionDelete = false
@@ -81,7 +81,10 @@ private struct LoadedRootView: View {
     }
 
     var body: some View {
-        withReminderSync(withDialogs(withSelection(boardContent)))
+        ZStack {
+            withReminderSync(withDialogs(withSelection(boardContent)))
+            SaveCopyExporter(session: session)
+        }
     }
 
     /// O mural livre, com tudo o que os cartões chamam.
@@ -122,24 +125,13 @@ private struct LoadedRootView: View {
     /// `withDialogs`: numa cadeia só, o compilador não checava os tipos a tempo.
     @ViewBuilder
     private var boardContent: some View {
-        /// Captured while the exporter presentation is rendered. A later
-        /// export cannot be cleaned up by an old panel callback.
-        let operationID = session.exportTransfer?.operationID
         ZStack {
             // Níveis cobertos não recebem cliques nem aparecem para a leitura de tela.
-            canvas
-                .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
-                .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
+            backgroundCanvas
 
-            ForEach(Array(path.enumerated()), id: \.element.id) { index, destination in
-                pageBackground(for: destination)
-                    .heroLink(destination.id, hero)
-                    .zIndex(Double(index * 2 + 1))
-                destinationContent(destination)
-                    .allowsHitTesting(index == path.count - 1)
-                    .accessibilityHidden(index != path.count - 1)
-                    .transition(.opacity)
-                    .zIndex(Double(index * 2 + 2))
+            ForEach(path.indices, id: \.self) { index in
+                let destination = path[index]
+                destinationLayer(destination, index: index)
             }
         }
         .environment(\.linkPreviewFiles, LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)))
@@ -161,32 +153,16 @@ private struct LoadedRootView: View {
             .disabled(session.restorationPhase != .ready)
         }
         .overlay(alignment: .topTrailing) {
-            // Informações da pasta aberta, abaixo da barra da janela: o canto dela é do + das abas.
-            if case .collection(let id)? = path.last, let folder = model.item(id: id) {
-                FolderInfoButton(folder: folder, children: model.children(of: id), isPresented: $isFolderInfoPresented)
-                    .padding(12)
-                    .containerCornerOffset(.top)
-            }
+            folderInfoOverlay
         }
         .overlay(alignment: .bottom) {
             bottomBar
         }
         .overlay {
-            if session.restorationPhase != .ready {
-                ProgressView("Restaurando mural…")
-                    .padding(20)
-                    .glassEffect()
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Restaurando mural")
-            }
+            restorationOverlay
         }
         .overlay(alignment: .top) {
-            if let message = model.lastError ?? session.error {
-                ErrorBanner(message: message) { model.lastError = nil }
-                    .padding(12)
-                    .containerCornerOffset(.top)
-                    .transition(errorTransition)
-            }
+            errorBanner
         }
         .focusable()
         .focusEffectDisabled()
@@ -198,71 +174,20 @@ private struct LoadedRootView: View {
             isCanvasFocused = false
             Task { @MainActor in isCanvasFocused = true }
         }
-        .onKeyPress(.escape) {
-            if !session.currentSelection.isEmpty {
-                session.clearSelection()
-                return .handled
-            }
-            if session.editingItemID != nil {
-                session.finishEditing()
-                return .handled
-            }
-            if isFolderInfoPresented {
-                isFolderInfoPresented = false
-                return .handled
-            }
-            guard !path.isEmpty else { return .ignored }
-            goBack()
-            return .handled
-        }
-        .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in
-            if case .item(let noteID)? = path.last, session.editingItemID != noteID,
-                session.model?.item(id: noteID)?.kind == .text,
-                let pieces = NoteImagePaste.read(from: .general)
-            {
-                Task { await session.appendImages(pieces, toNote: noteID) }
-                return
-            }
-            // Lê agora (o conteúdo pode mudar); copia e grava fora do Main Actor.
-            let content = PasteboardImporter.read()
-            let folder = currentFolderID
-            // Texto solto espera a escolha do tipo no popup; nada vira cartão antes disso.
-            if case .text(let text) = content {
-                pendingPaste = PendingPaste(text: text, folderID: folder)
-                return
-            }
-            let animation = importAnimation
-            Task { await session.importPasted(content, into: folder, animation: animation) }
-        }
+        .onKeyPress(.escape) { handleEscape() }
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes) { _ in handlePaste() }
         .sheet(item: $pendingPaste) { paste in
             PasteChoiceSheet(paste: paste, onChoose: { kind in importPaste(paste, as: kind) }, onCancel: cancelPaste)
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            let files = urls.filter(\.isFileURL)
-            guard !files.isEmpty else { return }
-            let folder = currentFolderID
-            let animation = importAnimation
-            Task { await session.importPasted(.files(files), into: folder, animation: animation) }
+        .dropDestination(for: URL.self) { urls, location in
+            handleDrop(urls: urls, location: location)
         }
         .fileImporter(
             isPresented: $session.isImporterPresented,
             allowedContentTypes: PasteboardImporter.importableTypes,
             allowsMultipleSelection: true
         ) { result in
-            guard case .success(let urls) = result else { return }
-            Task { await session.importFiles(from: urls) }
-        }
-        .fileExporter(
-            isPresented: $session.isExporterPresented,
-            document: session.exportDocument,
-            contentType: .muralPackage,
-            defaultFilename: session.title
-        ) { result in
-            guard let operationID else { return }
-            Task { await session.finishSaveCopy(result, operationID: operationID) }
-        } onCancellation: {
-            guard let operationID else { return }
-            Task { await session.finishSaveCopy(nil, operationID: operationID) }
+            importFilesResult(result)
         }
         .onChange(of: session.actions.request) { _, request in
             guard let request else { return }
@@ -274,17 +199,126 @@ private struct LoadedRootView: View {
         }
         // O editor que tinha o foco sai de cena: o foco volta para o mural, onde ⌘V e Esc agem.
         .onChange(of: session.editingItemID) { _, editingItemID in
-            if editingItemID == nil { isCanvasFocused = true }
+            restoreCanvasFocus(afterEditing: editingItemID)
         }
         .task {
-            // Criado uma vez só, no primeiro `.task`; os cartões de link refazem o pedido quando ele passa a existir.
-            guard linkPreviewCoordinator == nil else { return }
-            linkPreviewCoordinator = LinkPreviewCoordinator(
-                model: model,
-                files: LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)),
-                fetcher: LaunchConfiguration.linkPreviewFetcher())
+            setupLinkPreview()
         }
         .onDisappear { linkPreviewCoordinator?.cancelAll() }
+    }
+
+    private var backgroundCanvas: some View {
+        canvas
+            .allowsHitTesting(path.isEmpty && session.restorationPhase == .ready)
+            .accessibilityHidden(!path.isEmpty || session.restorationPhase != .ready)
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let message = model.lastError ?? session.error {
+            ErrorBanner(message: message) { model.lastError = nil }
+                .padding(12)
+                .containerCornerOffset(.top)
+                .transition(errorTransition)
+        }
+    }
+
+    @ViewBuilder
+    private var folderInfoOverlay: some View {
+        if case .collection(let id)? = path.last, let folder = model.item(id: id) {
+            FolderInfoButton(folder: folder, children: model.children(of: id), isPresented: $isFolderInfoPresented)
+                .padding(12)
+                .containerCornerOffset(.top)
+        }
+    }
+
+    @ViewBuilder
+    private var restorationOverlay: some View {
+        if session.restorationPhase != .ready {
+            ProgressView("Restaurando mural…")
+                .padding(20)
+                .glassEffect()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Restaurando mural")
+        }
+    }
+
+    private func setupLinkPreview() {
+        guard linkPreviewCoordinator == nil else { return }
+        linkPreviewCoordinator = LinkPreviewCoordinator(
+            model: model,
+            files: LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)),
+            fetcher: LaunchConfiguration.linkPreviewFetcher())
+    }
+
+    private func restoreCanvasFocus(afterEditing itemID: UUID?) {
+        if itemID == nil { isCanvasFocused = true }
+    }
+
+
+    private func handleDrop(urls: [URL], location: CGPoint) -> Bool {
+        let files = urls.filter(\.isFileURL)
+        guard !files.isEmpty else { return false }
+        let folder = currentFolderID
+        let animation = importAnimation
+        let anchor = session.dropAnchor(localPoint: location)
+        Task { await session.importPasted(.files(files), into: folder, anchor: anchor, animation: animation) }
+        return true
+    }
+
+    private func handlePaste() {
+        if case .item(let noteID)? = path.last, session.editingItemID != noteID,
+            session.model?.item(id: noteID)?.kind == .text,
+            let pieces = NoteImagePaste.read(from: .general)
+        {
+            Task { await session.appendImages(pieces, toNote: noteID) }
+            return
+        }
+        let content = PasteboardImporter.read()
+        let folder = currentFolderID
+        if case .text(let text) = content {
+            pendingPaste = PendingPaste(text: text, folderID: folder, anchor: session.visibleBoardAnchor)
+            return
+        }
+        let animation = importAnimation
+        let anchor = session.visibleBoardAnchor
+        Task { await session.importPasted(content, into: folder, anchor: anchor, animation: animation) }
+    }
+
+    private func handleEscape() -> KeyPress.Result {
+        if !session.currentSelection.isEmpty {
+            session.clearSelection()
+            return .handled
+        }
+        if session.editingItemID != nil {
+            session.finishEditing()
+            return .handled
+        }
+        if isFolderInfoPresented {
+            isFolderInfoPresented = false
+            return .handled
+        }
+        guard !path.isEmpty else { return .ignored }
+        goBack()
+        return .handled
+    }
+
+    private func importFilesResult(_ result: Result<[URL], any Error>) {
+        guard case .success(let urls) = result else { return }
+        Task { await session.importFiles(from: urls) }
+    }
+
+    @ViewBuilder
+    private func destinationLayer(_ destination: Destination, index: Int) -> some View {
+        let isTop = index == path.count - 1
+        pageBackground(for: destination)
+            .heroLink(destination.id, hero)
+            .zIndex(Double(index * 2 + 1))
+        destinationContent(destination)
+            .allowsHitTesting(isTop)
+            .accessibilityHidden(!isTop)
+            .transition(.opacity)
+            .zIndex(Double(index * 2 + 2))
     }
 
     // MARK: Lembretes
@@ -417,7 +451,7 @@ private struct LoadedRootView: View {
             }
             .sheet(item: $renamingFolder) { request in
                 nameSheet(
-                    title: "Renomear pasta", placeholder: "Nome da pasta", text: $folderRenameDraft,
+                    title: "Renomear cartão", placeholder: "Nome do cartão", text: $folderRenameDraft,
                     actionTitle: "Renomear"
                 ) {
                     renameFolder(request.id)
@@ -654,7 +688,7 @@ private struct LoadedRootView: View {
 
     private func renameFolder(_ folderID: UUID) {
         renamingFolder = nil
-        session.renameFolder(folderID, to: folderRenameDraft)
+        session.renameItem(folderID, to: folderRenameDraft)
         isCanvasFocused = true
     }
 
@@ -673,5 +707,30 @@ private struct LoadedRootView: View {
         }
         isFolderInfoPresented = false
         isCanvasFocused = true
+    }
+}
+
+/// Isola o modificador de exportação da grande cadeia de overlays da janela,
+/// evitando que o type-checker misture todos os destinos de navegação.
+private struct SaveCopyExporter: View {
+    @Bindable var session: BoardWindowSession
+
+    var body: some View {
+        Color.clear
+            .fileExporter(
+                isPresented: $session.isExporterPresented,
+                document: session.exportDocument,
+                contentType: .muralPackage,
+                defaultFilename: session.title
+            ) { result in
+                finish(result)
+            } onCancellation: {
+                finish(nil)
+            }
+    }
+
+    private func finish(_ result: Result<URL, any Error>?) {
+        guard let operationID = session.exportTransfer?.operationID else { return }
+        Task { await session.finishSaveCopy(result, operationID: operationID) }
     }
 }

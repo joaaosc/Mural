@@ -32,11 +32,14 @@ struct CardButton: View {
     var body: some View {
         HeroSlot(id: item.id, context: hero) {
             Button(action: activate) {
-                CardView(item: item, model: model)
+                ZStack(alignment: .bottomLeading) {
+                    CardView(item: item, model: model)
+                    CardCaptionView(caption: item.caption)
+                }
             }
             .buttonStyle(.plain)
             // Só no botão do cartão: aplicado depois das sobreposições, o rótulo cobriria também o da bolinha.
-            .accessibilityLabel(item.title)
+            .accessibilityLabel(item.caption.map { "\(item.title), \($0)" } ?? item.title)
             .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .overlay {
@@ -58,7 +61,7 @@ struct CardButton: View {
             .overlay(alignment: .topLeading) { reminderToggle }
             .contextMenu {
                 Button("Abrir", action: onOpen)
-                if item.kind == .folder, let onRename {
+                if let onRename {
                     Button("Renomear…") { onRename(item.id) }
                 }
                 linkMenu

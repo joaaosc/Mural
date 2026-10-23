@@ -50,6 +50,18 @@ struct CanvasScrollMetrics: Equatable {
 /// Operações geométricas puras do canvas. O ponto persistido está em coordenadas
 /// lógicas, não em pontos físicos da janela, portanto sobrevive a resize e zoom.
 enum CanvasWorkspaceMath {
+    /// Converte a posição local entregue por `dropDestination` (espaço da view)
+    /// em ponto lógico do mural. `visibleRect` já está no espaço do conteúdo
+    /// ampliado, portanto a origem visível e o zoom entram na mesma conta.
+    static func logicalPoint(
+        localPoint: CGPoint, visibleRect: CGRect, zoom: CGFloat
+    ) -> CGPoint {
+        guard zoom > 0 else { return .zero }
+        return CGPoint(
+            x: (visibleRect.minX + localPoint.x) / zoom,
+            y: (visibleRect.minY + localPoint.y) / zoom)
+    }
+
     static func logicalCenter(
         contentOffset: CGPoint,
         viewport: CGSize,

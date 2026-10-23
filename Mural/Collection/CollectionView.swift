@@ -22,6 +22,10 @@ struct CollectionView: View {
     @State private var presentationToken: ReadingPresentationToken?
 
     private var children: [BoardItem] { model.children(of: folder.id) }
+    /// Post-its são uma camada espacial local da pasta; os demais cartões
+    /// continuam usando a galeria para preservar a organização existente.
+    private var galleryChildren: [BoardItem] { children.filter { $0.kind != .sticky } }
+    private var folderStickies: [BoardItem] { children.filter { $0.kind == .sticky } }
 
     /// Seletor de ⌘ só quando esta pasta é o nível de cima (sem um item aberto por cima dela).
     private var selection: CardSelection? {
@@ -35,25 +39,31 @@ struct CollectionView: View {
                 if children.isEmpty {
                     emptyState
                 } else {
-                    GalleryLayout {
-                        ForEach(children) { item in
-                            card(for: item)
-                                .id(item.id)
-                                .onGeometryChange(for: CGRect.self) { proxy in
-                                    proxy.frame(in: .named("collection-content"))
-                                } action: { _, frame in
-                                    if frame.width > 0, frame.height > 0, frame.origin.x.isFinite,
-                                        frame.origin.y.isFinite
-                                    {
-                                        itemFrames[item.id] = frame
-                                    } else {
-                                        itemFrames.removeValue(forKey: item.id)
+                    ZStack(alignment: .topLeading) {
+                        GalleryLayout {
+                            ForEach(galleryChildren) { item in
+                                card(for: item)
+                                    .id(item.id)
+                                    .onGeometryChange(for: CGRect.self) { proxy in
+                                        proxy.frame(in: .named("collection-content"))
+                                    } action: { _, frame in
+                                        if frame.width > 0, frame.height > 0, frame.origin.x.isFinite,
+                                            frame.origin.y.isFinite
+                                        {
+                                            itemFrames[item.id] = frame
+                                        } else {
+                                            itemFrames.removeValue(forKey: item.id)
+                                        }
+                                        confirmRestoreIfPossible()
                                     }
-                                    confirmRestoreIfPossible()
-                                }
-                                .galleryLane(item.kind.storesFile || item.kind == .link ? .media : .notes)
+                                    .galleryLane(item.kind.storesFile || item.kind == .link ? .media : .notes)
+                            }
+                        }
+                        ForEach(Array(folderStickies.enumerated()), id: \.element.id) { index, item in
+                            stickyCard(item, fallbackIndex: index)
                         }
                     }
+                    .frame(minWidth: 560, minHeight: 420, alignment: .topLeading)
                 }
             }
             .padding(.leading, 104)
@@ -72,6 +82,7 @@ struct CollectionView: View {
             CollectionScrollMetrics(geometry)
         } action: { _, metrics in
             scrollMetrics = metrics
+            session?.recordCollectionVisibleCenter(folder.id, visibleRect: metrics.visibleRect)
             confirmRestoreIfPossible()
         }
         .onScrollPhaseChange { _, phase in
@@ -109,6 +120,22 @@ struct CollectionView: View {
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
         .cardEmphasis(BoardFilter.emphasis(for: item, kind: filter, color: colorFilter))
+    }
+
+    private func stickyCard(_ item: BoardItem, fallbackIndex: Int) -> some View {
+        let position = item.folderPosition ?? BoardPoint(x: Double(fallbackIndex * 132), y: 0)
+        return card(for: item)
+            .frame(width: BoardLayout.cardSize(for: .sticky).width, height: BoardLayout.cardSize(for: .sticky).height)
+            .offset(x: 104 + position.x, y: 70 + position.y)
+            .zIndex(Double(fallbackIndex + 1))
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .named("collection-content"))
+                    .onEnded { value in
+                        let target = BoardPoint(
+                            x: position.x + value.translation.width,
+                            y: position.y + value.translation.height)
+                        session?.placeInFolder(item.id, at: target)
+                    })
     }
 
     private var emptyState: some View {
