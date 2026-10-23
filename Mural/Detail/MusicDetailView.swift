@@ -59,7 +59,11 @@ struct MusicDetailContent: View {
             .padding(.horizontal, 40)
             .frame(maxWidth: .infinity)
         }
-        .onGeometryChange(for: Bool.self) { $0.size.width < 640 } action: { isNarrow = $0 }
+        .onGeometryChange(for: Bool.self) {
+            $0.size.width < 640
+        } action: {
+            isNarrow = $0
+        }
         .background { (Color(muralHex: item.music?.backgroundHex)?.opacity(0.18) ?? .clear).ignoresSafeArea() }
         .discreetScrollIndicators()
     }

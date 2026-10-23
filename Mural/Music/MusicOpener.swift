@@ -19,9 +19,9 @@ enum MusicOpener {
 
     static func target(for music: MusicSnapshot, musicAppURL: URL?) -> Target {
         switch (music.url, musicAppURL) {
-        case let (url?, app?): .urlInMusicApp(url, app: app)
-        case let (nil, app?): .musicApp(app)
-        case let (url?, nil): .browser(url)
+        case (let url?, let app?): .urlInMusicApp(url, app: app)
+        case (nil, let app?): .musicApp(app)
+        case (let url?, nil): .browser(url)
         case (nil, nil): .nothing
         }
     }
@@ -32,11 +32,11 @@ enum MusicOpener {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         switch target(for: music, musicAppURL: appURL) {
-        case let .urlInMusicApp(url, app):
+        case .urlInMusicApp(let url, let app):
             workspace.open([url], withApplicationAt: app, configuration: configuration)
-        case let .musicApp(app):
+        case .musicApp(let app):
             workspace.openApplication(at: app, configuration: configuration)
-        case let .browser(url):
+        case .browser(let url):
             workspace.open(url)
         case .nothing:
             break

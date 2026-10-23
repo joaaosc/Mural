@@ -25,7 +25,8 @@ struct MusicArtwork: View {
                     Image(systemName: music.kind.symbol)
                         .font(.system(size: 30, weight: .regular))
                         .foregroundStyle(
-                            Color(muralHex: music.primaryTextHex) ?? Color.readable(onHex: music.backgroundHex) ?? .secondary)
+                            Color(muralHex: music.primaryTextHex) ?? Color.readable(onHex: music.backgroundHex) ?? .secondary
+                        )
                         .accessibilityHidden(true)
                 }
         }

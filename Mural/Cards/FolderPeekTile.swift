@@ -20,7 +20,9 @@ struct FolderPeekItem: Identifiable, Equatable {
     ) -> [FolderPeekItem] {
         children.suffix(max(limit, 0)).map { child in
             let url: URL? =
-                if child.kind == .link || child.kind == .music { linkPreviewURL(child) } else { child.kind.storesFile ? fileURL(child) : nil }
+                if child.kind == .link || child.kind == .music { linkPreviewURL(child) } else {
+                    child.kind.storesFile ? fileURL(child) : nil
+                }
             return FolderPeekItem(
                 id: child.id,
                 kind: child.kind,

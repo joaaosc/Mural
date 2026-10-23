@@ -83,7 +83,8 @@ public enum AppleMusicLink {
         let song = items.first(where: { $0.name == "i" })?.value.flatMap { isDigits($0) ? $0 : nil }
 
         if let song {
-            let address = album.map { "https://music.apple.com/album/\($0)?i=\(song)" }
+            let address =
+                album.map { "https://music.apple.com/album/\($0)?i=\(song)" }
                 ?? "https://music.apple.com/song/\(song)"
             return MusicSnapshot(
                 kind: .song, catalogID: song, url: URL(string: address),
