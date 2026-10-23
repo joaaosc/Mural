@@ -83,6 +83,7 @@
         "INFOPLIST_FILE": "Config/Mural-Info.plist",
         "INFOPLIST_KEY_CFBundleDisplayName": "Mural",
         "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
+        "INFOPLIST_KEY_NSAppleMusicUsageDescription": "O Mural usa o Apple Music para tocar e mostrar as faixas dos álbuns e das playlists que você põe no mural.",
         "INFOPLIST_KEY_NSHumanReadableCopyright": "",
         "INFOPLIST_KEY_NSPrincipalClass": "NSApplication",
         "INFOPLIST_KEY_NSRemindersFullAccessUsageDescription": "O Mural mostra no mural os lembretes que você escolher e marca como concluídos os que você marcar no cartão.",
