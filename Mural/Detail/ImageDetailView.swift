@@ -68,7 +68,7 @@ struct ImageDetailView: View {
         .discreetScrollIndicators()
         .task(id: item.id) {
             beginRestore()
-            caption = session?.captionDraft(for: item.id) ?? item.text ?? ""
+            caption = session?.captionDraft(for: item.id) ?? item.caption ?? ""
         }
         .onChange(of: caption) { _, text in
             session?.setCaptionDraft(text, for: item.id)
@@ -130,7 +130,7 @@ struct ImageDetailView: View {
     }
 
     private func saveCaptionIfChanged() {
-        guard caption != (model.item(id: item.id)?.text ?? "") else { return }
+        guard caption != (model.item(id: item.id)?.caption ?? "") else { return }
         model.setCaption(caption, for: item.id)
     }
 }

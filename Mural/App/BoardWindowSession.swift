@@ -11,6 +11,21 @@ struct BoardImportDestination: Equatable, Sendable {
     /// revision generations are persistence details, not panel identity.
     let presentationEpoch: UUID
     let folderID: UUID?
+    let anchor: BoardPoint?
+
+    init(
+        route: BoardRoute,
+        boardID: BoardID,
+        presentationEpoch: UUID,
+        folderID: UUID?,
+        anchor: BoardPoint? = nil
+    ) {
+        self.route = route
+        self.boardID = boardID
+        self.presentationEpoch = presentationEpoch
+        self.folderID = folderID
+        self.anchor = anchor
+    }
 }
 
 struct MuralExportTransfer: Equatable, Sendable {
@@ -121,7 +136,7 @@ final class BoardWindowSession {
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private let cleanupTransferOperation: @Sendable (URL) async throws -> Void
     @ObservationIgnored private var pendingSaveCopyResult: Result<URL, any Error>?
-    @ObservationIgnored private var restoreTarget: CGPoint?
+    @ObservationIgnored private(set) var restoreTarget: CGPoint?
     @ObservationIgnored private var autosaveFailed = false
     @ObservationIgnored private var restoringReadingItems: [UUID: ReadingPresentationToken] = [:]
     @ObservationIgnored private var readingFinalizers: [ReadingPresentationToken: ReadingPresentationFinalizer] = [:]
@@ -139,6 +154,7 @@ final class BoardWindowSession {
     @ObservationIgnored private let usesOnDeviceModel: Bool
     /// Cartões criados pelo botão nesta sessão: se ficarem vazios, são descartados.
     @ObservationIgnored private var newItemIDs: Set<UUID> = []
+    @ObservationIgnored private var folderVisibleCenters: [UUID: BoardPoint] = [:]
 
     init(
         route: BoardRoute,
@@ -232,7 +248,16 @@ final class BoardWindowSession {
             restorationSignpost = MuralSignposts.restoration.beginInterval("Restaurar canvas")
             restoration.begin(CanvasRestorationToken(boardID: boardID, generation: presentationGeneration))
             restorationPhase = restoration.phase
-            zoom.configure(workspace: loadedWorkspace.canvas)
+            let rootItems = board.rootItems
+            let hasExplicitOrigin = loadedWorkspace.contentRevision > 0 && loadedWorkspace.canvas.isAtOrigin
+            let fallbackAnchor: CGPoint? =
+                !hasExplicitOrigin && !rootItems.isEmpty
+                ? {
+                    let center = BoardLayout.center(of: rootItems)
+                    return CGPoint(x: center.x, y: center.y)
+                }()
+                : nil
+            zoom.configure(workspace: loadedWorkspace.canvas, fallbackAnchor: fallbackAnchor)
             error = nil
             if usesOnDeviceModel {
                 keySentences = makeKeySentenceCoordinator()
@@ -348,7 +373,20 @@ final class BoardWindowSession {
             noteReadyCanvasGeometry(metrics)
             return
         }
-        guard let center = workspace.canvas.logicalCenter else {
+        let rootItems = model?.rootItems ?? []
+        let targetCenter: CGPoint?
+        if let center = workspace.canvas.logicalCenter {
+            targetCenter = CGPoint(x: center.x, y: center.y)
+        } else if workspace.contentRevision > 0 && workspace.canvas.isAtOrigin {
+            targetCenter = .zero
+        } else if !rootItems.isEmpty {
+            let center = BoardLayout.center(of: rootItems)
+            targetCenter = CGPoint(x: center.x, y: center.y)
+        } else {
+            targetCenter = nil
+        }
+
+        guard let targetCenter else {
             if restorationPhase == .awaitingLayout {
                 beginApplyingZoom()
                 beginApplyingPosition()
@@ -365,7 +403,7 @@ final class BoardWindowSession {
             return
         }
         let target = CanvasWorkspaceMath.targetOffset(
-            logicalCenter: CGPoint(x: center.x, y: center.y),
+            logicalCenter: targetCenter,
             zoom: zoom.zoom,
             viewport: metrics.containerSize,
             contentSize: metrics.contentSize,
@@ -524,7 +562,8 @@ final class BoardWindowSession {
             route: route,
             boardID: boardID,
             presentationEpoch: presentationEpoch,
-            folderID: folderID)
+            folderID: folderID,
+            anchor: visibleBoardAnchor)
         isImporterPresented = true
     }
 
@@ -561,13 +600,18 @@ final class BoardWindowSession {
             error = "A importação foi descartada porque o mural mudou enquanto o painel estava aberto."
             return
         }
-        model.commit(prepared, into: destination.folderID)
+        model.commit(prepared, into: destination.folderID, at: destination.anchor)
         captureBoardIfNeeded()
     }
 
     /// Colar ou soltar: o conteúdo já foi lido; a cópia e a conversão rodam fora do Main
     /// Actor e o cartão entra depois, se a janela ainda for a mesma.
-    func importPasted(_ content: PasteboardImporter.Content, into folderID: UUID?, animation: Animation?) async {
+    func importPasted(
+        _ content: PasteboardImporter.Content,
+        into folderID: UUID?,
+        anchor: BoardPoint? = nil,
+        animation: Animation?
+    ) async {
         guard let model, !isClosed else { return }
         let epoch = presentationEpoch
         let prepared: BoardModel.PreparedImport
@@ -586,7 +630,7 @@ final class BoardWindowSession {
                 png, fileExtension: "png", kind: .image, title: "Imagem colada", parentID: folderID)
         case .links(let drafts):
             withAnimation(animation) {
-                if model.importLinks(drafts, into: folderID).isEmpty {
+                if model.importLinks(drafts, into: folderID, at: anchor).isEmpty {
                     model.lastError = "O conteúdo copiado não pôde virar um cartão."
                 }
             }
@@ -594,7 +638,7 @@ final class BoardWindowSession {
             return
         case .text(let text):
             withAnimation(animation) {
-                if model.importText(text, into: folderID) == nil {
+                if model.importText(text, into: folderID, at: anchor) == nil {
                     model.lastError = "O conteúdo copiado não pôde virar um cartão."
                 }
             }
@@ -609,7 +653,7 @@ final class BoardWindowSession {
             return
         }
         withAnimation(animation) {
-            _ = model.commit(prepared, into: folderID)
+            _ = model.commit(prepared, into: folderID, at: anchor)
         }
         captureBoardIfNeeded()
     }
@@ -766,7 +810,9 @@ final class BoardWindowSession {
     func createCard(_ kind: ItemKind) -> UUID? {
         guard restoration.acceptsPersistence, let model, kind == .text || kind == .sticky else { return nil }
         let folderID = currentFolderID
-        let item = kind == .text ? model.createNote(into: folderID) : model.createSticky(into: folderID)
+        let item = kind == .text
+            ? model.createNote(into: folderID)
+            : model.createSticky(into: folderID, at: folderID.flatMap { folderVisibleCenters[$0] })
         newItemIDs.insert(item.id)
         captureBoardIfNeeded()
         let folders = path.filter {
@@ -797,6 +843,12 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    func placeInFolder(_ itemID: UUID, at position: BoardPoint) {
+        guard !isClosed, let model else { return }
+        model.placeInFolder(itemID, at: position)
+        captureBoardIfNeeded()
+    }
+
     func deleteFreeText(_ freeTextID: UUID) {
         guard !isClosed, model?.deleteFreeText(freeTextID) == true else { return }
         captureBoardIfNeeded()
@@ -822,10 +874,37 @@ final class BoardWindowSession {
     /// Texto colado, no tipo escolhido no popup.
     func importPastedText(_ paste: PendingPaste, as kind: ItemKind) {
         guard let model else { return }
-        if model.importText(paste.text, as: kind, into: paste.folderID) == nil {
+        if model.importText(paste.text, as: kind, into: paste.folderID, at: paste.anchor) == nil {
             model.lastError = "O texto colado não pôde virar um cartão."
         }
         captureBoardIfNeeded()
+    }
+
+    /// Centro visível atual, em coordenadas lógicas do mural, para colagem e
+    /// importação abertas por um painel do sistema.
+    var visibleBoardAnchor: BoardPoint? {
+        guard zoom.zoom > 0 else { return nil }
+        if !zoom.visibleRect.isEmpty {
+            let center = CanvasWorkspaceMath.logicalCenter(visibleRect: zoom.visibleRect, zoom: zoom.zoom)
+            return BoardPoint(x: center.x, y: center.y)
+        }
+        guard zoom.viewport != .zero else { return nil }
+        let center = CanvasWorkspaceMath.logicalCenter(
+            contentOffset: zoom.scrollOffset, viewport: zoom.viewport, zoom: zoom.zoom, contentInsets: zoom.contentInsets)
+        return BoardPoint(x: center.x, y: center.y)
+    }
+
+    func dropAnchor(localPoint: CGPoint) -> BoardPoint {
+        let rect = zoom.visibleRect.isEmpty
+            ? CGRect(origin: zoom.scrollOffset, size: zoom.viewport)
+            : zoom.visibleRect
+        let point = CanvasWorkspaceMath.logicalPoint(localPoint: localPoint, visibleRect: rect, zoom: zoom.zoom)
+        return BoardPoint(x: point.x, y: point.y)
+    }
+
+    func recordCollectionVisibleCenter(_ folderID: UUID, visibleRect: CGRect) {
+        guard visibleRect.width > 0, visibleRect.height > 0 else { return }
+        folderVisibleCenters[folderID] = BoardPoint(x: visibleRect.midX, y: visibleRect.midY)
     }
 
     func beginEditing(_ itemID: UUID) {
@@ -1283,6 +1362,12 @@ final class BoardWindowSession {
     /// Renomeia a pasta e agenda a gravação; nome vazio ou igual ao atual não muda nada.
     func renameFolder(_ itemID: UUID, to name: String) {
         guard !isClosed, model?.renameFolder(itemID, to: name) == true else { return }
+        captureBoardIfNeeded()
+    }
+
+    /// Renomeia qualquer cartão, preservando corpo, legenda e metadados.
+    func renameItem(_ itemID: UUID, to name: String) {
+        guard !isClosed, model?.renameItem(itemID, to: name) == true else { return }
         captureBoardIfNeeded()
     }
 

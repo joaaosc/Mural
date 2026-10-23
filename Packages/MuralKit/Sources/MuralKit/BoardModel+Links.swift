@@ -11,7 +11,9 @@ extension BoardModel {
     /// No mural, o cartão ocupa a primeira vaga livre; dentro de uma pasta a posição não importa.
     /// - Returns: os cartões criados, na ordem do lote.
     @discardableResult
-    public func importLinks(_ drafts: [LinkDraft], into parentID: UUID? = nil) -> [BoardItem] {
+    public func importLinks(
+        _ drafts: [LinkDraft], into parentID: UUID? = nil, at anchor: BoardPoint? = nil
+    ) -> [BoardItem] {
         let now = Date.now
         var seen = Set<String>()
         var created: [BoardItem] = []
@@ -29,7 +31,7 @@ extension BoardModel {
                 parentID: parentID,
                 link: LinkInfo(url: draft.url, summary: summary.isEmpty ? nil : summary, remoteImageURL: imageURL)
             )
-            created.append(insert(item))
+            created.append(insert(item, anchor: anchor))
         }
 
         if !created.isEmpty { persist() }

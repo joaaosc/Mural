@@ -326,6 +326,9 @@ public actor BoardPortablePackageService {
                 throw BoardPortablePackageError.duplicateItemID(item.id)
             }
             guard item.position.x.isFinite, item.position.y.isFinite else { throw BoardPortablePackageError.invalidItemPosition(item.id) }
+            if let place = item.folderPosition {
+                guard place.x.isFinite, place.y.isFinite else { throw BoardPortablePackageError.invalidItemPosition(item.id) }
+            }
         }
         var referenced = Set<String>()
         for item in board.items {

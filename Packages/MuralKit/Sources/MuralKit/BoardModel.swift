@@ -85,13 +85,13 @@ public final class BoardModel {
     /// Copia arquivos para a pasta de itens e cria um cartão para cada um.
     /// Arquivos que falham são pulados e relatados em `lastError`.
     @discardableResult
-    public func importFiles(_ urls: [URL], into parentID: UUID? = nil) -> [BoardItem] {
+    public func importFiles(_ urls: [URL], into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
         var created: [BoardItem] = []
         var failures: [String] = []
         for url in urls {
             do {
                 let item = try importer.importFile(at: url, parentID: parentID)
-                created.append(insert(item))
+                created.append(insert(item, anchor: anchor))
             } catch {
                 failures.append(url.lastPathComponent)
             }
@@ -104,9 +104,9 @@ public final class BoardModel {
     }
 
     @discardableResult
-    public func importText(_ text: String, into parentID: UUID? = nil) -> BoardItem? {
+    public func importText(_ text: String, into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> BoardItem? {
         guard let item = try? importer.importText(text, parentID: parentID) else { return nil }
-        let placed = insert(item)
+        let placed = insert(item, anchor: anchor)
         persist()
         return placed
     }
@@ -161,12 +161,12 @@ public final class BoardModel {
     /// Insere no board os cartões preparados. A pasta de destino é conferida de novo:
     /// se ela sumiu durante a cópia, o conteúdo vai para o mural em vez de ficar órfão.
     @discardableResult
-    public func commit(_ prepared: PreparedImport, into parentID: UUID? = nil) -> [BoardItem] {
+    public func commit(_ prepared: PreparedImport, into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
         let folderExists = parentID.map { board.item(id: $0)?.kind == .folder } ?? true
         var created: [BoardItem] = []
         for var item in prepared.items {
             if !folderExists { item.parentID = nil }
-            created.append(insert(item))
+            created.append(insert(item, anchor: anchor))
         }
         if !prepared.failures.isEmpty {
             lastError = "Não foi possível importar: \(prepared.failures.joined(separator: ", "))."
@@ -234,9 +234,11 @@ public final class BoardModel {
 
     /// Texto colado no tipo que o usuário escolheu no popup.
     @discardableResult
-    public func importText(_ text: String, as kind: ItemKind, into parentID: UUID? = nil) -> BoardItem? {
+    public func importText(
+        _ text: String, as kind: ItemKind, into parentID: UUID? = nil, at anchor: BoardPoint? = nil
+    ) -> BoardItem? {
         guard let item = try? importer.importText(text, as: kind, parentID: parentID) else { return nil }
-        let placed = insert(item)
+        let placed = insert(item, anchor: anchor)
         persist()
         return placed
     }
@@ -253,10 +255,15 @@ public final class BoardModel {
 
     /// Post-it vazio, para ser escrito na versão ampliada.
     @discardableResult
-    public func createSticky(into parentID: UUID? = nil, color: StickyColor = .yellow) -> BoardItem {
+    public func createSticky(
+        into parentID: UUID? = nil, color: StickyColor = .yellow, at position: BoardPoint? = nil
+    ) -> BoardItem {
         let placed = insert(BoardItem(kind: .sticky, title: "", parentID: parentID, stickyColor: color))
+        if parentID != nil, let position {
+            _ = board.placeInFolder(id: placed.id, at: position)
+        }
         persist()
-        return placed
+        return board.item(id: placed.id) ?? placed
     }
 
     // MARK: Lembretes
@@ -288,10 +295,11 @@ public final class BoardModel {
     @discardableResult
     public func updateReminder(_ itemID: UUID, with snapshot: ReminderSnapshot) -> Bool {
         guard var item = board.item(id: itemID), item.kind == .reminder,
-            item.reminder != snapshot || item.title != snapshot.title
+            item.reminder != snapshot || (item.reminder?.title != snapshot.title && item.title == item.reminder?.title)
         else { return false }
+        let previousTitle = item.reminder?.title
         item.reminder = snapshot
-        item.title = snapshot.title
+        if item.title == previousTitle { item.title = snapshot.title }
         board.update(item)
         persist()
         return true
@@ -333,6 +341,19 @@ public final class BoardModel {
     @discardableResult
     public func renameFolder(_ itemID: UUID, to name: String) -> Bool {
         guard var item = board.item(id: itemID), item.kind == .folder else { return false }
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean != item.title else { return false }
+        item.title = clean
+        board.update(item)
+        persist()
+        return true
+    }
+
+    /// Renomeia qualquer cartão sem alterar seu conteúdo ou a legenda.
+    /// - Returns: `false` se o cartão não existe, o nome fica vazio ou não mudou.
+    @discardableResult
+    public func renameItem(_ itemID: UUID, to name: String) -> Bool {
+        guard var item = board.item(id: itemID) else { return false }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean != item.title else { return false }
         item.title = clean
@@ -512,7 +533,10 @@ public final class BoardModel {
 
     public func setCaption(_ text: String, for itemID: UUID) {
         guard var item = board.item(id: itemID) else { return }
-        item.text = text.isEmpty ? nil : text
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let caption = clean.isEmpty ? nil : clean
+        guard item.caption != caption else { return }
+        item.caption = caption
         board.update(item)
         persist()
     }
@@ -520,6 +544,12 @@ public final class BoardModel {
     /// Muda a posição de um cartão solto (arredondada e nunca abaixo de 0) e o leva para cima dos outros.
     public func move(_ itemID: UUID, to position: BoardPoint) {
         guard board.move(id: itemID, to: BoardLayout.clamped(position)) else { return }
+        persist()
+    }
+
+    /// Põe o post-it num lugar livre da pasta onde ele está, por cima dos outros (regras em `Board.placeInFolder`).
+    public func placeInFolder(_ itemID: UUID, at position: BoardPoint) {
+        guard board.placeInFolder(id: itemID, at: position) else { return }
         persist()
     }
 
@@ -633,10 +663,16 @@ public final class BoardModel {
     }
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.
-    func insert(_ item: BoardItem) -> BoardItem {
+    func insert(_ item: BoardItem, anchor: BoardPoint? = nil) -> BoardItem {
         var placed = item
         if placed.parentID == nil {
-            placed.position = BoardLayout.freePosition(for: placed.kind, avoiding: board.rootItems)
+            if let anchor {
+                let positions = BoardLayout.importPositions(
+                    kinds: [placed.kind], anchor: anchor, avoiding: board.rootItems)
+                placed.position = positions[0]
+            } else {
+                placed.position = BoardLayout.freePosition(for: placed.kind, avoiding: board.rootItems)
+            }
         }
         board.add(placed)
         return placed

@@ -67,6 +67,7 @@ struct BoardFormatVersionTests {
             ("moveIntoFolder de pasta em pasta", { $0.moveIntoFolder(id: otherFolder.id, folderID: folder.id) }),
             ("moveIntoFolder de cartão de uma pasta para outra", { $0.moveIntoFolder(id: child.id, folderID: otherFolder.id) }),
             ("moveToBoard", { $0.moveToBoard(id: child.id, at: BoardPoint(x: 7, y: 7)) }),
+            ("placeInFolder", { $0.placeInFolder(id: child.id, at: BoardPoint(x: 0, y: 40)) }),
         ]
         for mutation in mutations {
             let older = try olderBoard()
@@ -126,6 +127,8 @@ struct BoardFormatVersionTests {
             ("moveIntoFolder para a pasta que já é o pai", { $0.moveIntoFolder(id: child.id, folderID: folder.id) }),
             ("moveIntoFolder para um destino que não é pasta", { $0.moveIntoFolder(id: note.id, folderID: child.id) }),
             ("moveToBoard de cartão que já está solto", { $0.moveToBoard(id: note.id, at: BoardPoint(x: 5, y: 5)) }),
+            ("placeInFolder de cartão solto", { $0.placeInFolder(id: note.id, at: BoardPoint(x: 0, y: 40)) }),
+            ("placeInFolder de id desconhecido", { $0.placeInFolder(id: UUID(), at: BoardPoint(x: 0, y: 40)) }),
         ]
         for call in calls {
             let older = try olderBoard()

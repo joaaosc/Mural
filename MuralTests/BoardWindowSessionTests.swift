@@ -26,16 +26,7 @@ struct BoardWindowSessionTests {
             containerSize: CGSize(width: 900, height: 700),
             contentSize: CGSize(width: 3_400, height: 2_800))
         session.restoreCanvas(boardID: session.boardID, generation: session.presentationGeneration, metrics: metrics)
-        let center = session.workspace.canvas.logicalCenter.map { CGPoint(x: $0.x, y: $0.y) }
-        let target =
-            center.map {
-                CanvasWorkspaceMath.targetOffset(
-                    logicalCenter: $0,
-                    zoom: session.zoom.zoom,
-                    viewport: metrics.containerSize,
-                    contentSize: metrics.contentSize,
-                    contentInsets: metrics.contentInsets)
-            } ?? .zero
+        let target = session.restoreTarget ?? .zero
         let reached = CanvasScrollMetrics(
             contentOffset: target,
             containerSize: metrics.containerSize,
@@ -1159,5 +1150,36 @@ struct BoardWindowSessionTests {
         session.delete(item.id)
         #expect(session.path.isEmpty)
         #expect(session.readingPosition(for: item.id) == nil)
+    }
+
+    @Test("Mural inicia centralizado no centro dos cartões")
+    func canvasInitializesCenteredOnItems() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Centralizado")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        await session.load()
+        let item1 = try #require(session.model?.importText("Cartão 1"))
+        session.move(item1.id, to: BoardPoint(x: 1_200, y: 1_000))
+        let item2 = try #require(session.model?.importText("Cartão 2"))
+        session.move(item2.id, to: BoardPoint(x: 1_400, y: 1_200))
+
+        let metrics = CanvasScrollMetrics(
+            contentOffset: .zero,
+            containerSize: CGSize(width: 800, height: 600),
+            contentSize: CGSize(width: 4_000, height: 4_000))
+
+        let expectedCenter = BoardLayout.center(of: session.model?.rootItems ?? [])
+        let expectedTarget = CanvasWorkspaceMath.targetOffset(
+            logicalCenter: CGPoint(x: expectedCenter.x, y: expectedCenter.y),
+            zoom: session.zoom.zoom,
+            viewport: metrics.containerSize,
+            contentSize: metrics.contentSize,
+            contentInsets: metrics.contentInsets)
+
+        session.restoreCanvas(boardID: session.boardID, generation: session.presentationGeneration, metrics: metrics)
+        #expect(session.restoreTarget == expectedTarget)
+        #expect(session.zoom.scrollRequest?.point == expectedTarget)
     }
 }

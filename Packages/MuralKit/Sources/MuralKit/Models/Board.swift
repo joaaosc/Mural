@@ -11,7 +11,9 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 6: cartão de lembrete.
     /// - 7: textos livres diretamente no mural.
     /// - 8: cartão de música (Apple Music).
-    public static let currentFormatVersion = 8
+    /// - 9: post-it num lugar livre dentro da pasta (`BoardItem.folderPosition`).
+    /// - 10: legenda separada do corpo (`BoardItem.caption`).
+    public static let currentFormatVersion = 10
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -65,6 +67,8 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { !($0.attachments ?? []).isEmpty }) { version = max(version, 5) }
         if items.contains(where: { $0.kind == .reminder }) { version = max(version, 6) }
         if items.contains(where: { $0.kind == .music }) { version = max(version, 8) }
+        if items.contains(where: { $0.folderPosition != nil }) { version = max(version, 9) }
+        if items.contains(where: { $0.caption != nil }) { version = max(version, 10) }
         return version
     }
 
@@ -82,6 +86,11 @@ public struct Board: Codable, Equatable, Sendable {
     /// Cartões dentro de uma pasta, na ordem de criação.
     public func children(of folderID: UUID) -> [BoardItem] {
         items.filter { $0.parentID == folderID }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// Post-its soltos num lugar livre da pasta, na ordem da lista: o último fica por cima.
+    public func placedStickies(in folderID: UUID) -> [BoardItem] {
+        items.filter { $0.parentID == folderID && $0.isPlacedInFolder }
     }
 
     public func item(id: UUID) -> BoardItem? {
@@ -231,8 +240,25 @@ public struct Board: Codable, Equatable, Sendable {
         return changed
     }
 
+    /// Põe um post-it de pasta num lugar livre dela (`BoardItem.folderPosition`) e o leva para o fim da lista, que a pasta
+    /// desenha por cima dos outros post-its soltos. O lugar é arredondado, `y` nunca fica acima do topo e valores
+    /// inválidos (NaN, infinito) viram 0.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe, não é post-it ou está solto no mural.
+    @discardableResult
+    public mutating func placeInFolder(id: UUID, at position: BoardPoint) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].kind == .sticky, items[index].parentID != nil else {
+            return false
+        }
+        var item = items.remove(at: index)
+        item.folderPosition = Self.folderPlacement(position)
+        items.append(item)
+        formatVersion = requiredFormatVersion
+        return true
+    }
+
     /// Guarda um cartão, de qualquer nível, dentro de uma pasta, também de qualquer nível. Uma pasta leva consigo tudo que há nela.
-    /// A posição do cartão e a ordem da lista não mudam.
+    /// A posição do cartão no mural e a ordem da lista não mudam; o lugar livre que um post-it tinha na pasta antiga é esquecido
+    /// (na nova, ele entra nas colunas).
     /// - Returns: `false`, sem alterar nada, se o cartão ou a pasta não existem, se são o mesmo, se o destino não é uma pasta
     ///   ou já é o pai, se o destino está dentro do próprio cartão (ciclo) ou se uma pasta movida passaria de
     ///   `maximumFolderDepth` níveis.
@@ -250,12 +276,13 @@ public struct Board: Codable, Equatable, Sendable {
             guard destinationLevel + folderHeight(of: id, byParent: byParent) <= Self.maximumFolderDepth else { return false }
         }
         items[index].parentID = folderID
+        items[index].folderPosition = nil
         formatVersion = requiredFormatVersion
         return true
     }
 
     /// Tira um cartão de dentro de uma pasta e o solta no mural, no fim da lista (por cima dos outros).
-    /// Uma pasta leva consigo tudo que há nela.
+    /// Uma pasta leva consigo tudo que há nela. O lugar livre que um post-it tinha na pasta é esquecido.
     /// - Returns: `false`, sem alterar nada, se o cartão não existe ou já está solto.
     @discardableResult
     public mutating func moveToBoard(id: UUID, at position: BoardPoint) -> Bool {
@@ -263,12 +290,21 @@ public struct Board: Codable, Equatable, Sendable {
         var item = items.remove(at: index)
         item.parentID = nil
         item.position = position
+        item.folderPosition = nil
         items.append(item)
         formatVersion = requiredFormatVersion
         return true
     }
 
     // MARK: Interno
+
+    /// O lugar na pasta como é guardado: arredondado, com `x` e `y` inválidos (NaN, infinito) em 0 e `y` nunca acima do topo.
+    private static func folderPlacement(_ point: BoardPoint) -> BoardPoint {
+        let x = point.x.rounded()
+        let y = point.y.rounded()
+        // `!= 0` e `> 0` também trocam -0 por 0, para o arquivo nunca gravar "-0".
+        return BoardPoint(x: x.isFinite && x != 0 ? x : 0, y: y.isFinite && y > 0 ? y : 0)
+    }
 
     /// Os filhos de cada pasta, na ordem de `children(of:)`, para percorrer a hierarquia sem varrer a lista a cada passo.
     private func childrenByParent() -> [UUID: [BoardItem]] {

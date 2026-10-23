@@ -121,6 +121,30 @@ public enum BoardLayout {
         }?.id
     }
 
+    /// Retângulo delimitador ocupado pelos cartões soltos; um mural vazio devolve nulo.
+    public static func bounds(of items: [BoardItem]) -> (minX: Double, minY: Double, maxX: Double, maxY: Double)? {
+        guard let first = items.first else { return nil }
+        let firstSize = cardSize(for: first.kind)
+        var minX = first.position.x
+        var minY = first.position.y
+        var maxX = first.position.x + firstSize.width
+        var maxY = first.position.y + firstSize.height
+        for item in items.dropFirst() {
+            let size = cardSize(for: item.kind)
+            minX = min(minX, item.position.x)
+            minY = min(minY, item.position.y)
+            maxX = max(maxX, item.position.x + size.width)
+            maxY = max(maxY, item.position.y + size.height)
+        }
+        return (minX: minX, minY: minY, maxX: maxX, maxY: maxY)
+    }
+
+    /// Centro da área ocupada pelos cartões soltos; um mural vazio devolve (0, 0).
+    public static func center(of items: [BoardItem]) -> BoardPoint {
+        guard let b = bounds(of: items) else { return .zero }
+        return BoardPoint(x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2)
+    }
+
     /// Percorre uma grade (passo fixo) e devolve a primeira célula que não encosta em ninguém.
     public static func freePosition(
         for kind: ItemKind,
@@ -146,6 +170,51 @@ public enum BoardLayout {
             row += 1
         }
         return BoardPoint(x: origin.x, y: origin.y + Double(items.count) * step)
+    }
+
+    /// Distribui um lote perto da âncora indicada, usando o centro da janela ou
+    /// o ponto real de drop como referência. A posição guardada é o canto do
+    /// cartão; por isso a primeira vaga é centralizada no ponto recebido.
+    public static func importPositions(
+        kinds: [ItemKind], anchor: BoardPoint?, avoiding items: [BoardItem], gap: Double = 24
+    ) -> [BoardPoint] {
+        guard let anchor else {
+            var occupied = items
+            return kinds.map { kind in
+                let position = freePosition(for: kind, avoiding: occupied, gap: gap)
+                occupied.append(BoardItem(kind: kind, title: "", position: position))
+                return position
+            }
+        }
+        var occupied = items.map { ($0.position, cardSize(for: $0.kind)) }
+        var result: [BoardPoint] = []
+        for (index, kind) in kinds.enumerated() {
+            let size = cardSize(for: kind)
+            let candidates = importCandidates(anchor: anchor, size: size, index: index)
+            let position = candidates.first { candidate in
+                occupied.allSatisfy { other in !overlaps(candidate, size, other.0, other.1, gap: gap) }
+            } ?? freePosition(
+                for: kind,
+                avoiding: occupied.enumerated().map { offset, other in
+                    BoardItem(kind: kind, title: "", position: other.0)
+                },
+                origin: anchor)
+            result.append(position)
+            occupied.append((position, size))
+        }
+        return result
+    }
+
+    private static func importCandidates(anchor: BoardPoint, size: (width: Double, height: Double), index: Int) -> [BoardPoint] {
+        let center = BoardPoint(x: anchor.x - size.width / 2, y: anchor.y - size.height / 2)
+        guard index > 0 else { return [clamped(center)] }
+        let ring = Double((index + 1) / 2) * 1.25
+        let angle = Double(index) * (.pi / 3)
+        return [
+            clamped(BoardPoint(x: center.x + cos(angle) * size.width * ring, y: center.y + sin(angle) * size.height * ring)),
+            clamped(BoardPoint(x: center.x + size.width * Double(index), y: center.y)),
+            clamped(BoardPoint(x: center.x, y: center.y + size.height * Double(index)))
+        ]
     }
 
     /// Arredonda a posição e a mantém dentro do mural, que começa em (0, 0).

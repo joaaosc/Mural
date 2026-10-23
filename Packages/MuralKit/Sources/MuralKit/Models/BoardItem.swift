@@ -12,8 +12,11 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var position: BoardPoint
     /// Nome do arquivo dentro da pasta de itens, para tipos que guardam arquivo.
     public var fileName: String?
-    /// Corpo de texto para notas e post-its; legenda para imagens.
+    /// Corpo de texto para notas e post-its. Legendas ficam em `caption`.
     public var text: String?
+    /// Legenda persistente separada do corpo. Em murais antigos, o texto de uma
+    /// imagem é migrado para este campo ao decodificar.
+    public var caption: String?
     /// Conteúdo da lista, quando `kind == .checklist`.
     public var checklist: ChecklistDocument?
     public var stickyColor: StickyColor?
@@ -33,6 +36,9 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var colorTag: TagColor?
     /// Imagens coladas no corpo, quando `kind == .text`. Murais antigos não têm o campo.
     public var attachments: [NoteAttachment]?
+    /// Lugar livre do post-it dentro da pasta, depois que a pessoa o arrastou lá: canto superior esquerdo, com `x` a partir
+    /// do meio da pasta e `y` a partir do topo. `nil` deixa o cartão nas colunas da pasta. Murais antigos não têm o campo.
+    public var folderPosition: BoardPoint?
 
     public init(
         id: UUID = UUID(),
@@ -43,6 +49,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         position: BoardPoint = .zero,
         fileName: String? = nil,
         text: String? = nil,
+        caption: String? = nil,
         checklist: ChecklistDocument? = nil,
         stickyColor: StickyColor? = nil,
         imageMetadata: ImageMetadata? = nil,
@@ -52,7 +59,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         reminder: ReminderSnapshot? = nil,
         music: MusicSnapshot? = nil,
         colorTag: TagColor? = nil,
-        attachments: [NoteAttachment]? = nil
+        attachments: [NoteAttachment]? = nil,
+        folderPosition: BoardPoint? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -62,6 +70,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.position = position
         self.fileName = fileName
         self.text = text
+        self.caption = caption
         self.checklist = checklist
         self.stickyColor = stickyColor
         self.imageMetadata = imageMetadata
@@ -72,6 +81,67 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.music = music
         self.colorTag = colorTag
         self.attachments = attachments
+        self.folderPosition = folderPosition
+    }
+}
+
+extension BoardItem {
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, title, createdAt, parentID, position, fileName, text, caption
+        case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music
+        case colorTag, attachments, folderPosition
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(ItemKind.self, forKey: .kind)
+        let legacyText = try container.decodeIfPresent(String.self, forKey: .text)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            kind: kind,
+            title: try container.decode(String.self, forKey: .title),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            parentID: try container.decodeIfPresent(UUID.self, forKey: .parentID),
+            position: try container.decodeIfPresent(BoardPoint.self, forKey: .position) ?? .zero,
+            fileName: try container.decodeIfPresent(String.self, forKey: .fileName),
+            text: kind == .image ? nil : legacyText,
+            caption: try container.decodeIfPresent(String.self, forKey: .caption)
+                ?? (kind == .image ? legacyText : nil),
+            checklist: try container.decodeIfPresent(ChecklistDocument.self, forKey: .checklist),
+            stickyColor: try container.decodeIfPresent(StickyColor.self, forKey: .stickyColor),
+            imageMetadata: try container.decodeIfPresent(ImageMetadata.self, forKey: .imageMetadata),
+            tag: try container.decodeIfPresent(String.self, forKey: .tag),
+            keySentences: try container.decodeIfPresent(KeySentenceRecord.self, forKey: .keySentences),
+            link: try container.decodeIfPresent(LinkInfo.self, forKey: .link),
+            reminder: try container.decodeIfPresent(ReminderSnapshot.self, forKey: .reminder),
+            music: try container.decodeIfPresent(MusicSnapshot.self, forKey: .music),
+            colorTag: try container.decodeIfPresent(TagColor.self, forKey: .colorTag),
+            attachments: try container.decodeIfPresent([NoteAttachment].self, forKey: .attachments),
+            folderPosition: try container.decodeIfPresent(BoardPoint.self, forKey: .folderPosition))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(title, forKey: .title)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(parentID, forKey: .parentID)
+        try container.encode(position, forKey: .position)
+        try container.encodeIfPresent(fileName, forKey: .fileName)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(caption, forKey: .caption)
+        try container.encodeIfPresent(checklist, forKey: .checklist)
+        try container.encodeIfPresent(stickyColor, forKey: .stickyColor)
+        try container.encodeIfPresent(imageMetadata, forKey: .imageMetadata)
+        try container.encodeIfPresent(tag, forKey: .tag)
+        try container.encodeIfPresent(keySentences, forKey: .keySentences)
+        try container.encodeIfPresent(link, forKey: .link)
+        try container.encodeIfPresent(reminder, forKey: .reminder)
+        try container.encodeIfPresent(music, forKey: .music)
+        try container.encodeIfPresent(colorTag, forKey: .colorTag)
+        try container.encodeIfPresent(attachments, forKey: .attachments)
+        try container.encodeIfPresent(folderPosition, forKey: .folderPosition)
     }
 }
 
@@ -88,6 +158,9 @@ extension BoardItem {
         default: return false
         }
     }
+
+    /// Post-it solto num lugar livre da pasta onde está: fica fora das colunas, por cima dos outros cartões.
+    public var isPlacedInFolder: Bool { kind == .sticky && parentID != nil && folderPosition != nil }
 
     /// Lista do cartão; uma lista sem conteúdo vira um documento vazio com o título.
     public var checklistDocument: ChecklistDocument {

@@ -73,14 +73,16 @@ final class CanvasZoomController {
     }
 
     /// Configura a escala confirmada e a âncora persistida de uma sessão.
-    /// A origem é explícita: um canvas sem estado restaurável começa no canto superior esquerdo.
-    func configure(workspace: CanvasWorkspaceState) {
+    /// Quando não há centro salvo, pode usar uma âncora inicial baseada no conteúdo.
+    func configure(workspace: CanvasWorkspaceState, fallbackAnchor: CGPoint? = nil) {
         invalidatePendingSettle()
         zoom = CanvasZoom.clamped(CGFloat(workspace.confirmedZoom))
         liveScale = 1
         configuredAtOrigin = workspace.isAtOrigin
         if let center = workspace.logicalCenter {
             liveAnchor = CGPoint(x: center.x, y: center.y)
+        } else if let fallbackAnchor {
+            liveAnchor = fallbackAnchor
         } else {
             liveAnchor = .zero
             requestScroll(to: .zero)
@@ -133,7 +135,8 @@ final class CanvasZoomController {
         if !isPinching {
             isPinching = true
             invalidatePendingSettle()
-            liveAnchor = CGPoint(x: scrollOffset.x + startLocation.x, y: scrollOffset.y + startLocation.y)
+            let origin = visibleRect.isEmpty ? scrollOffset : visibleRect.origin
+            liveAnchor = CGPoint(x: origin.x + startLocation.x, y: origin.y + startLocation.y)
         }
         liveScale = CanvasZoom.rubberBanded(zoom * magnification) / zoom
     }
@@ -168,7 +171,8 @@ final class CanvasZoomController {
 
     /// Aproxima ou afasta mantendo parado o centro da janela.
     private func zoom(to target: CGFloat) {
-        liveAnchor = CGPoint(x: scrollOffset.x + viewport.width / 2, y: scrollOffset.y + viewport.height / 2)
+        let origin = visibleRect.isEmpty ? scrollOffset : visibleRect.origin
+        liveAnchor = CGPoint(x: origin.x + viewport.width / 2, y: origin.y + viewport.height / 2)
         settle(to: CanvasZoom.clamped(target))
     }
 

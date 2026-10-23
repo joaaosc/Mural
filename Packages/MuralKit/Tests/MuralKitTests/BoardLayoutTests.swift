@@ -29,6 +29,33 @@ struct BoardLayoutTests {
         #expect(extent.width == 100 + size.width && extent.height == 50 + size.height)
     }
 
+    @Test("Centro e limites de mural vazio")
+    func emptyBoardCenterAndBounds() {
+        #expect(BoardLayout.bounds(of: []) == nil)
+        #expect(BoardLayout.center(of: []) == .zero)
+    }
+
+    @Test("Centro e limites calculados a partir dos cartões")
+    func centerAndBoundsFromItems() {
+        // Sticky tem tamanho (110, 110)
+        let a = BoardItem(kind: .sticky, title: "a", position: BoardPoint(x: 100, y: 50))
+        let boundsA = BoardLayout.bounds(of: [a])
+        #expect(boundsA?.minX == 100)
+        #expect(boundsA?.minY == 50)
+        #expect(boundsA?.maxX == 210)
+        #expect(boundsA?.maxY == 160)
+        #expect(BoardLayout.center(of: [a]) == BoardPoint(x: 155, y: 105))
+
+        // Link tem tamanho (150, 170) na posição (300, 200) -> vai até (450, 370)
+        let b = BoardItem(kind: .link, title: "b", position: BoardPoint(x: 300, y: 200))
+        let boundsBoth = BoardLayout.bounds(of: [a, b])
+        #expect(boundsBoth?.minX == 100)
+        #expect(boundsBoth?.minY == 50)
+        #expect(boundsBoth?.maxX == 450)
+        #expect(boundsBoth?.maxY == 370)
+        #expect(BoardLayout.center(of: [a, b]) == BoardPoint(x: 275, y: 210))
+    }
+
     @Test("Foto usa a proporção do arquivo; os demais, a do tipo")
     func aspectRatios() {
         var photo = BoardItem(kind: .image, title: "foto")
