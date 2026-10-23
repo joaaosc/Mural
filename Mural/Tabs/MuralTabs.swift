@@ -97,6 +97,10 @@ final class MuralTabs {
     /// Uma folha (nome, ⌘V, painel de arquivos, confirmação) está aberta na janela.
     @ObservationIgnored var isShowingSheet: @MainActor () -> Bool = { false }
     @ObservationIgnored var closeWindow: @MainActor () -> Void = {}
+    /// Avisa o Dock: `true` com a janela do mural na tela, `false` sem ela (o app fica só na barra de menus).
+    @ObservationIgnored var dockPresence: @MainActor (Bool) -> Void = {
+        $0 ? DockPresence.windowDidAppear() : DockPresence.noWindow()
+    }
     /// Apaga o que o app guarda de um mural fora do pacote dele (as prévias de link).
     @ObservationIgnored var removeBoardCaches: @MainActor (BoardID) -> Void = { boardID in
         try? FileManager.default.removeItem(at: LaunchConfiguration.linkPreviewsDirectory(for: boardID))
@@ -225,12 +229,14 @@ final class MuralTabs {
             return false
         }
         window = newWindow
+        dockPresence(true)
         return true
     }
 
-    /// A janela principal fechou; as abas são encerradas por `closeAll()`.
+    /// A janela principal fechou; as abas são encerradas por `closeAll()`. Sem janela, o app sai do Dock.
     func detachWindow() {
         window = nil
+        dockPresence(false)
     }
 
     /// Os menus dizem como abrir a janela: só eles têm a ação do SwiftUI mesmo quando não há janela.

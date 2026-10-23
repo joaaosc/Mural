@@ -90,8 +90,8 @@ final class MainWindowOpener {
     }
 }
 
-/// Segura o término do app até as janelas de mural gravarem e garante que o app nunca
-/// fique aberto sem nenhuma janela.
+/// Segura o término do app até as janelas de mural gravarem e abre a janela quando o app é aberto,
+/// menos pelo início de sessão: aí o app fica só na barra de menus, sem janela e fora do Dock.
 @MainActor
 final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     var openSessions = OpenBoardSessions.shared
@@ -99,6 +99,10 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     var flushTimeout: Duration = .seconds(10)
     /// Espera a restauração de janelas do macOS antes de conferir se alguma abriu.
     var launchWindowCheckDelay: Duration = .milliseconds(800)
+    /// O evento de Apple que abriu o app; trocado nos testes para simular o início de sessão.
+    var currentAppleEvent: @MainActor () -> NSAppleEventDescriptor? = { NSAppleEventManager.shared().currentAppleEvent }
+    /// Avisa o Dock: `false` sem janela de mural (o app fica só na barra de menus), `true` com ela.
+    var dockPresence: @MainActor (Bool) -> Void = { $0 ? DockPresence.windowDidAppear() : DockPresence.noWindow() }
     /// Resposta ao AppKit; trocada nos testes para não encerrar o processo de teste.
     var reply: @MainActor (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
     /// Pergunta o que fazer quando algo não foi salvo. `true` sai mesmo assim.
@@ -115,10 +119,17 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
         NSWindow.allowsAutomaticWindowTabbing = false
     }
 
-    /// O estado salvo pode dizer que havia janelas sem nenhuma restaurável (sessões de teste,
-    /// janelas fechadas): o macOS então não cria a janela padrão e o app abre só com a
-    /// barra de menus. Depois da restauração, sem nenhuma janela, abre a janela com a lista de murais.
+    /// A cena do mural não abre a janela sozinha no lançamento (`.defaultLaunchBehavior(.suppressed)`), e o estado
+    /// salvo pode não ter nenhuma janela restaurável (sessões de teste, janelas fechadas). Depois da restauração, sem
+    /// nenhuma janela, abre a janela com a lista de murais.
+    ///
+    /// Aberto pelo início de sessão, não abre: o Mural fica só com o ícone da barra de menus e sai do Dock. Se a
+    /// restauração do macOS já trouxe uma janela, o Dock fica como está, porque há janela.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if LaunchContext.isLoginItemLaunch(currentAppleEvent()) {
+            if !hasOpenWindow() { dockPresence(false) }
+            return
+        }
         let delay = launchWindowCheckDelay
         Task { @MainActor in
             try? await Task.sleep(for: delay)
@@ -126,7 +137,14 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Clique no ícone do Dock sem janelas abertas: abre a janela.
+    /// A pessoa pode ter mudado "Abrir ao Iniciar Sessão" nos Ajustes do Sistema enquanto o app estava em segundo
+    /// plano: o item do menu do app relê o estado ao voltar.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        LoginItemModel.shared.refresh()
+    }
+
+    /// Clique no ícone do Dock sem janelas abertas, ou abrir o app pelo Finder ou pelo Spotlight enquanto ele roda só
+    /// na barra de menus: abre a janela.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard !flag, !hasOpenWindow() else { return true }
         return !windowOpener.open()
