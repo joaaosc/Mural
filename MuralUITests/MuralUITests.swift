@@ -1084,4 +1084,49 @@ final class MuralUITests: XCTestCase {
         toggle.click()
         XCTAssertTrue(app.buttons["Reabrir"].firstMatch.waitForExistence(timeout: 5))
     }
+
+    /// ⌘V com um álbum no formato que o app Música põe ao arrastar (dados sintéticos) cria o cartão de música, que
+    /// continua depois de reabrir. O botão sobre a capa toca pela ponte falsa dos testes de interface, sem Apple
+    /// Music, e a página lista as faixas falsas.
+    @MainActor
+    func testPastedMusicBecomesMusicCardAndPlays() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let json = """
+            {"id":"1000000001","type":"albums","href":"/v1/catalog/br/albums/1000000001",
+             "attributes":{"name":"Álbum de Teste","artistName":"Banda de Teste","trackCount":3,
+              "url":"https://music.apple.com/br/album/album-de-teste/1000000001",
+              "artwork":{"url":"https://example.com/capa/{w}x{h}bb.{f}","bgColor":"1f3a5f",
+               "textColor1":"ffffff","textColor2":"c9d6e8"},
+              "playParams":{"id":"1000000001","kind":"album"}}}
+            """
+        let entry = NSPasteboardItem()
+        entry.setData(Data(json.utf8), forType: NSPasteboard.PasteboardType("com.apple.musicui.genericmusicitem"))
+        entry.setString("https://music.apple.com/br/album/album-de-teste/1000000001", forType: .URL)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([entry])
+        app.typeKey("v", modifierFlags: .command)
+
+        let card = app.buttons["Álbum de Teste"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "⌘V com um álbum do Música deveria criar um cartão de música")
+
+        card.hover()
+        let toggle = app.buttons["music-toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "o botão de tocar deveria aparecer com o ponteiro sobre o cartão")
+        toggle.click()
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Pausar"), object: toggle)
+        XCTAssertEqual(XCTWaiter().wait(for: [playing], timeout: 5), .completed, "tocar deveria trocar o botão para Pausar")
+
+        card.click()
+        XCTAssertTrue(
+            app.buttons["Tocar Faixa 1"].firstMatch.waitForExistence(timeout: 5), "a página deveria listar as faixas do álbum")
+
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        XCTAssertTrue(
+            reopened.buttons["Álbum de Teste"].firstMatch.waitForExistence(timeout: 10),
+            "o cartão de música deveria continuar após reabrir")
+    }
 }
