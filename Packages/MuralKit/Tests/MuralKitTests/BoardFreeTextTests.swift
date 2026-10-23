@@ -39,11 +39,8 @@ struct BoardFreeTextTests {
     func squareGeometry() {
         let text = BoardFreeText(text: "x", position: BoardPoint(x: 100, y: 50))
         #expect(BoardLayout.freeTextSide == 180)
-        let rect = BoardLayout.freeTextRect(for: text)
-        #expect(rect.width == rect.height)
-        #expect(rect.width == 180)
+        #expect(BoardLayout.freeTextSize == (width: 180, height: 180))
         #expect(BoardLayout.extent(of: [], freeTexts: [text]) == (width: 280, height: 230))
-        #expect(BoardLayout.freeTextCenter(of: [text]) == BoardPoint(x: 190, y: 140))
         #expect(BoardLayout.freeTextID(at: BoardPoint(x: 100, y: 50), among: [text]) == text.id)
         #expect(BoardLayout.freeTextID(at: BoardPoint(x: 280, y: 230), among: [text]) == nil)
         let next = BoardLayout.freeTextPosition(avoiding: [], freeTexts: [text])

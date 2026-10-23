@@ -60,31 +60,6 @@ public enum BoardLayout {
         }
     }
 
-    /// Retângulo ocupado por um texto livre, sempre quadrado.
-    public static func freeTextRect(for text: BoardFreeText) -> (minX: Double, minY: Double, width: Double, height: Double) {
-        (text.position.x, text.position.y, freeTextSide, freeTextSide)
-    }
-
-    public static func freeTextBounds(of texts: [BoardFreeText]) -> (minX: Double, minY: Double, maxX: Double, maxY: Double)? {
-        guard let first = texts.first else { return nil }
-        var minX = first.position.x
-        var minY = first.position.y
-        var maxX = first.position.x + freeTextSide
-        var maxY = first.position.y + freeTextSide
-        for text in texts.dropFirst() {
-            minX = min(minX, text.position.x)
-            minY = min(minY, text.position.y)
-            maxX = max(maxX, text.position.x + freeTextSide)
-            maxY = max(maxY, text.position.y + freeTextSide)
-        }
-        return (minX, minY, maxX, maxY)
-    }
-
-    public static func freeTextCenter(of texts: [BoardFreeText]) -> BoardPoint {
-        guard let bounds = freeTextBounds(of: texts) else { return .zero }
-        return BoardPoint(x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2)
-    }
-
     /// Primeira posição de uma grade que não encosta em cartões nem em outros textos livres.
     public static func freeTextPosition(
         avoiding items: [BoardItem], freeTexts: [BoardFreeText],

@@ -25,7 +25,7 @@ struct BoardSessionTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let original = snapshot()
         let session = BoardSession(snapshot: original, repository: BoardRepository(rootDirectory: directory))
-        let generation = try await session.beginMutation(.content)
+        let generation = await session.generation
         try await session.update(
             board: Board(items: [BoardItem(kind: .text, title: "alterado")]),
             expectedGeneration: generation
@@ -86,7 +86,7 @@ struct BoardSessionTests {
         let directory = try root()
         defer { try? FileManager.default.removeItem(at: directory) }
         let session = BoardSession(snapshot: snapshot(), repository: BoardRepository(rootDirectory: directory))
-        let generation = try await session.beginMutation(.content)
+        let generation = await session.generation
         try await session.update(board: Board(items: [BoardItem(kind: .text, title: "um")]))
         await #expect(throws: BoardSessionError.self) {
             try await session.update(

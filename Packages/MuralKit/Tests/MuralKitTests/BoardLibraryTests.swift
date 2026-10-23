@@ -142,7 +142,7 @@ struct BoardLibraryTests {
         let asset = legacyStore.itemsDirectory.appendingPathComponent("asset.bin")
         try Data([1, 2, 3]).write(to: asset)
         let library = BoardLibrary(rootDirectory: directory)
-        let state = try await library.migrateLegacyIfNeeded()
+        let state = try await library.bootstrap()
         let draft = try #require(await library.open(.welcomeDraft(state.stableWelcomeID)))
         let persistedLegacy = try #require(try legacyStore.load())
         #expect(draft.board == persistedLegacy)

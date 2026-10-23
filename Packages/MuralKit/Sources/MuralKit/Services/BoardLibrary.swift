@@ -142,10 +142,6 @@ public actor BoardLibrary {
         return state
     }
 
-    public func migrateLegacyIfNeeded() async throws -> LibraryState {
-        try await bootstrap()
-    }
-
     public func lifecycleState() throws -> LibraryState? {
         try loadState()
     }

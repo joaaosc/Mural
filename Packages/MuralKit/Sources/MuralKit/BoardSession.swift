@@ -24,14 +24,6 @@ public actor BoardSession {
         self.manifest = snapshot.manifest
     }
 
-    /// Inicia uma mutação e devolve a geração observada pelo caller.
-    @discardableResult
-    public func beginMutation(_ kind: BoardSessionMutationKind = .content) throws -> UInt64 {
-        guard !isRetired else { throw BoardSessionError.retired }
-        guard !isFlushInProgress else { throw BoardSessionError.flushInProgress }
-        return generation
-    }
-
     /// Aplica uma mutação tipada. Revisões só avançam quando o valor realmente muda.
     public func update(
         board: Board? = nil,
