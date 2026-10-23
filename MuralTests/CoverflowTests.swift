@@ -357,6 +357,7 @@ struct CoverflowTests {
         return try #require(renderer.cgImage)
     }
 
+    @MainActor
     private static func swipeView(in view: NSView) -> CoverflowSwipe.SwipeView? {
         if let swipe = view as? CoverflowSwipe.SwipeView { return swipe }
         for subview in view.subviews {
