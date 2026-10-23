@@ -14,6 +14,7 @@ extension BoardModel {
     public func importMusic(
         _ snapshots: [MusicSnapshot], into parentID: UUID? = nil, at anchor: BoardPoint? = nil
     ) -> [BoardItem] {
+        guard !isReadOnly else { return refuseEdit([]) }
         let now = Date.now
         var seen = Set<String>()
         var created: [BoardItem] = []
@@ -32,15 +33,23 @@ extension BoardModel {
     }
 
     /// Troca o estado guardado da música; o título do cartão acompanha.
+    ///
+    /// Num mural só para ver (`isReadOnly`) entram só as partes deste Mac, a capa e o id da biblioteca
+    /// (`SharedFieldPolicy.preservingLocalFields(of:in:)`); o resto do cartão fica como está, sem aviso.
     /// - Returns: `false`, sem gravar, se o cartão não é de música ou nada mudou.
     @discardableResult
     public func updateMusic(_ itemID: UUID, with snapshot: MusicSnapshot) -> Bool {
         guard var item = board.item(id: itemID), item.kind == .music,
             item.music != snapshot || (item.music?.title != snapshot.title && item.title == item.music?.title)
         else { return false }
+        let current = item
         let previousTitle = item.music?.title
         item.music = snapshot
         if item.title == previousTitle { item.title = snapshot.title }
+        if isReadOnly {
+            item = SharedFieldPolicy.preservingLocalFields(of: item, in: current)
+            guard item != current else { return false }
+        }
         board.update(item)
         persist()
         return true
