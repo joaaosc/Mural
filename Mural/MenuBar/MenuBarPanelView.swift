@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// O conteúdo do painel da barra de menus: a vitrine de murais e, embaixo, a fileira de saídas.
+/// O conteúdo do painel da barra de menus: a vitrine de murais, a seção de colar o que foi copiado e, embaixo, a
+/// fileira de saídas.
 ///
-/// O teclado é do conteúdo (a vitrine): setas trocam de mural, letras procuram pelo nome, Return abre. Os botões do
+/// O teclado é do conteúdo (a vitrine e a seção de colar): ←/→ trocam de mural, ↑/↓ escolhem como colar, letras procuram
+/// pelo nome, Return cola o que está copiado (ou abre o mural, se não há o que colar), ⌘↩ abre e ⌘V cola. Os botões do
 /// rodapé são alvos de clique.
 struct MenuBarPanelView: View {
     let tabs: MuralTabs
@@ -14,11 +16,28 @@ struct MenuBarPanelView: View {
     /// uma ação `dismiss` para ler.
     let close: @MainActor () -> Void
     /// Pede ao painel que tome a nova altura do conteúdo. Injetado pelo mesmo motivo de `close`: o painel é do AppKit e
-    /// não acompanha o conteúdo sozinho. Chamado depois que a lista carrega; como todos os estados do conteúdo têm a
-    /// mesma altura, em geral o painel já está no tamanho certo e nada muda.
+    /// não acompanha o conteúdo sozinho. Chamado quando a lista carrega e quando muda algo que altera a altura da seção
+    /// de colar: o que há para colar, o número de opções e o estado do colar.
     let resize: @MainActor () -> Void
 
     @FocusState private var isFocused: Bool
+    /// O colar em andamento e o fechamento do painel que vem depois dele. Cancelado quando a vista sai, para um colar de
+    /// uma abertura anterior não fechar o painel da seguinte.
+    @State private var pasteTask: Task<Void, Never>?
+
+    /// Tudo o que muda a altura do conteúdo.
+    private struct Layout: Equatable {
+        let isLoaded: Bool
+        let optionCount: Int
+        let clipboard: ClipboardState
+        let pasteStatus: PasteStatus
+    }
+
+    private var layout: Layout {
+        Layout(
+            isLoaded: model.isLoaded, optionCount: model.options.count, clipboard: model.clipboard,
+            pasteStatus: model.pasteStatus)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,24 +54,42 @@ struct MenuBarPanelView: View {
 
     // MARK: Conteúdo
 
-    /// A vitrine, ou o que ocupa o lugar dela. A moldura é a mesma em todos os estados, e a altura também, para o painel
-    /// não pular quando a lista termina de carregar.
+    /// A vitrine, ou o que ocupa o lugar dela, e a seção de colar embaixo. A moldura da vitrine é a mesma em todos os
+    /// estados, e a altura também, para ela não pular quando a lista termina de carregar; a seção é que dá a altura
+    /// variável do painel.
+    ///
+    /// O teclado de tudo isso é deste contêiner só, e a seção não toma o foco: ela é feita de alvos de clique.
     private var content: some View {
-        stage
-            .frame(maxWidth: .infinity)
-            .frame(height: BoardCoverflow.height)
-            .padding(.top, PanelMetrics.contentPadding)
-            .padding(.bottom, PanelMetrics.contentSpacing)
-            .focusable()
-            .focused($isFocused)
-            .focusEffectDisabled()
-            .onAppear { isFocused = true }
-            .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in step(by: -1) }
-            .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in step(by: 1) }
-            // Por ora o Return só abre; quando houver algo copiado, ele passa a colar.
-            .onKeyPress(.return, phases: .down) { _ in openSelection() }
-            .onKeyPress(characters: .alphanumerics, phases: .down) { press in type(press) }
-            .onExitCommand { close() }
+        VStack(alignment: .leading, spacing: 0) {
+            stage
+                .frame(maxWidth: .infinity)
+                .frame(height: BoardCoverflow.height)
+                .padding(.top, PanelMetrics.contentPadding)
+                .padding(.bottom, PanelMetrics.contentSpacing)
+            if showsPasteSection {
+                PasteSection(model: model, choose: { choose($0) })
+            }
+        }
+        .focusable()
+        .focused($isFocused)
+        .focusEffectDisabled()
+        .onAppear { isFocused = true }
+        .onDisappear { pasteTask?.cancel() }
+        .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in step(by: -1) }
+        .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in step(by: 1) }
+        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in stepOption(by: -1) }
+        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in stepOption(by: 1) }
+        .onKeyPress(.return, phases: .down) { press in confirm(press) }
+        .onKeyPress(characters: .alphanumerics, phases: .down) { press in type(press) }
+        // O painel transforma o ⌘V em `paste:`, que chega aqui como um colar pedido pela pessoa.
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in pasteNow() }
+        .onExitCommand { close() }
+        .onChange(of: layout) { resize() }
+    }
+
+    /// A seção de colar só aparece com murais na vitrine: sem eles não há para onde colar.
+    private var showsPasteSection: Bool {
+        model.isLoaded && model.loadError == nil && !model.entries.isEmpty
     }
 
     @ViewBuilder
@@ -96,10 +133,51 @@ struct MenuBarPanelView: View {
         return .handled
     }
 
+    /// ↑/↓ andam pelas opções de colar; sem opções, a tecla segue adiante.
+    private func stepOption(by offset: Int) -> KeyPress.Result {
+        guard !model.options.isEmpty else { return .ignored }
+        model.moveOption(by: offset)
+        return .handled
+    }
+
     private func openSelection() -> KeyPress.Result {
         guard model.selectedEntry != nil else { return .ignored }
         open(model.selection)
         return .handled
+    }
+
+    /// Return cola o que está copiado, se há como colar; ⌘Return, e Return sem nada para colar, abrem o mural.
+    private func confirm(_ press: KeyPress) -> KeyPress.Result {
+        guard !press.modifiers.contains(.command), model.canPaste else { return openSelection() }
+        pasteNow()
+        return .handled
+    }
+
+    // MARK: Colar
+
+    /// Escolhe a opção da linha clicada e cola.
+    private func choose(_ index: Int) {
+        model.selectOption(index)
+        pasteNow()
+    }
+
+    /// Cola o que está copiado no mural do centro e, feito o colar, fecha o painel.
+    ///
+    /// A leitura da área de transferência (`readForPaste()`) é síncrona e acontece antes de qualquer `await`, dentro do
+    /// tratamento do ⌘V, do Return ou do clique: o macOS sempre deixa ler num colar pedido pela pessoa e fora dele pode
+    /// perguntar "Permitir colar?". Só a entrega, assíncrona, vai para a `Task`. Depois de colado, o painel espera um
+    /// segundo para a pessoa ver "Colado em …" e fecha.
+    private func pasteNow() {
+        guard model.readForPaste() else { return }
+        pasteTask = Task {
+            guard await model.paste() else { return }
+            do {
+                try await Task.sleep(for: .seconds(1))
+            } catch {
+                return
+            }
+            close()
+        }
     }
 
     /// Letras, e só elas: com ⌘, ⌃ ou ⌥ a tecla é de um atalho e segue adiante. O Shift não conta, nem o Caps Lock (o

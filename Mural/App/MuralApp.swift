@@ -35,7 +35,7 @@ struct MuralApp: App {
         )
 
         // A entrega do que foi copiado a um mural escolhido no painel. As abas adotam a sessão que a entrega abriu para
-        // um mural fechado: nunca existem duas sessões do mesmo mural. A fase seguinte passa `delivery` ao painel.
+        // um mural fechado: nunca existem duas sessões do mesmo mural. O painel da barra de menus cola por ela.
         let delivery = BoardDelivery(registry: registry, covers: coverService)
         let tabs = MuralTabs(
             registry: registry,
@@ -48,7 +48,9 @@ struct MuralApp: App {
         // O ícone na barra de menus e o painel de vidro que ele abre. O conteúdo é montado a cada apresentação, com um
         // modelo novo: a lista e o mural do centro nascem do instante em que o painel abre.
         MenuBarController.shared.install { _ in
-            let model = MenuBarPanelModel(library: library, covers: coverService, activeBoard: { tabs.selected?.boardID })
+            let model = MenuBarPanelModel(
+                library: library, covers: coverService, activeBoard: { tabs.selected?.boardID },
+                reader: ClipboardReader(), delivery: delivery)
             return GlassHostingView(
                 rootView: MenuBarPanelView(
                     tabs: tabs,

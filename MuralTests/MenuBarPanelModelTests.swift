@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import MuralKit
@@ -18,15 +19,18 @@ private final class PanelClock {
 /// Uma biblioteca temporária com murais, as preferências e a pasta de capas de um teste, e os modelos feitos sobre elas.
 ///
 /// O serviço de capas é o de verdade, com o desenho trocado por um que não desenha nada: o que se confere é quais capas
-/// ele foi chamado a fazer, e em que ordem.
+/// ele foi chamado a fazer, e em que ordem. A área de transferência é sempre uma nomeada só do teste: a geral nunca é
+/// tocada.
 @MainActor
 private final class PanelWorkspace {
     let directory: URL
     let library: BoardLibrary
+    let registry: BoardSessionRegistry
     let preferences: UserDefaults
     private let suiteName: String
     private let ids: [String: BoardID]
     private var services: [BoardCoverService] = []
+    private var pasteboards: [NSPasteboard] = []
     /// Os murais de que o serviço começou a fazer a capa, na ordem em que começou.
     private(set) var coverOrder: [BoardID] = []
 
@@ -34,9 +38,13 @@ private final class PanelWorkspace {
         directory.appendingPathComponent("BoardCovers", isDirectory: true)
     }
 
-    private init(directory: URL, library: BoardLibrary, preferences: UserDefaults, suiteName: String, ids: [String: BoardID]) {
+    private init(
+        directory: URL, library: BoardLibrary, registry: BoardSessionRegistry, preferences: UserDefaults, suiteName: String,
+        ids: [String: BoardID]
+    ) {
         self.directory = directory
         self.library = library
+        self.registry = registry
         self.preferences = preferences
         self.suiteName = suiteName
         self.ids = ids
@@ -59,15 +67,34 @@ private final class PanelWorkspace {
         }
         let suiteName = "MenuBarPanelModelTests-\(UUID().uuidString)"
         let preferences = try #require(UserDefaults(suiteName: suiteName))
-        return PanelWorkspace(directory: directory, library: library, preferences: preferences, suiteName: suiteName, ids: ids)
+        return PanelWorkspace(
+            directory: directory, library: library, registry: BoardSessionRegistry(library: library), preferences: preferences,
+            suiteName: suiteName, ids: ids)
     }
 
     func boardID(_ name: String) throws -> BoardID {
         try #require(ids[name], "O mural \(name) não foi criado")
     }
 
-    /// Um modelo novo sobre a mesma biblioteca, as mesmas preferências e a mesma pasta de capas.
-    func makeModel(activeBoard: BoardID? = nil, now: @escaping () -> Date = Date.init) -> MenuBarPanelModel {
+    /// Uma área de transferência nomeada só deste teste, vazia.
+    func makePasteboard() -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: .init("mural-painel-teste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboards.append(pasteboard)
+        return pasteboard
+    }
+
+    /// Um leitor da área de transferência dada, com o comportamento de acesso trocado: o aviso "Permitir colar?" só
+    /// existe na área de transferência geral.
+    func makeReader(_ pasteboard: NSPasteboard, _ behavior: NSPasteboard.AccessBehavior) -> ClipboardReader {
+        ClipboardReader(pasteboard: pasteboard, accessBehavior: { _ in behavior })
+    }
+
+    /// Um modelo novo sobre a mesma biblioteca, as mesmas preferências e a mesma pasta de capas. Sem `reader`, a área de
+    /// transferência é uma vazia.
+    func makeModel(
+        activeBoard: BoardID? = nil, reader: ClipboardReader? = nil, now: @escaping () -> Date = Date.init
+    ) -> MenuBarPanelModel {
         let covers = BoardCoverService(
             library: library,
             files: BoardCoverFiles(directory: coversDirectory),
@@ -78,7 +105,10 @@ private final class PanelWorkspace {
             },
             render: { _, _, _ in nil })
         services.append(covers)
-        return MenuBarPanelModel(library: library, covers: covers, activeBoard: { activeBoard }, preferences: preferences, now: now)
+        return MenuBarPanelModel(
+            library: library, covers: covers, activeBoard: { activeBoard },
+            reader: reader ?? makeReader(makePasteboard(), .alwaysAllow),
+            delivery: BoardDelivery(registry: registry, covers: covers), preferences: preferences, now: now)
     }
 
     /// Põe um arquivo comum no lugar da pasta `Boards`: a biblioteca não consegue mais listar os murais.
@@ -94,6 +124,7 @@ private final class PanelWorkspace {
             await service.waitUntilIdle()
         }
         preferences.removePersistentDomain(forName: suiteName)
+        for pasteboard in pasteboards { pasteboard.releaseGlobally() }
         try? FileManager.default.removeItem(at: directory)
     }
 }
@@ -345,5 +376,213 @@ struct MenuBarPanelModelTests {
 
         await tabs.closeAll()
         await workspace.finish()
+    }
+
+    // MARK: Colar
+
+    @Test("Texto com .ask: ao carregar só há a opção de ler; o colar lê, a pessoa confirma e o post-it entra no mural do centro")
+    func askedTextIsReadWhenPastingThenDeliveredAsSticky() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let compras = try workspace.boardID("Compras")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("Comprar pão", forType: .string)
+        let model = workspace.makeModel(activeBoard: compras, reader: workspace.makeReader(pasteboard, .ask))
+
+        await model.load()
+
+        #expect(model.clipboard == .available(.text(nil)))
+        #expect(model.clipboardContent == nil, "com .ask abrir só olha os tipos")
+        #expect(model.options.map(\.action) == [.read])
+        #expect(model.canPaste)
+
+        // O primeiro colar só lê: com mais de um tipo de cartão possível, a pessoa escolhe e confirma com outro Return.
+        #expect(!model.readForPaste())
+        #expect(model.clipboard == .available(.text("Comprar pão")))
+        #expect(model.clipboardContent != nil)
+        #expect(model.options.map(\.id) == ["text-sticky", "text-text"])
+        #expect(model.options[model.selectedOption].action == .text(.sticky), "o post-it é o sugerido para um texto curto")
+        #expect(model.pasteStatus == .idle)
+
+        #expect(await model.paste())
+
+        #expect(model.pasteStatus == .pasted("Colado em Compras"))
+        #expect(model.lastDestination == compras)
+        let entry = try #require(model.selectedEntry)
+        #expect(entry.manifest.id == compras)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        let sticky = try #require(board.items.first { $0.kind == .sticky })
+        #expect(sticky.text == "Comprar pão")
+        #expect(sticky.parentID == nil, "o cartão entra na raiz do mural")
+        #expect(board.items.count == 1)
+
+        await workspace.finish()
+    }
+
+    @Test("Imagem com .alwaysAllow: já vem lida ao abrir, o colar não pede confirmação, e um segundo pedido não cola de novo")
+    func allowedImageIsReadOnOpenAndDeliveredOnce() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Fotos"])
+        let fotos = try workspace.boardID("Fotos")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setData(try TestImage.png(width: 64, height: 48), forType: .png)
+        let model = workspace.makeModel(activeBoard: fotos, reader: workspace.makeReader(pasteboard, .alwaysAllow))
+
+        await model.load()
+
+        #expect(model.clipboard == .available(.image))
+        #expect(model.clipboardContent != nil, "sem aviso do sistema, abrir já lê")
+        #expect(model.options.map(\.id) == ["asRead"])
+        #expect(model.selectedOption == 0)
+
+        #expect(model.readForPaste())
+        #expect(await model.paste())
+
+        #expect(model.pasteStatus == .pasted("Colado em Fotos"))
+        #expect(model.lastDestination == fotos)
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        let photo = try #require(board.items.first { $0.kind == .image })
+        #expect(photo.title == "Imagem colada")
+        #expect(board.items.count == 1)
+
+        // Um Return a mais enquanto o painel mostra "Colado em …" não pode criar um cartão repetido.
+        #expect(!model.readForPaste())
+        let again = await model.paste()
+        #expect(!again)
+        let afterSecondRequest = try #require(try await workspace.library.readBoard(entry.route))
+        #expect(afterSecondRequest.items.count == 1)
+
+        await workspace.finish()
+    }
+
+    @Test("Área de transferência vazia: não há como colar, e colar diz que não há nada")
+    func emptyClipboardCannotBePasted() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Vazio"])
+        let vazio = try workspace.boardID("Vazio")
+        let model = workspace.makeModel(activeBoard: vazio, reader: workspace.makeReader(workspace.makePasteboard(), .ask))
+
+        await model.load()
+
+        #expect(model.clipboard == .nothing)
+        #expect(model.options.isEmpty)
+        #expect(!model.canPaste)
+        #expect(!model.readForPaste())
+        #expect(model.pasteStatus == .failed("Não há nada para colar."))
+        let entry = try #require(model.selectedEntry)
+        #expect(try await workspace.library.readBoard(entry.route)?.items.isEmpty == true, "nada entrou no mural")
+        #expect(model.lastDestination == nil, "sem colar, o destino não é lembrado")
+
+        await workspace.finish()
+    }
+
+    @Test("Privado nunca é lido; leitura negada não esconde o colar, e sem nada lido o motivo aparece")
+    func protectedAndDeniedClipboardsExplainThemselves() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Quadro"])
+        let quadro = try workspace.boardID("Quadro")
+
+        let secret = workspace.makePasteboard()
+        let concealed = NSPasteboardItem()
+        concealed.setString("senha-123", forType: .string)
+        concealed.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        secret.writeObjects([concealed])
+        let guarded = workspace.makeModel(activeBoard: quadro, reader: workspace.makeReader(secret, .alwaysAllow))
+        await guarded.load()
+        #expect(guarded.clipboard == .protected)
+        #expect(guarded.clipboardContent == nil)
+        #expect(!guarded.canPaste)
+        #expect(!guarded.readForPaste())
+        #expect(guarded.pasteStatus == .failed("O que está copiado é privado (como uma senha) e o Mural não lê."))
+
+        let denied = workspace.makePasteboard()
+        denied.setString("Olá", forType: .string)
+        let withText = workspace.makeModel(activeBoard: quadro, reader: workspace.makeReader(denied, .alwaysDeny))
+        await withText.load()
+        #expect(withText.clipboard == .deniedBySystem)
+        #expect(withText.options.isEmpty)
+        #expect(withText.canPaste, "o ⌘V da pessoa ainda lê")
+        #expect(!withText.readForPaste(), "texto lido agora: a pessoa escolhe o tipo")
+        #expect(withText.clipboard == .available(.text("Olá")))
+        #expect(!withText.options.isEmpty)
+
+        let blocked = workspace.makeModel(
+            activeBoard: quadro, reader: workspace.makeReader(workspace.makePasteboard(), .alwaysDeny))
+        await blocked.load()
+        #expect(blocked.clipboard == .deniedBySystem)
+        #expect(!blocked.readForPaste())
+        #expect(blocked.pasteStatus == .failed("O macOS não deixou o Mural ler o que foi copiado."))
+
+        await workspace.finish()
+    }
+
+    @Test("As opções param nas pontas, a sugerida começa escolhida e é a opção escolhida que define o tipo do cartão")
+    func optionsAreClampedAndTheChosenOneDefinesTheCard() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Listas"])
+        let listas = try workspace.boardID("Listas")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("- ovos\n- leite", forType: .string)
+        let model = workspace.makeModel(activeBoard: listas, reader: workspace.makeReader(pasteboard, .alwaysAllow))
+
+        // Antes de carregar não há opções: escolher e andar não fazem nada.
+        model.moveOption(by: 1)
+        model.selectOption(2)
+        #expect(model.selectedOption == 0)
+
+        await model.load()
+        #expect(model.options.map(\.id) == ["text-sticky", "text-text", "text-checklist"])
+        #expect(model.selectedOption == 2, "um texto com marcadores sugere a lista")
+
+        model.moveOption(by: 1)
+        #expect(model.selectedOption == 2, "depois da última não há nada, e não dá a volta")
+        model.moveOption(by: -1)
+        #expect(model.selectedOption == 1)
+        model.moveOption(by: -9)
+        #expect(model.selectedOption == 0, "antes da primeira também não")
+        model.selectOption(99)
+        #expect(model.selectedOption == 2)
+        model.selectOption(-5)
+        #expect(model.selectedOption == 0)
+
+        // Texto já lido ao abrir: o colar vai direto, e o cartão é o da opção escolhida, não o da sugerida.
+        model.selectOption(1)
+        #expect(model.readForPaste())
+        #expect(await model.paste())
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        #expect(board.items.map(\.kind) == [.text])
+
+        await workspace.finish()
+    }
+
+    @Test("Os nomes do tipo, as prévias e os títulos das opções")
+    func descriptionsNameThePreviewAndTitleTheOptions() throws {
+        let kinds: [ClipboardKind] = [
+            .text(nil), .links(count: 0), .links(count: 3), .image, .pdf, .files(count: 2), .music(count: 0), .music(count: 4),
+        ]
+        #expect(
+            kinds.map(PasteDescription.name(for:)) == ["Texto", "Link", "3 links", "Imagem", "PDF", "2 arquivos", "Música", "4 músicas"])
+
+        func title(_ kind: ClipboardKind) throws -> String {
+            let option = try #require(PasteOptions.options(for: kind).first)
+            return PasteDescription.title(of: option, clipboard: kind)
+        }
+        #expect(try title(.text(nil)) == "Colar texto", "antes de ler, o tipo do texto ainda não é conhecido")
+        #expect(try title(.text("Comprar pão")) == "Colar como Sticker")
+        #expect(try title(.links(count: 3)) == "Colar 3 links")
+        #expect(try title(.image) == "Colar imagem")
+        #expect(try title(.pdf) == "Colar PDF")
+        #expect(try title(.files(count: 2)) == "Colar 2 arquivos")
+        #expect(try title(.music(count: 1)) == "Colar música")
+        #expect(PasteDescription.symbol(of: try #require(PasteOptions.options(for: .files(count: 2)).first)) == "clipboard")
+        #expect(PasteDescription.symbol(of: try #require(PasteOptions.options(for: .image).first)) == "photo")
+
+        let long = String(repeating: "a", count: 80)
+        #expect(PasteDescription.preview(of: .pasted(.text("\n  Primeira linha \nSegunda"))) == "Primeira linha")
+        #expect(PasteDescription.preview(of: .pasted(.text(long))) == String(repeating: "a", count: 60) + "…")
+        let link = LinkDraft(url: try #require(URL(string: "https://www.Example.com/artigo")))
+        #expect(PasteDescription.preview(of: .pasted(.links([link]))) == "example.com")
+        #expect(PasteDescription.preview(of: .pasted(.files([URL(fileURLWithPath: "/tmp/relatório.pdf")]))) == "relatório.pdf")
+        let album = MusicSnapshot(kind: .album, catalogID: "1441164426", title: "Abbey Road")
+        #expect(PasteDescription.preview(of: .music([MusicDraft(snapshot: album)])) == "Abbey Road")
+        #expect(PasteDescription.preview(of: nil) == nil)
+        #expect(PasteDescription.preview(of: .pasted(.data(Data(), fileExtension: "png", kind: .image, title: "Imagem colada"))) == nil)
     }
 }

@@ -2,11 +2,21 @@ import Foundation
 import MuralKit
 import Observation
 
-/// O estado do painel da barra de menus: os murais da vitrine, qual está no centro, a busca por letras e o último
-/// mural aberto por ali.
+/// Em que pé está o colar do painel: nada em andamento, entregando, entregue (com a frase que o painel mostra) ou falho
+/// (com o motivo).
+enum PasteStatus: Equatable, Sendable {
+    case idle
+    case pasting
+    case pasted(String)
+    case failed(String)
+}
+
+/// O estado do painel da barra de menus: os murais da vitrine, qual está no centro, a busca por letras, o último
+/// mural aberto por ali e o que há para colar nele.
 ///
 /// Sem SwiftUI, para ser testado sem desenhar nada. Quem decide qual mural abre no centro e como a busca anda pela lista
-/// é `BoardPicker`; as capas são de `BoardCoverService`; a ordem em que elas são pedidas, de `CoverflowGeometry`.
+/// é `BoardPicker`; as capas são de `BoardCoverService`; a ordem em que elas são pedidas, de `CoverflowGeometry`; a
+/// leitura da área de transferência, de `ClipboardReader`; a entrega do que foi copiado, de `BoardDelivery`.
 @MainActor
 @Observable
 final class MenuBarPanelModel {
@@ -20,14 +30,31 @@ final class MenuBarPanelModel {
     private(set) var loadError: String?
     let covers: BoardCoverService
 
+    /// O que o painel sabe da área de transferência: o palpite de quando abriu ou, depois do colar, o que foi lido.
+    private(set) var clipboard: ClipboardState = .nothing
+    /// O que foi lido da área de transferência; `nil` enquanto só se sabe o palpite pelos tipos.
+    private(set) var clipboardContent: ClipboardContent?
+    /// As maneiras de colar o que está copiado, na ordem em que o painel as mostra.
+    private(set) var options: [PasteOption] = []
+    /// O índice da opção escolhida em ``options``.
+    private(set) var selectedOption = 0
+    private(set) var pasteStatus: PasteStatus = .idle
+
     /// A chave, nas preferências, do último mural a que o painel levou: o `uuidString` do `BoardID`.
     static let lastDestinationKey = "menuBarLastBoardID"
     /// A pausa, em segundos, que faz a busca por letras recomeçar: digitar com um intervalo maior que ela começa outra
     /// busca; com um intervalo menor ou igual, continua a anterior.
     static let typingPause: TimeInterval = 1
 
+    private static let nothingToPasteMessage = "Não há nada para colar."
+    private static let protectedMessage = "O que está copiado é privado (como uma senha) e o Mural não lê."
+    private static let deniedMessage = "O macOS não deixou o Mural ler o que foi copiado."
+    private static let noBoardMessage = "Não há um mural para receber o que foi copiado."
+
     private let library: BoardLibrary
     private let activeBoard: @MainActor () -> BoardID?
+    private let reader: ClipboardReader
+    private let delivery: BoardDelivery
     private let preferences: UserDefaults
     private let now: () -> Date
 
@@ -39,18 +66,24 @@ final class MenuBarPanelModel {
     ///   - library: de onde vem a lista de murais.
     ///   - covers: quem mantém as capas prontas; compartilhado entre as aberturas do painel.
     ///   - activeBoard: o mural da aba ativa na janela, se houver; consultado ao carregar.
+    ///   - reader: quem olha e lê a área de transferência. Sem valor padrão: o padrão leria a área de transferência geral.
+    ///   - delivery: quem entrega o que foi copiado no mural do centro.
     ///   - preferences: onde se guarda o último destino.
     ///   - now: o relógio da busca por letras; os testes trocam por um que anda quando se manda.
     init(
         library: BoardLibrary,
         covers: BoardCoverService,
         activeBoard: @escaping @MainActor () -> BoardID?,
+        reader: ClipboardReader,
+        delivery: BoardDelivery,
         preferences: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init
     ) {
         self.library = library
         self.covers = covers
         self.activeBoard = activeBoard
+        self.reader = reader
+        self.delivery = delivery
         self.preferences = preferences
         self.now = now
     }
@@ -74,6 +107,9 @@ final class MenuBarPanelModel {
     ///
     /// Só uma leitura que deu certo apaga as capas de murais que não existem mais: se a leitura falhou, não se sabe quais
     /// murais existem, e apagar por causa de um erro de leitura levaria capas de murais que estão lá.
+    ///
+    /// Termina olhando a área de transferência (``prepareClipboard()``). Se a lista não pôde ser lida não há para onde
+    /// colar, e a área de transferência nem é olhada.
     func load() async {
         let listing: BoardLibraryListing
         do {
@@ -91,6 +127,7 @@ final class MenuBarPanelModel {
         isLoaded = true
         covers.sweep(keeping: Set(entries.map(\.manifest.id)))
         requestCovers()
+        prepareClipboard()
     }
 
     // MARK: Seleção
@@ -142,6 +179,122 @@ final class MenuBarPanelModel {
         tabs.open(entry.route, title: entry.manifest.name)
         tabs.showWindow()
         tabs.focusBoard()
+    }
+
+    // MARK: Colar
+
+    /// O tipo do que está copiado; `.nothing` quando não há o que colar.
+    var clipboardKind: ClipboardKind {
+        if case .available(let kind) = clipboard { return kind }
+        return .nothing
+    }
+
+    /// Dá para colar agora: há um mural no centro e, ou há opções de colar, ou o macOS nega a leitura automática (o ⌘V
+    /// da pessoa ainda pode ler).
+    var canPaste: Bool {
+        selectedEntry != nil && (!options.isEmpty || clipboard == .deniedBySystem)
+    }
+
+    /// Olha a área de transferência e monta as opções de colar, com a sugerida escolhida. Só os tipos são olhados, a menos
+    /// que o sistema deixe ler sem avisar (`ClipboardReader.peek()`).
+    func prepareClipboard() {
+        apply(reader.peek())
+    }
+
+    /// Anda `offset` opções a partir da escolhida, parando nas pontas (sem dar a volta).
+    func moveOption(by offset: Int) {
+        selectOption(selectedOption + offset)
+    }
+
+    /// Escolhe a opção do índice, preso à lista: um índice fora dela vai para a ponta mais próxima. Sem opções, não faz nada.
+    func selectOption(_ index: Int) {
+        guard !options.isEmpty else { return }
+        selectedOption = min(max(index, 0), options.count - 1)
+    }
+
+    /// A parte do colar que precisa acontecer de forma síncrona, dentro do tratamento da tecla ou do clique: ler a área
+    /// de transferência. O macOS sempre deixa ler num colar pedido pela pessoa; fora dele pode perguntar "Permitir colar?".
+    /// Quem chama deve chamar esta função antes de qualquer `await`, e só então ``paste()``.
+    ///
+    /// Se o conteúdo ainda não foi lido, lê agora. Sem nada para colar, o motivo fica em ``pasteStatus``.
+    /// - Returns: `true` se pode seguir para ``paste()``. É `false` quando não há o que colar, quando já há uma entrega
+    ///   em andamento ou feita (um Return a mais não cola duas vezes) e quando acabou de ler um texto com mais de um tipo
+    ///   de cartão possível: a pessoa escolhe o tipo e confirma com um segundo Return.
+    func readForPaste() -> Bool {
+        guard !isBusy else { return false }
+        pasteStatus = .idle
+        guard selectedEntry != nil else {
+            pasteStatus = .failed(Self.noBoardMessage)
+            return false
+        }
+        guard clipboardContent == nil else { return true }
+
+        apply(reader.read())
+        guard let content = clipboardContent else {
+            pasteStatus = .failed(Self.message(for: clipboard))
+            return false
+        }
+        if case .pasted(.text) = content, options.count > 1 { return false }
+        return true
+    }
+
+    /// Entrega o que foi lido no mural do centro, no tipo de cartão da opção escolhida, e lembra o mural como o último
+    /// destino. Chamada depois de ``readForPaste()``; o resultado fica em ``pasteStatus``.
+    /// - Returns: `true` se o cartão entrou no mural.
+    func paste() async -> Bool {
+        guard !isBusy else { return false }
+        guard let entry = selectedEntry else {
+            pasteStatus = .failed(Self.noBoardMessage)
+            return false
+        }
+        guard let content = clipboardContent, options.indices.contains(selectedOption) else {
+            pasteStatus = .failed(Self.message(for: clipboard))
+            return false
+        }
+        let textKind: ItemKind?
+        if case .text(let kind) = options[selectedOption].action {
+            textKind = kind
+        } else {
+            textKind = nil
+        }
+
+        pasteStatus = .pasting
+        switch await delivery.deliver(content, textKind: textKind, to: entry) {
+        case .delivered:
+            rememberDestination(entry.manifest.id)
+            pasteStatus = .pasted("Colado em \(entry.manifest.name)")
+            // Com o mural aberto, a capa é redesenhada do modelo vivo e mostra o cartão novo; com ele fechado, a entrega
+            // já refez a capa e este pedido não desenha nada.
+            covers.request([entry])
+            return true
+        case .failed(let message):
+            pasteStatus = .failed(message)
+            return false
+        }
+    }
+
+    /// Há uma entrega em andamento ou feita: outro pedido de colar seria um cartão repetido.
+    private var isBusy: Bool {
+        switch pasteStatus {
+        case .pasting, .pasted: true
+        case .idle, .failed: false
+        }
+    }
+
+    private func apply(_ reading: ClipboardReading) {
+        clipboard = reading.state
+        clipboardContent = reading.content
+        options = PasteOptions.options(for: clipboardKind)
+        selectedOption = PasteOptions.suggestedIndex(in: options) ?? 0
+    }
+
+    /// Por que não há o que colar, conforme o que se sabe da área de transferência.
+    private static func message(for state: ClipboardState) -> String {
+        switch state {
+        case .protected: protectedMessage
+        case .deniedBySystem: deniedMessage
+        case .nothing, .available: nothingToPasteMessage
+        }
     }
 
     // MARK: Capas
