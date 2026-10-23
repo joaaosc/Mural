@@ -16,8 +16,7 @@ struct MuralApp: App {
             discard = { url in try BoardLibrary.moveToTrash(url) }
         }
         let library = BoardLibrary(rootDirectory: LaunchConfiguration.store().directory, discardPackage: discard)
-        let tabs = MuralTabs(registry: BoardSessionRegistry(library: library))
-        _tabs = State(initialValue: tabs)
+        let registry = BoardSessionRegistry(library: library)
 
         // As capas da vitrine do painel. Um serviço só para o app inteiro: ele guarda as imagens na memória entre uma
         // abertura do painel e outra. `libraryRoot()` só calcula o endereço; `store()` apagaria a pasta dos testes de
@@ -34,6 +33,17 @@ struct MuralApp: App {
             },
             linkPreviewFiles: { LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: $0)) }
         )
+
+        // A entrega do que foi copiado a um mural escolhido no painel. As abas adotam a sessão que a entrega abriu para
+        // um mural fechado: nunca existem duas sessões do mesmo mural. A fase seguinte passa `delivery` ao painel.
+        let delivery = BoardDelivery(registry: registry, covers: coverService)
+        let tabs = MuralTabs(
+            registry: registry,
+            makeSession: { route in
+                delivery.adoptDetachedSession(for: route) ?? BoardWindowSession(route: route, registry: registry)
+            })
+        delivery.tabs = tabs
+        _tabs = State(initialValue: tabs)
 
         // O ícone na barra de menus e o painel de vidro que ele abre. O conteúdo é montado a cada apresentação, com um
         // modelo novo: a lista e o mural do centro nascem do instante em que o painel abre.
