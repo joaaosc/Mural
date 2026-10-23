@@ -772,7 +772,9 @@ final class MuralUITests: XCTestCase {
 
         drag(sticky, dx: -100, dy: 220)
 
-        XCTAssertFalse(app.textViews["Texto do post-it"].waitForExistence(timeout: 1), "arrastar não abre o post-it")
+        // Aberto, o post-it entra no título da janela ("The Cottage › This week").
+        let opened = NSPredicate(format: "title CONTAINS %@", "This week")
+        XCTAssertFalse(app.windows.matching(opened).firstMatch.waitForExistence(timeout: 1), "arrastar não abre o post-it")
         let moved = sticky.frame
         XCTAssertEqual(moved.minX - before.minX, -100, accuracy: 4)
         XCTAssertEqual(moved.minY - before.minY, 220, accuracy: 4)
@@ -796,7 +798,7 @@ final class MuralUITests: XCTestCase {
 
         again.click()
         XCTAssertTrue(
-            reopened.textViews["Texto do post-it"].waitForExistence(timeout: 5), "o post-it solto continua abrindo")
+            reopened.windows.matching(opened).firstMatch.waitForExistence(timeout: 5), "o post-it solto continua abrindo")
     }
 
     /// Botão direito na pasta › Renomear…: a folha começa com o nome atual e o cartão passa a mostrar o novo.
