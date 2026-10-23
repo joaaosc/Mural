@@ -35,6 +35,14 @@ private func sticky(_ number: Int, text: String, in parent: Int? = nil, folderPo
         text: text, folderPosition: folderPosition)
 }
 
+/// O post-it depois de editado, como `BoardModel.updateSticky` o deixa: o título acompanha o texto.
+private func editedSticky(_ item: BoardItem, text: String) -> BoardItem {
+    var edited = item
+    edited.text = text
+    edited.title = ContentClassifier.title(forText: text)
+    return edited
+}
+
 private func folder(_ number: Int) -> BoardItem {
     BoardItem(id: id(number), kind: .folder, title: "Pasta \(number)", createdAt: date(Double(number)), position: corner)
 }
@@ -265,19 +273,92 @@ struct MergeItemTests {
     @Test("A cópia de um post-it numa pasta fica na mesma pasta, com o título como está e o lugar livre deslocado")
     func stickyCopyStaysInTheFolder() throws {
         let base = sticky(1, text: "Comprar pão", in: 9, folderPosition: BoardPoint(x: 20, y: 30))
-        var local = base
-        local.text = "Comprar pão e leite"
-        var remote = base
-        remote.text = "Comprar pão integral"
+        let local = editedSticky(base, text: "Comprar pão e leite")
+        let remote = editedSticky(base, text: "Comprar pão integral")
 
         let result = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
         #expect(result.merged.text == "Comprar pão integral")
         let copy = try #require(result.conflictCopy)
         #expect(copy.text == "Comprar pão e leite")
-        #expect(copy.title == "Comprar pão", "o título de um post-it segue o texto: fica como está")
+        #expect(copy.title == "Comprar pão e leite", "o título de um post-it segue o texto: fica como está")
         #expect(copy.parentID == id(9))
         #expect(copy.folderPosition == BoardPoint(x: 44, y: 54))
         #expect(copy.position == corner, "dentro de uma pasta a posição no mural não conta")
+    }
+
+    // MARK: Título do post-it
+
+    @Test("Texto de post-it em colisão: o título acompanha o texto que ficou, e não o título do local")
+    func stickyTitleFollowsTheCollidedText() {
+        let base = sticky(1, text: "Comprar pão")
+        let local = editedSticky(base, text: "Comprar pão e leite")
+        let remote = editedSticky(base, text: "Comprar pão integral")
+
+        let result = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
+        #expect(result.merged.text == "Comprar pão integral")
+        #expect(result.merged.title == "Comprar pão integral")
+    }
+
+    @Test("Texto de post-it juntado: o título é a primeira linha do texto junto, mesmo que o título antigo estivesse desatualizado")
+    func stickyTitleFollowsTheMergedText() {
+        var base = sticky(1, text: "a\n\nb")
+        base.title = "título antigo"
+        var local = base
+        local.text = "A\n\nb"
+        var remote = base
+        remote.text = "a\n\nB"
+
+        let result = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
+        #expect(result.merged.text == "A\n\nB")
+        #expect(result.merged.title == "A")
+        #expect(result.conflictCopy == nil)
+    }
+
+    @Test("Post-it que fica sem texto na junção fica sem título")
+    func stickyWithoutTextHasNoTitle() {
+        let base = sticky(1, text: "a")
+        var local = base
+        local.text = nil
+        var remote = base
+        remote.text = ""
+
+        let result = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
+        #expect(result.merged.text == nil)
+        #expect(result.merged.title == "")
+    }
+
+    @Test("Post-it com o texto mudado só de um lado segue os campos: o título que veio com o texto")
+    func stickyTitleFollowsTheFieldsWhenTheTextChangedOnOneSide() {
+        let base = sticky(1, text: "Comprar pão")
+        let local = editedSticky(base, text: "Comprar pão e leite")
+        var remote = base
+        remote.colorTag = .green
+
+        let result = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
+        #expect(result.merged.text == "Comprar pão e leite")
+        #expect(result.merged.title == "Comprar pão e leite")
+        #expect(result.merged.colorTag == .green)
+    }
+
+    @Test("Nota e lista continuam com o título pela regra dos campos, mesmo com o texto ou a lista em colisão")
+    func noteAndChecklistTitleKeepTheFieldRule() {
+        let baseNote = note(1, text: "Linha única.")
+        var localNote = baseNote
+        localNote.text = "Linha daqui."
+        localNote.title = "Título daqui"
+        var remoteNote = baseNote
+        remoteNote.text = "Linha de lá."
+        let noteResult = BoardMerge.mergeItem(base: baseNote, local: localNote, remote: remoteNote, now: now)
+        #expect(noteResult.merged.text == "Linha de lá.")
+        #expect(noteResult.merged.title == "Título daqui")
+
+        let card = shoppingCard(2, [(11, "leite", false)])
+        var localCard = shoppingCard(2, [(11, "leite integral", false)])
+        localCard.title = "Compras da semana"
+        let remoteCard = shoppingCard(2, [(11, "leite desnatado", false)])
+        let cardResult = BoardMerge.mergeItem(base: card, local: localCard, remote: remoteCard, now: now)
+        #expect(cardResult.merged.checklist == remoteCard.checklist)
+        #expect(cardResult.merged.title == "Compras da semana")
     }
 
     @Test("A cópia leva o conteúdo do local na forma compartilhada, sem as partes locais")
@@ -656,7 +737,7 @@ struct BoardMergeTests {
 
     // MARK: Fechamento
 
-    @Test("Sem mudanças do remote o mural fica como está")
+    @Test("Sem mudanças do remote o mural volta idêntico ao daqui, até de uma versão antiga do formato")
     func noChangesLeavesTheBoardAlone() {
         let items = [note(1, text: "a"), note(2, text: "b")]
         let local = board(items, freeTexts: [freeText(5, "solto")])
@@ -664,9 +745,25 @@ struct BoardMergeTests {
         #expect(result.board == local)
         #expect(result.conflictCopies.isEmpty)
         #expect(result.repairedItemIDs.isEmpty)
+
+        // Um mural gravado por uma build antiga só muda de versão junto com uma mudança de fato.
+        var old = board([note(1, text: "a")])
+        old.formatVersion = 0
+        let untouched = apply(RemoteBoardChanges(), to: old, base: old)
+        #expect(untouched.board == old)
+        #expect(untouched.board.formatVersion == 0)
     }
 
-    @Test("A versão do formato passa a ser a que o conteúdo exige")
+    @Test("Um cartão que chegou igual ao daqui não é mudança: a versão do formato fica")
+    func identicalCardIsNotAChange() {
+        var old = board([note(1, text: "a")])
+        old.formatVersion = 0
+
+        let result = apply(RemoteBoardChanges(savedItems: [note(1, text: "a")], layers: [id(1): 1]), to: old, base: old)
+        #expect(result.board == old)
+    }
+
+    @Test("A versão do formato passa a ser a que o conteúdo exige quando o mural muda")
     func formatVersionIsRaised() {
         var old = board([note(1, text: "a")])
         old.formatVersion = 0
@@ -674,6 +771,17 @@ struct BoardMergeTests {
         let result = apply(RemoteBoardChanges(savedItems: [linkCard(2, fullLink())]), to: old, base: old)
         #expect(result.board.formatVersion == result.board.requiredFormatVersion)
         #expect(result.board.formatVersion >= 3)
+
+        // Um texto livre novo também é mudança.
+        let withFreeText = apply(RemoteBoardChanges(savedFreeTexts: [freeText(2, "chegou")]), to: old, base: old)
+        #expect(withFreeText.board.formatVersion == 7)
+
+        // E a ordem de empilhamento, mesmo sozinha.
+        var twoNotes = board([note(1), note(2)])
+        twoNotes.formatVersion = 0
+        let reordered = apply(RemoteBoardChanges(layers: [id(1): 2, id(2): 1]), to: twoNotes, base: twoNotes)
+        #expect(reordered.board.items.map(\.id) == [id(2), id(1)])
+        #expect(reordered.board.formatVersion == reordered.board.requiredFormatVersion)
     }
 
     @Test("Ids repetidos no que chegou valem uma vez só, com a última gravação")

@@ -61,6 +61,8 @@ public enum BoardMerge {
     /// - Mudado dos dois jeitos, o texto passa pela `TextMerge`, a lista pela `ChecklistMerge` e os anexos se somam pelo nome do
     ///   arquivo (primeiro os do remote). Os outros campos ficam como no local, a última mudança a chegar ao iCloud.
     /// - Se o texto ou a lista colidem, o cartão fica com a versão do remote e o que o local escreveu vira uma cópia de conflito.
+    /// - O título de um post-it acompanha o texto final sempre que o texto passa pela junção (juntado ou em colisão), como ao editar o
+    ///   post-it; o de uma nota ou lista segue a regra dos campos.
     /// - Sem `base` (o cartão é novo para o iCloud), vale o local em tudo, sem cópia.
     ///
     /// Os cartões são comparados na forma `SharedFieldPolicy.shared`, e o resultado guarda as partes locais do cartão local.
@@ -81,6 +83,7 @@ public enum BoardMerge {
         var merged = theirs
         merged.id = local.id
         var collided = false
+        var textWasMerged = false
         for field in BoardItem.Field.allCases where SharedFieldPolicy.scope(of: field) == .shared && changedHere.contains(field) {
             guard changedThere.contains(field), differing.contains(field) else {
                 // Só o local mudou, ou os dois mudaram para o mesmo valor.
@@ -89,6 +92,7 @@ public enum BoardMerge {
             }
             switch field {
             case .text:
+                textWasMerged = true
                 if let text = TextMerge.merge(base: original.text ?? "", local: mine.text ?? "", remote: theirs.text ?? "") {
                     merged.text = text.isEmpty ? nil : text
                 } else {
@@ -110,6 +114,7 @@ public enum BoardMerge {
                 assign(field, from: mine, to: &merged)
             }
         }
+        if textWasMerged, merged.kind == .sticky { merged.title = stickyTitle(for: merged.text) }
         return (
             SharedFieldPolicy.preservingLocalFields(of: local, in: merged),
             collided ? conflictCopy(of: mine, now: now) : nil
@@ -134,9 +139,9 @@ public enum BoardMerge {
     /// e o resto vale o que chegou. Apagado por outra pessoa, sai.
     ///
     /// As cópias de conflito entram no fim da lista, por cima. Depois a lista segue a ordem dos números de empilhamento que
-    /// chegaram (quem não tem número fica no fim, na ordem em que estava), a estrutura é consertada (`Board.repairStructure`, que
-    /// leva ao mural, por exemplo, o cartão que esta pessoa pôs numa pasta que outra apagou) e a versão do formato passa a ser a
-    /// que o conteúdo exige.
+    /// chegaram (quem não tem número fica no fim, na ordem em que estava) e a estrutura é consertada (`Board.repairStructure`, que
+    /// leva ao mural, por exemplo, o cartão que esta pessoa pôs numa pasta que outra apagou). Se o mural mudou de fato, a versão do
+    /// formato passa a ser a que o conteúdo exige; se nada mudou, o mural volta idêntico ao daqui, com a versão que tinha.
     public static func apply(_ remote: RemoteBoardChanges, to local: Board, base: Board, now: Date = .now) -> BoardMergeResult {
         let localItems = firstByID(local.items)
         let baseItems = firstByID(base.items)
@@ -183,7 +188,10 @@ public enum BoardMerge {
         board.items = stacked(items, layers: remote.layers)
         board.freeTexts = mergedFreeTexts(remote, local: local, base: base)
         let repaired = board.repairStructure()
-        board.formatVersion = board.requiredFormatVersion
+        // Um mural antigo só muda de versão junto com uma mudança de fato (cartão, texto livre, cópia, conserto ou ordem).
+        if board.items != local.items || board.freeTexts != local.freeTexts {
+            board.formatVersion = board.requiredFormatVersion
+        }
         return BoardMergeResult(board: board, conflictCopies: conflictCopies, repairedItemIDs: repaired)
     }
 
@@ -220,6 +228,12 @@ public enum BoardMerge {
     /// O texto ou a lista são o que as pessoas escrevem; é a diferença neles que não pode se perder em silêncio.
     private static func differsInContent(_ lhs: BoardItem, _ rhs: BoardItem) -> Bool {
         lhs.text != rhs.text || lhs.checklist != rhs.checklist
+    }
+
+    /// O título de um post-it para o texto dado, como em `BoardModel.updateSticky`: a primeira linha, ou vazio sem texto.
+    private static func stickyTitle(for text: String?) -> String {
+        let body = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return body.isEmpty ? "" : ContentClassifier.title(forText: body)
     }
 
     /// Uma cópia do conteúdo do cartão (a forma `shared`), com id novo, criada agora, na mesma pasta e um pouco deslocada para não

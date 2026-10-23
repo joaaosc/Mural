@@ -39,6 +39,81 @@ private func entryIDs(_ document: ChecklistDocument) -> [UUID] {
     document.sections.flatMap(\.entries).map(\.id)
 }
 
+/// Gerador com semente fixa (SplitMix64), para os sorteios serem sempre os mesmos.
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var mixed = state
+        mixed = (mixed ^ (mixed >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        mixed = (mixed ^ (mixed >> 27)) &* 0x94D0_49BB_1331_11EB
+        return mixed ^ (mixed >> 31)
+    }
+}
+
+/// Uma lista com três seções de zero a quatro itens cada uma.
+private func randomList(using generator: inout SeededGenerator) -> ChecklistDocument {
+    var next = 10
+    var sections: [ChecklistSection] = []
+    for number in 1...3 {
+        let entries = (0..<Int.random(in: 0...4, using: &generator)).map { _ -> ChecklistEntry in
+            next += 1
+            return entry(next, "item \(next)")
+        }
+        sections.append(section(number, "Seção \(number)", entries))
+    }
+    return list(sections)
+}
+
+/// A lista depois de edições sorteadas de um lado: marcar, reescrever, apagar e reordenar itens, levar um item para outra seção,
+/// acrescentar itens e seções, reordenar as seções. `idBase` separa os ids novos de cada lado. Com `appendOnly`, o que entra ou é
+/// levado para uma seção vai sempre para o fim dela, e a seção nova vai para o fim da lista.
+private func edited(
+    _ document: ChecklistDocument, idBase: Int, appendOnly: Bool, using generator: inout SeededGenerator
+) -> ChecklistDocument {
+    var result = document
+    var next = idBase
+    func chance(_ outOf: Int) -> Bool { Int.random(in: 0..<outOf, using: &generator) == 0 }
+    func newEntry() -> ChecklistEntry {
+        next += 1
+        return entry(next, "novo \(next)")
+    }
+    func position(in count: Int) -> Int { appendOnly ? count : Int.random(in: 0...count, using: &generator) }
+
+    for index in result.sections.indices {
+        for entryIndex in result.sections[index].entries.indices.reversed() {
+            if chance(8) {
+                result.sections[index].entries.remove(at: entryIndex)
+                continue
+            }
+            if chance(4) { result.sections[index].entries[entryIndex].isDone.toggle() }
+            if chance(6) { result.sections[index].entries[entryIndex].text = "reescrito \(idBase) \(entryIndex)" }
+        }
+        if chance(3) { result.sections[index].entries.shuffle(using: &generator) }
+    }
+    if chance(4), let from = result.sections.indices.randomElement(using: &generator),
+        let moved = result.sections[from].entries.indices.randomElement(using: &generator)
+    {
+        let item = result.sections[from].entries.remove(at: moved)
+        let to = result.sections.indices.randomElement(using: &generator) ?? from
+        result.sections[to].entries.insert(item, at: position(in: result.sections[to].entries.count))
+    }
+    if chance(3), let target = result.sections.indices.randomElement(using: &generator) {
+        result.sections[target].entries.insert(newEntry(), at: position(in: result.sections[target].entries.count))
+    }
+    if chance(4) { result.sections.shuffle(using: &generator) }
+    if chance(4) {
+        result.sections.insert(section(idBase + 90, "Seção nova", [newEntry()]), at: position(in: result.sections.count))
+    }
+    if chance(5) { result.title = "Título \(idBase)" }
+    return result
+}
+
 // MARK: Testes
 
 @Suite("Junção de lista por item")
@@ -197,8 +272,8 @@ struct ChecklistMergeTests {
 
     // MARK: Item em outra seção
 
-    @Test("Item que mudou de seção fica na seção do local, sem aparecer duas vezes")
-    func movedEntryKeepsLocalSection() throws {
+    @Test("Item que mudou de seção fica na seção de quem o moveu e, movido nos dois lados, na do local, sem aparecer duas vezes")
+    func movedEntryFollowsWhoMovedIt() throws {
         // O local leva o x de A para B; o remote não o move, mas marca o y.
         let base = list([section(1, "A", [entry(11, "x"), entry(12, "y")]), section(2, "B")])
         let local = list([section(1, "A", [entry(12, "y")]), section(2, "B", [entry(11, "x")])])
@@ -214,12 +289,89 @@ struct ChecklistMergeTests {
         let bothMoved = try #require(ChecklistMerge.merge(base: threeSections, local: toB, remote: toC))
         #expect(outline(bothMoved) == ["A:", "B: x", "C:"])
 
-        // Só o remote o move: vale a seção que ele tem no local.
+        // Só o remote o move, e o local acrescenta outro item: o x vai para a seção que o remote deu a ele.
         let notMoved = list([section(1, "A", [entry(11, "x")]), section(2, "B")])
         let localAddsOne = list([section(1, "A", [entry(11, "x"), entry(13, "z")]), section(2, "B")])
         let movedThere = list([section(1, "A"), section(2, "B", [entry(11, "x")])])
-        let keptHere = try #require(ChecklistMerge.merge(base: notMoved, local: localAddsOne, remote: movedThere))
-        #expect(outline(keptHere) == ["A: x, z", "B:"])
+        let followsRemote = try #require(ChecklistMerge.merge(base: notMoved, local: localAddsOne, remote: movedThere))
+        #expect(outline(followsRemote) == ["A: z", "B: x"])
+        #expect(entryIDs(followsRemote).count == Set(entryIDs(followsRemote)).count)
+    }
+
+    // MARK: Ordem
+
+    @Test("Só o remote reordenou os itens e o local marcou um: vale a ordem do remote, com a marcação")
+    func remoteOrderWinsOverALocalMark() throws {
+        let base = list([section(1, "A", [entry(11, "x"), entry(12, "y"), entry(13, "z")])])
+        let marked = list([section(1, "A", [entry(11, "x"), entry(12, "y", done: true), entry(13, "z")])])
+        let reordered = list([section(1, "A", [entry(13, "z"), entry(11, "x"), entry(12, "y")])])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: marked, remote: reordered))
+        #expect(outline(merged) == ["A: z, x, ✓ y"])
+    }
+
+    @Test("Só o local reordenou os itens e o remote marcou um: vale a ordem do local, com a marcação")
+    func localOrderWinsOverARemoteMark() throws {
+        let base = list([section(1, "A", [entry(11, "x"), entry(12, "y"), entry(13, "z")])])
+        let reordered = list([section(1, "A", [entry(13, "z"), entry(11, "x"), entry(12, "y")])])
+        let marked = list([section(1, "A", [entry(11, "x"), entry(12, "y", done: true), entry(13, "z")])])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: reordered, remote: marked))
+        #expect(outline(merged) == ["A: z, x, ✓ y"])
+    }
+
+    @Test("Reordenado nos dois lados, vale a ordem do local, com os itens novos do remote no fim")
+    func bothReorderedKeepsLocalOrder() throws {
+        let base = list([section(1, "A", [entry(11, "x"), entry(12, "y"), entry(13, "z")])])
+        let local = list([section(1, "A", [entry(12, "y"), entry(11, "x"), entry(13, "z")])])
+        let remote = list([section(1, "A", [entry(13, "z"), entry(12, "y"), entry(11, "x"), entry(14, "n")])])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: local, remote: remote))
+        #expect(outline(merged) == ["A: y, x, z, n"])
+    }
+
+    @Test("A ordem de cada seção é decidida à parte, e o que só o outro lado tem vai para o fim")
+    func eachSectionHasItsOwnOrder() throws {
+        let base = list([section(1, "A", [entry(11, "x"), entry(12, "y")]), section(2, "B", [entry(21, "p"), entry(22, "q")])])
+        // O local reordena só a B e acrescenta o m na A. O remote reordena só a A e acrescenta o n na B.
+        let local = list([
+            section(1, "A", [entry(11, "x"), entry(12, "y"), entry(13, "m")]), section(2, "B", [entry(22, "q"), entry(21, "p")]),
+        ])
+        let remote = list([
+            section(1, "A", [entry(12, "y"), entry(11, "x")]), section(2, "B", [entry(21, "p"), entry(22, "q"), entry(23, "n")]),
+        ])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: local, remote: remote))
+        #expect(outline(merged) == ["A: y, x, m", "B: q, p, n"])
+    }
+
+    @Test("Na ordem só contam os ids que o lado e a base têm em comum: apagar ou acrescentar um item não reordena")
+    func reorderIgnoresIDsOnlyOneSideHas() throws {
+        let base = list([section(1, "A", [entry(11, "x"), entry(12, "y"), entry(13, "z")])])
+        // O local apaga o y e acrescenta o n no começo, sem mexer na ordem dos outros; o remote reordena.
+        let local = list([section(1, "A", [entry(14, "n"), entry(11, "x"), entry(13, "z")])])
+        let remote = list([section(1, "A", [entry(13, "z"), entry(12, "y"), entry(11, "x")])])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: local, remote: remote))
+        #expect(outline(merged) == ["A: z, x, n"])
+    }
+
+    @Test("Só o remote reordenou as seções: vale a ordem dele, e as seções novas do local ficam no fim")
+    func remoteSectionOrderWins() throws {
+        let base = list([section(1, "A", [entry(11, "x")]), section(2, "B", [entry(21, "y")]), section(3, "C", [entry(31, "z")])])
+        let local = list([
+            section(1, "A", [entry(11, "x")]), section(2, "B", [entry(21, "y", done: true)]), section(3, "C", [entry(31, "z")]),
+            section(4, "D", [entry(41, "w")]),
+        ])
+        let remote = list([section(3, "C", [entry(31, "z")]), section(1, "A", [entry(11, "x")]), section(2, "B", [entry(21, "y")])])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: local, remote: remote))
+        #expect(outline(merged) == ["C: z", "A: x", "B: ✓ y", "D: w"])
+    }
+
+    @Test("Só o local reordenou as seções: vale a ordem dele, e as seções novas do remote ficam no fim")
+    func localSectionOrderWins() throws {
+        let base = list([section(1, "A", [entry(11, "x")]), section(2, "B", [entry(21, "y")])])
+        let local = list([section(2, "B", [entry(21, "y")]), section(1, "A", [entry(11, "x")])])
+        let remote = list([
+            section(1, "A", [entry(11, "x", done: true)]), section(2, "B", [entry(21, "y")]), section(3, "C", [entry(31, "z")]),
+        ])
+        let merged = try #require(ChecklistMerge.merge(base: base, local: local, remote: remote))
+        #expect(outline(merged) == ["B: y", "A: ✓ x", "C: z"])
     }
 
     @Test("Item do local cuja seção saiu segue para a seção que o remote deu a ele")
@@ -270,5 +422,36 @@ struct ChecklistMergeTests {
         let localSame = list(sections, intro: "Primeiro aqui.\n\nSegundo.")
         let remoteSame = list([section(1, "Mercado", [entry(11, "leite", done: true)])], intro: "Primeiro lá.\n\nSegundo.")
         #expect(ChecklistMerge.merge(base: base, local: localSame, remote: remoteSame) == nil)
+    }
+
+    // MARK: Sorteios
+
+    @Test("Sorteios com semente fixa: um lado só que mexeu vale inteiro, e com os dois nenhum id se repete nem se perde")
+    func randomizedProperties() {
+        var generator = SeededGenerator(seed: 2026)
+        var merged = 0
+        for round in 0..<400 {
+            let base = randomList(using: &generator)
+            let local = edited(base, idBase: 100, appendOnly: false, using: &generator)
+            let remote = edited(base, idBase: 200, appendOnly: false, using: &generator)
+
+            // Só um lado mexeu: a lista é a dele. Do remote só entra, no fim, o que ele acrescenta, que é o que a junção também faz.
+            #expect(ChecklistMerge.merge(base: base, local: local, remote: base) == local, "rodada \(round): só o local mexeu")
+            let appended = edited(base, idBase: 200, appendOnly: true, using: &generator)
+            #expect(ChecklistMerge.merge(base: base, local: base, remote: appended) == appended, "rodada \(round): só o remote mexeu")
+
+            // Os dois mexeram: sem conflito, nenhum id se repete e nenhum item novo se perde.
+            guard let result = ChecklistMerge.merge(base: base, local: local, remote: remote) else { continue }
+            merged += 1
+            let ids = entryIDs(result)
+            #expect(ids.count == Set(ids).count, "rodada \(round): item repetido")
+            #expect(result.sections.map(\.id).count == Set(result.sections.map(\.id)).count, "rodada \(round): seção repetida")
+            let known = Set(entryIDs(local) + entryIDs(remote))
+            #expect(Set(ids).isSubset(of: known), "rodada \(round): item que nenhum dos lados tem")
+            #expect(known.subtracting(entryIDs(base)).isSubset(of: Set(ids)), "rodada \(round): item novo perdido")
+            #expect(ChecklistMerge.merge(base: base, local: local, remote: remote) == result, "rodada \(round): resultado instável")
+        }
+        // Os sorteios passam de verdade pela junção dos dois lados, e não só por conflitos.
+        #expect(merged > 100)
     }
 }
