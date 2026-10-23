@@ -19,11 +19,30 @@ struct MuralApp: App {
         let tabs = MuralTabs(registry: BoardSessionRegistry(library: library))
         _tabs = State(initialValue: tabs)
 
-        // O ícone na barra de menus e o painel de vidro que ele abre. O conteúdo é montado a cada apresentação.
+        // As capas da vitrine do painel. Um serviço só para o app inteiro: ele guarda as imagens na memória entre uma
+        // abertura do painel e outra. `libraryRoot()` só calcula o endereço; `store()` apagaria a pasta dos testes de
+        // interface.
+        let coverService = BoardCoverService(
+            library: library,
+            files: BoardCoverFiles(
+                directory: LaunchConfiguration.libraryRoot().appendingPathComponent("BoardCovers", isDirectory: true)),
+            liveBoards: {
+                OpenBoardSessions.shared.live.compactMap { session in
+                    guard !session.isClosed, let model = session.model else { return nil }
+                    return LiveBoard(id: session.boardID, model: model)
+                }
+            },
+            linkPreviewFiles: { LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: $0)) }
+        )
+
+        // O ícone na barra de menus e o painel de vidro que ele abre. O conteúdo é montado a cada apresentação, com um
+        // modelo novo: a lista e o mural do centro nascem do instante em que o painel abre.
         MenuBarController.shared.install { _ in
-            GlassHostingView(
+            let model = MenuBarPanelModel(library: library, covers: coverService, activeBoard: { tabs.selected?.boardID })
+            return GlassHostingView(
                 rootView: MenuBarPanelView(
                     tabs: tabs,
+                    model: model,
                     close: { MenuBarController.shared.dismiss() },
                     resize: { MenuBarController.shared.fitToContent() }
                 )
