@@ -120,6 +120,23 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   `LinkPreviews/`, ao lado dos murais, e se refazem sozinhas se o arquivo sumir. "Atualizar
   prévia", no menu do cartão, busca de novo.
 
+## Apple Music
+
+- **Arrastar do app Música** um álbum, uma faixa, uma playlist (do catálogo ou sua) ou uma estação
+  cria um cartão com capa, tipo, título e artista, no ponto onde foi solto. ⌘C de faixas no Música
+  e ⌘V no mural, ou um link `music.apple.com` copiado (Compartilhar › Copiar Link), fazem o mesmo.
+  A capa vem no próprio arrasto ou é baixada e guardada em `LinkPreviews/`.
+- **Tocar**: o botão sobre a capa (aparece com o ponteiro em cima), o menu do cartão ou a página
+  tocam pelo Apple Music dentro do Mural, um cartão por vez; o Tocando Agora do macOS mostra a faixa.
+  Na primeira vez o macOS pede acesso ao Apple Music. Sem assinatura, aparece a oferta da Apple;
+  "Abrir no Música" leva ao app. Apagar o cartão ou fechar o mural para a música.
+- **Página**: capa grande, Tocar e Abrir no Música e, em álbuns e playlists, as faixas; clicar numa
+  faixa toca a partir dela. Faixa copiada ou link colado sem capa ganham a capa do catálogo depois
+  que o acesso é dado.
+- Uma playlist sua chega só com o nome: o Mural a procura na biblioteca ao tocar e avisa se houver
+  duas com o mesmo nome.
+- Murais com música usam a versão 8 do formato.
+
 ## Requisitos
 
 - macOS 27 e Xcode 27.2 ou mais novo (o projeto usa o formato JSON `project.xcproj`).
@@ -129,6 +146,9 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   imagem e `togglingTask`/`stretchMarkdownTaskToggle`).
 - Para a escolha das frases pelo modelo: um Mac com Apple Intelligence ligada. Sem ela,
   o app funciona com a primeira frase.
+- Para tocar e listar faixas do Apple Music: o serviço MusicKit ligado no App ID do app
+  (developer.apple.com › Certificates, Identifiers & Profiles › Identifiers › App Services ›
+  MusicKit). Sem ele o build passa e o cartão aparece, mas tocar mostra um erro.
 
 ## Estrutura
 
