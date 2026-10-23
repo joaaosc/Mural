@@ -1,8 +1,8 @@
 import MuralKit
 import SwiftUI
 
-/// Capa de um item do Apple Music: o arquivo guardado, se está na pasta de prévias; sem ele, um quadrado
-/// na cor da capa (ou num papel um pouco mais escuro) com o símbolo do tipo no centro.
+/// Capa de um item do Apple Music: o arquivo guardado, se está na pasta de prévias; sem ele, a cor da capa
+/// (ou um papel um pouco mais escuro) com o símbolo do tipo no centro. Preenche o espaço que recebe, recortando.
 struct MusicArtwork: View {
     let music: MusicSnapshot
     var maxPixelSize = 480
@@ -11,7 +11,6 @@ struct MusicArtwork: View {
 
     var body: some View {
         Color.clear
-            .aspectRatio(1, contentMode: .fit)
             .overlay { content }
             .clipped()
     }
@@ -25,7 +24,8 @@ struct MusicArtwork: View {
                 .overlay {
                     Image(systemName: music.kind.symbol)
                         .font(.system(size: 30, weight: .regular))
-                        .foregroundStyle(Color(muralHex: music.primaryTextHex) ?? .secondary)
+                        .foregroundStyle(
+                            Color(muralHex: music.primaryTextHex) ?? Color.readable(onHex: music.backgroundHex) ?? .secondary)
                         .accessibilityHidden(true)
                 }
         }
@@ -42,13 +42,18 @@ struct MusicCard: View {
     @Environment(\.linkPreviewFiles) private var files
 
     private var music: MusicSnapshot? { item.music }
-    private var primary: Color { Color(muralHex: music?.primaryTextHex) ?? .primary }
-    private var secondary: Color { Color(muralHex: music?.secondaryTextHex) ?? Color.secondary }
+    private var primary: Color {
+        Color(muralHex: music?.primaryTextHex) ?? Color.readable(onHex: music?.backgroundHex) ?? .primary
+    }
+    private var secondary: Color {
+        Color(muralHex: music?.secondaryTextHex) ?? Color.readable(onHex: music?.backgroundHex)?.opacity(0.7) ?? .secondary
+    }
     private var paper: Color { Color(muralHex: music?.backgroundHex) ?? Theme.paper }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let music { MusicArtwork(music: music) }
+            // A capa ocupa a largura toda e o que sobra acima do texto: no mural, quase um quadrado.
+            if let music { MusicArtwork(music: music).frame(maxWidth: .infinity, maxHeight: .infinity) }
             VStack(alignment: .leading, spacing: 4) {
                 kindRow
                 Text(item.title)
@@ -61,10 +66,10 @@ struct MusicCard: View {
                         .foregroundStyle(secondary)
                         .lineLimit(1)
                 }
-                Spacer(minLength: 0)
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipShape(.rect(cornerRadius: Theme.cardCorner))
@@ -121,14 +126,14 @@ private struct MusicCardSamples: View {
 
     private func sample(_ music: MusicSnapshot) -> some View {
         MusicCard(item: BoardItem(kind: .music, title: music.title, music: music))
-            .frame(width: 150, height: 196)
+            .frame(width: 150, height: 210)
     }
 }
 
-#Preview("Claro", traits: .fixedLayout(width: 540, height: 240)) {
+#Preview("Claro", traits: .fixedLayout(width: 540, height: 260)) {
     MusicCardSamples().padding(20).background(Theme.canvas)
 }
 
-#Preview("Escuro", traits: .fixedLayout(width: 540, height: 240)) {
+#Preview("Escuro", traits: .fixedLayout(width: 540, height: 260)) {
     MusicCardSamples().padding(20).background(Theme.canvas).preferredColorScheme(.dark)
 }

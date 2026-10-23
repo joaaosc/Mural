@@ -69,7 +69,7 @@ struct MusicCardTests {
         #expect(created.allSatisfy { $0.kind == .music && $0.fileName == nil && $0.parentID == nil })
         #expect(created[0].createdAt < created[1].createdAt)
         let size = BoardLayout.cardSize(for: .music)
-        #expect(size.width == 150 && size.height == 196)
+        #expect(size.width == 150 && size.height == 210)
         #expect(!BoardLayout.overlaps(created[0].position, size, created[1].position, size, gap: 0))
         #expect(model.musicItems.count == 2)
 

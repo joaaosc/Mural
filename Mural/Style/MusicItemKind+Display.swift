@@ -58,6 +58,15 @@ extension MusicSnapshot {
 }
 
 extension Color {
+    /// Branco ou preto, o que se lê melhor sobre a cor `#rrggbb`; `nil` se o texto não for uma cor válida.
+    static func readable(onHex text: String?) -> Color? {
+        guard let hex = MusicSnapshot.normalizedHex(text), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        let red = Double(value >> 16 & 0xFF) / 255
+        let green = Double(value >> 8 & 0xFF) / 255
+        let blue = Double(value & 0xFF) / 255
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.55 ? .black : .white
+    }
+
     /// Cor a partir de `#rrggbb` (com ou sem `#`); `nil` se o texto não for uma cor válida.
     init?(muralHex text: String?) {
         guard let hex = MusicSnapshot.normalizedHex(text), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }

@@ -17,7 +17,7 @@ public enum BoardLayout {
         case .sticky: (110, 110)
         case .link: (150, 170)
         case .reminder: (160, 96)
-        case .music: (150, 196)
+        case .music: (150, 210)
         case .folder: (120, 160)
         }
     }
@@ -35,7 +35,7 @@ public enum BoardLayout {
         case .sticky: 1.25
         case .link: 0.85
         case .reminder: 1.6
-        case .music: 0.77
+        case .music: 0.71
         }
     }
 
