@@ -756,6 +756,49 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Voltar"].exists, "o arrasto não abre o cartão")
     }
 
+    /// Dentro da pasta, arrastar um post-it o deixa onde foi solto, por cima das colunas, e o lugar volta ao reabrir o app.
+    @MainActor
+    func testDraggingStickyInsideFolderPlacesItFreely() throws {
+        let app = launch()
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        folder.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        let sticky = app.buttons["This week"].firstMatch
+        XCTAssertTrue(sticky.waitForExistence(timeout: 5))
+        // Espera a pasta terminar de abrir (os cartões param de se mover).
+        Thread.sleep(forTimeInterval: 1)
+        let before = sticky.frame
+
+        drag(sticky, dx: -100, dy: 220)
+
+        XCTAssertFalse(app.textViews["Texto do post-it"].waitForExistence(timeout: 1), "arrastar não abre o post-it")
+        let moved = sticky.frame
+        XCTAssertEqual(moved.minX - before.minX, -100, accuracy: 4)
+        XCTAssertEqual(moved.minY - before.minY, 220, accuracy: 4)
+
+        // A janela pode abrir em outro lugar da tela: compara a posição dentro dela.
+        let window = app.windows.firstMatch.frame
+        let relative = CGPoint(x: moved.minX - window.minX, y: moved.minY - window.minY)
+
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        if !reopened.buttons["Voltar"].exists {
+            reopened.buttons["The Cottage"].firstMatch.click()
+            XCTAssertTrue(reopened.buttons["Voltar"].waitForExistence(timeout: 5))
+        }
+        let again = reopened.buttons["This week"].firstMatch
+        XCTAssertTrue(again.waitForExistence(timeout: 5), "o post-it deveria continuar após reabrir")
+        Thread.sleep(forTimeInterval: 1)
+        let reopenedWindow = reopened.windows.firstMatch.frame
+        XCTAssertEqual(again.frame.minX - reopenedWindow.minX, relative.x, accuracy: 4)
+        XCTAssertEqual(again.frame.minY - reopenedWindow.minY, relative.y, accuracy: 4)
+
+        again.click()
+        XCTAssertTrue(
+            reopened.textViews["Texto do post-it"].waitForExistence(timeout: 5), "o post-it solto continua abrindo")
+    }
+
     /// Botão direito na pasta › Renomear…: a folha começa com o nome atual e o cartão passa a mostrar o novo.
     @MainActor
     func testContextMenuRenamesFolder() throws {

@@ -7,7 +7,8 @@ pela barra de criação no centro inferior ou por Arquivo › Importar…, e fic
 A interface tem três níveis, cada um crescendo a partir do cartão clicado:
 
 1. **Mural**: cartões livres, com zoom, filtros e prévia de pastas ao passar o ponteiro.
-2. **Pasta**: o conteúdo em colunas de alturas livres, com etiquetas nos cantos.
+2. **Pasta**: o conteúdo em colunas de alturas livres, com etiquetas nos cantos; os post-its podem ser
+   arrastados para qualquer lugar dela, por cima das colunas.
 3. **Item**: detalhe por tipo (imagem com paleta e metadados, vídeo, PDF, texto, lista, página do link).
 
 Controles flutuantes usam o material Liquid Glass padrão do sistema.
@@ -88,6 +89,10 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   níveis, com o total no aviso.
 - A pasta mostra em leque, pela borda direita, os três cartões mais recentes de dentro.
 - Murais com pasta dentro de pasta usam a versão 2 do formato.
+- **Post-it solto na pasta**: arrastar um post-it dentro da pasta o deixa solto onde foi largado, por cima
+  das colunas, e o lugar fica guardado. Levado para outra pasta ou para o mural, ele volta às colunas. Só
+  post-its se movem assim. O post-it novo criado na pasta já nasce solto, no meio do que está à vista.
+  Murais com post-it solto numa pasta usam a versão 9 do formato.
 
 ## Lembretes
 

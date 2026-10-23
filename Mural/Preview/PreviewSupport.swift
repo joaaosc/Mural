@@ -125,6 +125,26 @@ enum PreviewLinks {
     .background(Theme.canvas)
 }
 
+#Preview("Pasta com post-it solto", traits: .fixedLayout(width: 1100, height: 720)) {
+    @Previewable @Namespace var namespace
+    let model = BoardModel.preview()
+    // Tipos explícitos: o build das prévias não conseguia checar esta busca a tempo.
+    let folder: BoardItem = model.rootItems.first { (item: BoardItem) -> Bool in
+        item.kind == .folder && item.title == "The Cottage"
+    }!
+    let sticky: BoardItem = model.children(of: folder.id).first { (item: BoardItem) -> Bool in
+        item.kind == .sticky && item.title == "This week"
+    }!
+    // Solto num lugar livre, por cima das colunas (`let _`: o corpo da prévia é um ViewBuilder e não aceita um comando solto).
+    let _ = model.placeInFolder(sticky.id, at: BoardPoint(x: -60, y: 240))
+    CollectionView(
+        folder: folder, model: model, session: nil, hero: HeroContext(namespace: namespace, isEnabled: false, presented: []), filter: nil
+    ) {
+        _ in
+    }
+    .background(Theme.canvas)
+}
+
 #Preview("Detalhe da imagem", traits: .fixedLayout(width: 1100, height: 720)) {
     let model = BoardModel.preview()
     let image = model.rootItems.first { $0.kind == .image }!
