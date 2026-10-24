@@ -271,8 +271,12 @@ public enum BoardLayout {
         while row < 200 {
             for column in 0..<columns {
                 let candidate = BoardPoint(x: origin.x + Double(column) * step, y: origin.y + Double(row) * step)
-                let clear = occupied.allSatisfy { other in
-                    !overlaps(candidate, size, other.0, other.1, gap: gap)
+                var clear = true
+                for other in occupied {
+                    if overlaps(candidate, size, other.0, other.1, gap: gap) {
+                        clear = false
+                        break
+                    }
                 }
                 if clear { return candidate }
             }
@@ -307,16 +311,23 @@ public enum BoardLayout {
         for (index, kind) in kinds.enumerated() {
             let newSize = cardSize(for: kind)
             let candidates = importCandidates(anchor: anchor, size: newSize, index: index)
-            let position =
-                candidates.first { candidate in
-                    occupied.allSatisfy { other in !overlaps(candidate, newSize, other.0, other.1, gap: gap) }
+            var position: BoardPoint?
+            for candidate in candidates {
+                var clear = true
+                for other in occupied {
+                    if overlaps(candidate, newSize, other.0, other.1, gap: gap) {
+                        clear = false
+                        break
+                    }
                 }
-                ?? freePosition(
-                    size: newSize,
-                    avoiding: occupied,
-                    origin: anchor)
-            result.append(position)
-            occupied.append((position, newSize))
+                if clear {
+                    position = candidate
+                    break
+                }
+            }
+            let resolvedPosition = position ?? freePosition(size: newSize, avoiding: occupied, origin: anchor)
+            result.append(resolvedPosition)
+            occupied.append((resolvedPosition, newSize))
         }
         return result
     }
