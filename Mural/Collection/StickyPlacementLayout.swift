@@ -7,6 +7,7 @@ struct StickyPlacementLayout: Layout {
     struct Cache {
         var frames: [CGRect] = []
         var width: CGFloat?
+        var height: CGFloat = 0
     }
 
     func makeCache(subviews: Subviews) -> Cache {
@@ -16,24 +17,19 @@ struct StickyPlacementLayout: Layout {
     func updateCache(_ cache: inout Cache, subviews: Subviews) {
         cache.frames.removeAll(keepingCapacity: true)
         cache.width = nil
+        cache.height = 0
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = proposal.width ?? 900
         if cache.width == width, cache.frames.count == subviews.count {
-            var height: CGFloat = 0
-            for frame in cache.frames {
-                height = max(height, frame.maxY)
-            }
-            return CGSize(width: width, height: height)
+            return CGSize(width: width, height: cache.height)
         }
         let frames = frames(width: width, subviews: subviews)
         cache.frames = frames
         cache.width = width
-        var height: CGFloat = 0
-        for frame in frames {
-            height = max(height, frame.maxY)
-        }
+        let height = Self.height(of: frames)
+        cache.height = height
         return CGSize(width: width, height: height)
     }
 
@@ -45,6 +41,7 @@ struct StickyPlacementLayout: Layout {
             frames = self.frames(width: bounds.width, subviews: subviews)
             cache.frames = frames
             cache.width = bounds.width
+            cache.height = Self.height(of: frames)
         }
         for (subview, frame) in zip(subviews, frames) {
             subview.place(
@@ -58,6 +55,14 @@ struct StickyPlacementLayout: Layout {
         result.reserveCapacity(subviews.count)
         for subview in subviews {
             result.append(StickyPlacement.frame(for: subview[StickyPlacementKey.self], width: width))
+        }
+        return result
+    }
+
+    private static func height(of frames: [CGRect]) -> CGFloat {
+        var result: CGFloat = 0
+        for frame in frames {
+            result = max(result, frame.maxY)
         }
         return result
     }
