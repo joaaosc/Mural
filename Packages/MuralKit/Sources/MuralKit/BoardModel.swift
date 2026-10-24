@@ -211,6 +211,7 @@ public final class BoardModel {
         }
         let destinations = currentBoard.folderDestinations(
             for: id,
+            moving: moving,
             byParent: folderChildrenByParent(for: currentBoard),
             rootItems: rootItems)
         if moving.kind != .folder {

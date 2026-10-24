@@ -149,6 +149,18 @@ public struct Board: Codable, Equatable, Sendable {
         rootItems: [BoardItem]
     ) -> [FolderDestination] {
         guard let moving = item(id: id) else { return [] }
+        return folderDestinations(for: id, moving: moving, byParent: byParent, rootItems: rootItems)
+    }
+
+    /// Variante interna que recebe o cartão já localizado pelo índice do `BoardModel`, evitando
+    /// repetir uma busca linear no array de itens ao montar o menu de movimento.
+    func folderDestinations(
+        for id: UUID,
+        moving: BoardItem,
+        byParent: [UUID: [BoardItem]],
+        rootItems: [BoardItem]
+    ) -> [FolderDestination] {
+        guard moving.id == id else { return [] }
         // Níveis que a pasta movida ocupa com tudo que tem dentro; cartão que não é pasta não conta nível.
         let height = moving.kind == .folder ? folderHeight(of: id, byParent: byParent) : 0
         var destinations: [FolderDestination] = []
