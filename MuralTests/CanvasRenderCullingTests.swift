@@ -43,6 +43,20 @@ struct CanvasRenderCullingTests {
         #expect(result.map(\.id) == [near.id])
     }
 
+    @Test("O modo completo preserva todos os cartões")
+    func forceAllPreservesItems() {
+        let items = [
+            BoardItem(id: UUID(), kind: .text, title: "Visível", position: BoardPoint(x: 20, y: 20)),
+            BoardItem(id: UUID(), kind: .text, title: "Fora", position: BoardPoint(x: 900, y: 900)),
+        ]
+
+        #expect(
+            CanvasRenderCulling.visibleItems(
+                items,
+                in: CGRect(x: 0, y: 0, width: 100, height: 100),
+                forceAll: true) == items)
+    }
+
     @Test("A troca de viewport espera sair da faixa de histerese")
     func viewportHysteresisAvoidsPixelUpdates() {
         let current = CGRect(x: 0, y: 0, width: 200, height: 200)

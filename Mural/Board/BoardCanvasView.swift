@@ -62,6 +62,7 @@ struct BoardCanvasView: View {
     /// Volta sozinho a falso, inclusive quando o gesto é cancelado sem `onEnded`.
     @GestureState private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityEnabled) private var accessibilityEnabled
 
     /// Folga em volta dos cartões, para o mural não terminar colado no último.
     private static let margin: CGFloat = 240
@@ -91,7 +92,10 @@ struct BoardCanvasView: View {
         let alwaysRendered = Set(
             [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 })
         let renderedItems = CanvasRenderCulling.visibleItems(
-            items, in: renderViewport, alwaysInclude: alwaysRendered, forceAll: isMarqueeActive)
+            items,
+            in: renderViewport,
+            alwaysInclude: alwaysRendered,
+            forceAll: isMarqueeActive || accessibilityEnabled)
 
         ScrollView([.horizontal, .vertical]) {
             ZStack(alignment: .topLeading) {
