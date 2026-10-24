@@ -620,9 +620,10 @@ final class BoardWindowSession {
         photoImportTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                guard self.photoImportOperationID == operationID else { return }
-                self.photoImportTask = nil
-                self.photoImportOperationID = nil
+                if self.photoImportOperationID == operationID {
+                    self.photoImportTask = nil
+                    self.photoImportOperationID = nil
+                }
             }
             await importPhotos(items, animation: animation)
         }
