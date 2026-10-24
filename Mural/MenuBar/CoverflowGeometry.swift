@@ -23,8 +23,11 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
     static let reducedMotionSideScale: CGFloat = 0.85
     /// Quanto de opacidade cada passo para fora da capa do meio tira.
     static let opacityFalloff = 0.15
-    /// O véu escuro sobre as capas laterais, de 0 a 1: bem fraco, só para a do meio se destacar como a escolhida.
-    static let sideDimming = 0.1
+    /// O véu escuro sobre a primeira capa lateral, de 0 a 1: forte o bastante para a do meio se destacar como a
+    /// escolhida, sem esconder o que as laterais mostram.
+    static let sideDimming = 0.3
+    /// Quanto o véu escurece a cada passo além da primeira lateral.
+    static let dimmingFalloff = 0.08
 
     /// Como uma capa é posta no palco.
     struct Transform: Equatable, Sendable {
@@ -36,7 +39,8 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
         /// A ordem de empilhamento: a capa do meio fica por cima, e cada lateral fica abaixo da anterior.
         var zIndex: Double
         var opacity: Double
-        /// O véu escuro sobre a capa, de 0 a 1: zero na do meio, ``CoverflowGeometry/sideDimming`` nas laterais.
+        /// O véu escuro sobre a capa, de 0 a 1: zero na do meio, ``CoverflowGeometry/sideDimming`` na primeira lateral e
+        /// mais escuro a cada passo para fora.
         var dimming: Double = 0
     }
 
@@ -44,7 +48,7 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
     ///
     /// Além de `visibleSideCount` a capa já é transparente: mantém o deslocamento e a escala da regra, só some. Com
     /// Reduzir Movimento as laterais não giram e usam ``reducedMotionSideScale``. As laterais ganham o véu de
-    /// ``sideDimming``, para a capa escolhida ser a única sem ele.
+    /// ``sideDimming``, mais ``dimmingFalloff`` a cada passo, para a capa escolhida ser a única sem ele.
     func transform(forOffset d: Int, reduceMotion: Bool) -> Transform {
         let distance = abs(d)
         guard distance > 0 else {
@@ -58,7 +62,7 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
             scale: reduceMotion ? Self.reducedMotionSideScale : sideScale,
             zIndex: Double(visibleSideCount + 1 - distance),
             opacity: distance > visibleSideCount ? 0 : 1 - Self.opacityFalloff * Double(distance - 1),
-            dimming: Self.sideDimming
+            dimming: min(1, Self.sideDimming + Self.dimmingFalloff * Double(distance - 1))
         )
     }
 

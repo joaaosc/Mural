@@ -41,6 +41,23 @@ struct CoverflowTests {
             #expect(left.scale == right.scale)
             #expect(left.zIndex == right.zIndex)
             #expect(left.opacity == right.opacity)
+            #expect(left.dimming == right.dimming)
+        }
+    }
+
+    @Test("Só a capa do centro fica sem véu; as laterais escurecem mais a cada passo para fora")
+    func sidesAreDimmedMoreWithDistance() {
+        let dimming = (0...4).map { transform($0).dimming }
+        let expected = [0, 0.3, 0.38, 0.46, 0.54]
+
+        for (actual, wanted) in zip(dimming, expected) {
+            #expect(abs(actual - wanted) < 1e-9, "\(actual) em vez de \(wanted)")
+        }
+        // Longe do centro o véu para no preto inteiro, sem passar de 1.
+        #expect(transform(20).dimming == 1)
+        // Reduzir Movimento só tira o giro: o véu continua o mesmo.
+        for d in -4...4 {
+            #expect(transform(d, reduceMotion: true).dimming == transform(d).dimming, "d = \(d)")
         }
     }
 
