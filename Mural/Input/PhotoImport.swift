@@ -10,11 +10,22 @@ struct PhotoPickerFile: Transferable, Sendable {
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .image, shouldAttemptToOpenInPlace: false) { received in
-            Self(fileURL: received.file)
+            try Self(copying: received.file)
         }
         FileRepresentation(importedContentType: .movie, shouldAttemptToOpenInPlace: false) { received in
-            Self(fileURL: received.file)
+            try Self(copying: received.file)
         }
+    }
+
+    /// `ReceivedTransferredFile.file` is only valid while the importing
+    /// closure is running. Keep an app-owned copy before returning it.
+    private init(copying source: URL) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuralPhotoPickerTransfers", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.copyItem(at: source, to: destination)
+        self.fileURL = destination
     }
 }
 
@@ -37,9 +48,10 @@ enum PhotoImportStaging {
         contentTypeIdentifier: String
     ) async throws -> URL {
         try Task.checkCancellation()
-        let type = UTType(identifier: contentTypeIdentifier, allowUndeclared: false)
-        let fileExtension = type?.preferredFilenameExtension ?? source.pathExtension
-        guard !fileExtension.isEmpty else {
+        guard let type = UTType(identifier: contentTypeIdentifier, allowUndeclared: false),
+            let fileExtension = type.preferredFilenameExtension,
+            !fileExtension.isEmpty
+        else {
             throw CocoaError(.fileReadCorruptFile)
         }
         let destination = directory.appendingPathComponent("\(index)-\(UUID().uuidString).\(fileExtension)")

@@ -1,5 +1,6 @@
 import Foundation
 import MuralKit
+import PhotosUI
 import SwiftUI
 import Testing
 import UniformTypeIdentifiers
@@ -127,6 +128,52 @@ struct PortablePackageAdapterTests {
         session.invalidatePresentation()
         await session.importFiles(from: [source])
         #expect(session.error?.contains("descartada") == true)
+    }
+
+    @Test("PhotosPicker captura destino, pasta e âncora antes da seleção")
+    func photoImportDestinationIsStable() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("photo-destination-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Fotos")
+        let session = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: library))
+        await session.load()
+        let folder = try #require(session.model?.createFolder(named: "Viagem"))
+        let anchor = BoardPoint(x: 480, y: 320)
+        session.zoom.viewport = CGSize(width: 900, height: 700)
+        session.zoom.visibleRect = CGRect(x: 120, y: 80, width: 900, height: 700)
+        session.zoom.configure(workspace: CanvasWorkspaceState(confirmedZoom: 1, logicalCenter: anchor))
+        session.beginPhotoImport(folderID: folder.id)
+
+        let captured = try #require(session.importDestination)
+        #expect(captured.route == route)
+        #expect(captured.boardID == session.boardID)
+        #expect(captured.folderID == folder.id)
+        #expect(captured.anchor != nil)
+        #expect(captured.presentationEpoch == session.presentationEpoch)
+    }
+
+    @Test("PhotosPicker sem representação compatível produz falha explícita")
+    func photoImportReportsUnsupportedItem() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("photo-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Fotos")
+        let session = BoardWindowSession(
+            route: route,
+            registry: BoardSessionRegistry(library: library))
+        await session.load()
+        session.beginPhotoImport()
+        await session.importPhotos([PhotosPickerItem(itemIdentifier: "fake")])
+
+        #expect(session.model?.lastError?.contains("Item 1") == true)
+        #expect(session.importDestination == nil)
     }
 
     @Test("pasta capturada que deixou de existir não recebe arquivos")

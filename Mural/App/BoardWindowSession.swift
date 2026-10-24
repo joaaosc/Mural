@@ -640,7 +640,7 @@ final class BoardWindowSession {
     /// Loads selected PhotosPicker items through file-backed transfer, stages
     /// them inside the app container, then commits typed files in selection
     /// order. A failed item is reported while successful items remain usable.
-    func importPhotos(_ items: [PhotosPickerItem]) async {
+    func importPhotos(_ items: [PhotosPickerItem], animation: Animation? = nil) async {
         guard !items.isEmpty, let destination = importDestination else { return }
         importDestination = nil
         isImporterPresented = false
@@ -667,6 +667,10 @@ final class BoardWindowSession {
         }
         defer { PhotoImportStaging.remove(stagingDirectory) }
 
+        var receivedFiles: [URL] = []
+        defer {
+            for url in receivedFiles { try? FileManager.default.removeItem(at: url) }
+        }
         var stagedFiles: [BoardModel.TypedFile] = []
         var failures: [String] = []
         for (index, pickerItem) in items.enumerated() {
@@ -684,6 +688,7 @@ final class BoardWindowSession {
                     failures.append("Item \(index + 1)")
                     continue
                 }
+                receivedFiles.append(loaded.fileURL)
                 try Task.checkCancellation()
                 let stagedURL = try await PhotoImportStaging.copy(
                     loaded.fileURL,
@@ -713,6 +718,10 @@ final class BoardWindowSession {
             return
         }
         let prepared = await model.prepareTypedFiles(stagedFiles, parentID: destination.folderID)
+        guard !Task.isCancelled else {
+            model.discard(prepared)
+            return
+        }
         guard !isClosed,
             boardID == destination.boardID,
             presentationEpoch == destination.presentationEpoch
@@ -720,7 +729,7 @@ final class BoardWindowSession {
             model.discard(prepared)
             return
         }
-        _ = withAnimation(.smooth) {
+        _ = withAnimation(animation) {
             model.commit(prepared, into: destination.folderID, at: destination.anchor)
         }
         let allFailures = failures + prepared.failures

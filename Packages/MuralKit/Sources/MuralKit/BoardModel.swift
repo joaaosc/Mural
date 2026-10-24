@@ -247,12 +247,16 @@ public final class BoardModel {
         var failures: [String] = []
         for file in files {
             do {
+                try Task.checkCancellation()
                 items.append(
                     try importer.importFile(
                         at: file.url,
                         contentTypeIdentifier: file.contentTypeIdentifier,
                         title: file.title,
                         parentID: parentID))
+                try Task.checkCancellation()
+            } catch is CancellationError {
+                break
             } catch {
                 failures.append(file.title ?? file.url.lastPathComponent)
             }
