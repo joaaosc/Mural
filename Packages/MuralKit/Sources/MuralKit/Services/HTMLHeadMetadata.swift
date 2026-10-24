@@ -249,7 +249,7 @@ private enum HeadDecoder {
             declared.append(wideEncodings.contains(encoding) ? .utf8 : encoding)
         }
 
-        let data = Data(bytes)
+        var data: Data?
         for encoding in declared {
             switch encoding {
             case .utf8:
@@ -257,9 +257,14 @@ private enum HeadDecoder {
                 return String(decoding: bytes, as: UTF8.self)
             case .isoLatin1, .ascii:
                 // Na web, "iso-8859-1" e "us-ascii" significam windows-1252: aspas e travessões ocupam 0x80 a 0x9F.
-                if let text = String(data: data, encoding: .windowsCP1252) ?? String(data: data, encoding: .isoLatin1) { return text }
+                let decodedData = data ?? Data(bytes)
+                data = decodedData
+                if let text = String(data: decodedData, encoding: .windowsCP1252) { return text }
+                if let text = String(data: decodedData, encoding: .isoLatin1) { return text }
             default:
-                if let text = String(data: data, encoding: encoding) { return text }
+                let decodedData = data ?? Data(bytes)
+                data = decodedData
+                if let text = String(data: decodedData, encoding: encoding) { return text }
             }
         }
 
@@ -267,7 +272,8 @@ private enum HeadDecoder {
         for dropped in 0...min(3, bytes.count) {
             if let text = String(data: Data(bytes.dropLast(dropped)), encoding: .utf8) { return text }
         }
-        return String(data: data, encoding: .isoLatin1) ?? ""
+        let decodedData = data ?? Data(bytes)
+        return String(data: decodedData, encoding: .isoLatin1) ?? ""
     }
 
     /// Nome da codificação declarada em `<meta charset>` ou `<meta http-equiv="Content-Type">` nos primeiros 4 KB.
