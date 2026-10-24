@@ -8,7 +8,15 @@ struct ChecklistCard: View {
     var tint: TagColor? = nil
 
     private var previewEntries: [ChecklistEntry] {
-        Array(document.sections.flatMap(\.entries).prefix(9))
+        var entries: [ChecklistEntry] = []
+        entries.reserveCapacity(9)
+        for section in document.sections {
+            for entry in section.entries {
+                entries.append(entry)
+                if entries.count == 9 { return entries }
+            }
+        }
+        return entries
     }
 
     var body: some View {
