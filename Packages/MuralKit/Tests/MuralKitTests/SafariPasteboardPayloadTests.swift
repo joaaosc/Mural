@@ -87,7 +87,7 @@ struct SafariPasteboardPayloadTests {
 
     @Test("A imagem só vale se for da web; o favorito continua valendo sem ela")
     func nonWebImageIsDropped() throws {
-        let images = ["file:///Users/joao/capa.png", "data:image/png;base64,iVBORw0KGgo=", "capa.png", "ftp://example.com/capa.png", ""]
+        let images = ["file:///Users/test-user/capa.png", "data:image/png;base64,iVBORw0KGgo=", "capa.png", "ftp://example.com/capa.png", ""]
         let plist = try roundTrip(images.map { leaf("https://example.com/pagina", title: "Página", image: $0) })
 
         let drafts = SafariPasteboardPayload.drafts(fromBookmarkList: plist)
@@ -173,8 +173,8 @@ struct SafariPasteboardPayloadTests {
             ["URLString": 42],
             ["URLString": ["https://example.com/em-lista"]],
             ["URLString": ["URL": "https://example.com/em-dicionario"]],
-            ["URLString": "ftp://example.com/arquivo"], ["URLString": "javascript:alert(1)"], ["URLString": "file:///Users/joao/a.txt"],
-            ["URLString": "mailto:alguem@apple.com"], ["URLString": "https://"], ["URLString": ""], ["URLString": "   "],
+            ["URLString": "ftp://example.com/arquivo"], ["URLString": "javascript:alert(1)"], ["URLString": "file:///Users/test-user/a.txt"],
+            ["URLString": "mailto:someone@example.com"], ["URLString": "https://"], ["URLString": ""], ["URLString": "   "],
             ["URLString": "apple.com"], ["URLString": "duas palavras https://example.com/x"],
             ["Children": "não é lista"], ["Children": 7], ["Children": [1, "a", [2]]], ["Children": [String: Any]()],
             ["URIDictionary": ["title": "Sem endereço"], "previewText": "Sem endereço"],

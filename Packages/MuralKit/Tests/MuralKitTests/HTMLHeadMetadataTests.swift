@@ -254,7 +254,7 @@ struct HTMLHeadMetadataTests {
     @Test(
         "Esquemas que não são http nem https são descartados, e a imagem seguinte na precedência assume",
         arguments: [
-            "data:image/png;base64,iVBORw0KGgo=", "javascript:alert(1)", "ftp://example.com/a.png", "file:///Users/joao/a.png",
+            "data:image/png;base64,iVBORw0KGgo=", "javascript:alert(1)", "ftp://example.com/a.png", "file:///Users/test-user/a.png",
             "mailto:alguem@example.com", "blob:https://example.com/1234", "about:blank", "",
         ])
     func nonWebImagesAreDropped(reference: String) throws {

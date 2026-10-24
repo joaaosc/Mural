@@ -39,7 +39,7 @@ struct WebLinkTests {
         "Outros esquemas, palavras soltas e endereço sem host não viram link",
         arguments: [
             "", "   \n\t", "apple.com", "apple.com/mac", "localhost:3000", "www", "www.", "  www.  ", "//apple.com",
-            "ftp://apple.com/arquivo.zip", "file:///Users/joao/nota.txt", "mailto:alguem@apple.com",
+            "ftp://apple.com/arquivo.zip", "file:///Users/test-user/nota.txt", "mailto:someone@example.com",
             "javascript:alert(1)", "JAVASCRIPT:alert(1)", "data:text/html,<b>oi</b>", "tel:+5521999999999",
             "https://", "http://", "https:///caminho", "https://:8080", "http:apple.com", "Apple Park",
         ])
@@ -66,7 +66,7 @@ struct WebLinkTests {
         "Só http e https com host contam como web",
         arguments: [
             ("https://apple.com", true), ("http://apple.com/a?b=1", true), ("HTTPS://APPLE.COM", true), ("http://localhost:3000", true),
-            ("ftp://apple.com", false), ("file:///Users/joao/nota.txt", false), ("mailto:alguem@apple.com", false),
+            ("ftp://apple.com", false), ("file:///Users/test-user/nota.txt", false), ("mailto:someone@example.com", false),
             ("javascript:alert(1)", false), ("https://", false), ("http:///caminho", false), ("/caminho/relativo", false),
             ("apple.com", false),
         ])
@@ -128,7 +128,7 @@ struct WebLinkTests {
 
     @Test("Endereço que não é da web vira o próprio texto")
     func keyOfNonWebAddress() throws {
-        #expect(try key("mailto:alguem@apple.com") == "mailto:alguem@apple.com")
+        #expect(try key("mailto:someone@example.com") == "mailto:someone@example.com")
         #expect(try key("https://") == "https://")
     }
 
@@ -142,7 +142,7 @@ struct WebLinkTests {
             ("http://WWW.Apple.COM/Mac", "apple.com"),
             ("https://support.apple.com", "support.apple.com"),
             ("http://localhost:3000/painel", "localhost"),
-            ("mailto:alguem@apple.com", "mailto:alguem@apple.com"),
+            ("mailto:someone@example.com", "mailto:someone@example.com"),
             ("/caminho/relativo", "/caminho/relativo"),
         ])
     func displayHost(text: String, expected: String) throws {
@@ -171,7 +171,7 @@ struct WebLinkTests {
     @Test(
         "Outros esquemas e endereços sem host não têm versão segura",
         arguments: [
-            "ftp://apple.com", "file:///Users/joao/nota.txt", "mailto:alguem@apple.com", "javascript:alert(1)", "http://", "/caminho",
+            "ftp://apple.com", "file:///Users/test-user/nota.txt", "mailto:someone@example.com", "javascript:alert(1)", "http://", "/caminho",
         ])
     func noSecureVariant(text: String) throws {
         #expect(WebLink.secureVariant(of: try url(text)) == nil)
@@ -241,7 +241,7 @@ struct WebLinkTests {
         arguments: [
             "https://apple.com\nveja isto", "veja isto\nhttps://apple.com", "https://apple.com\nhttps://swift.org depois",
             "https://apple.com\n- https://swift.org", "https://apple.com\napple.com", "https://apple.com\nftp://apple.com/arquivo",
-            "https://apple.com\nmailto:alguem@apple.com", "https://apple.com\njavascript:alert(1)", "https://apple.com\nhttps://",
+            "https://apple.com\nmailto:someone@example.com", "https://apple.com\njavascript:alert(1)", "https://apple.com\nhttps://",
             "https://apple.com\nhttps://swift.org https://example.com",
         ])
     func oneBadLineRejectsEverything(text: String) {
@@ -262,8 +262,8 @@ struct WebLinkTests {
     @Test(
         "Texto sem nenhum endereço devolve vazio",
         arguments: [
-            "", "   ", "\n\n", " \t\r\n ", "apple.com", "texto qualquer", "ftp://apple.com", "mailto:alguem@apple.com",
-            "file:///Users/joao/a.txt",
+            "", "   ", "\n\n", " \t\r\n ", "apple.com", "texto qualquer", "ftp://apple.com", "mailto:someone@example.com",
+            "file:///Users/test-user/a.txt",
         ])
     func nothingToList(text: String) {
         #expect(WebLink.urls(inText: text).isEmpty)

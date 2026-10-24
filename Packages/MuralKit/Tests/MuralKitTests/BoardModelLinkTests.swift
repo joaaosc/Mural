@@ -70,8 +70,8 @@ struct BoardModelLinkTests {
         let model = BoardModel(store: store, seedIfEmpty: false)
 
         let created = model.importLinks([
-            try draft("ftp://apple.com/arquivo"), try draft("https://apple.com/mac"), try draft("mailto:alguem@apple.com"),
-            try draft("file:///Users/joao/nota.txt"), try draft("https://"), try draft("javascript:alert(1)"),
+            try draft("ftp://apple.com/arquivo"), try draft("https://apple.com/mac"), try draft("mailto:someone@example.com"),
+            try draft("file:///Users/test-user/nota.txt"), try draft("https://"), try draft("javascript:alert(1)"),
         ])
 
         #expect(created.map { $0.link?.url.absoluteString } == ["https://apple.com/mac"])
@@ -90,7 +90,7 @@ struct BoardModelLinkTests {
         try FileManager.default.createDirectory(at: store.fileURL, withIntermediateDirectories: true)
 
         #expect(model.importLinks([]).isEmpty)
-        #expect(model.importLinks([try draft("ftp://apple.com"), try draft("mailto:alguem@apple.com")]).isEmpty)
+        #expect(model.importLinks([try draft("ftp://apple.com"), try draft("mailto:someone@example.com")]).isEmpty)
         #expect(model.board == boardBefore)
         #expect(model.lastError == nil)
 
@@ -196,7 +196,7 @@ struct BoardModelLinkTests {
     @Test(
         "Imagem que não é http nem https é descartada, e o cartão nasce mesmo assim",
         arguments: [
-            "data:image/png;base64,iVBORw0KGgo=", "file:///Users/joao/capa.png", "ftp://cdn.example.com/capa.png",
+            "data:image/png;base64,iVBORw0KGgo=", "file:///Users/test-user/capa.png", "ftp://cdn.example.com/capa.png",
             "javascript:alert(1)", "/capa.png", "https://",
         ])
     func nonWebImageIsDropped(image: String) throws {

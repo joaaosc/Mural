@@ -22,7 +22,7 @@ struct LinkDisplayTests {
             ("https://apple.com", true), ("http://apple.com/mac?x=1", true), ("HTTPS://Apple.com", true),
             ("file:///Applications/Calculator.app", false), ("javascript:alert(1)", false),
             ("x-apple.systempreferences:com.apple.preference.security", false), ("ftp://apple.com/arquivo.zip", false),
-            ("mailto:alguem@apple.com", false),
+            ("mailto:someone@example.com", false),
         ])
     func onlyWebAddressesOpenInTheBrowser(address: String, opens: Bool) throws {
         let url = try #require(URL(string: address))

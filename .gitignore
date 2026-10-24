@@ -12,6 +12,10 @@ build/
 buildServer.json
 /Makefile
 xcodemake_*.log
+# Artefatos locais gerados pelo Xcode e por uma resolução SwiftPM isolada
+/Mural.xcodeproj/-Xcc/
+/Mural.xcodeproj/xcshareddata/xcodecloud/
+/Packages/MuralKit/Package.resolved
 # Versão que o Xcode Cloud escreve no clone da build (ci_scripts/ci_pre_xcodebuild.sh)
 /Config/CloudVersion.xcconfig
 

@@ -177,14 +177,14 @@ struct PasteboardImporterLinkTests {
     func nonWebAddressStaysText() async throws {
         let fixture = LinkImportFixture()
         defer { fixture.tearDown() }
-        fixture.write(Self.addressItem("mailto:alguem@apple.com"))
+        fixture.write(Self.addressItem("mailto:someone@example.com"))
 
         await fixture.paste()
 
         let item = try #require(fixture.model.board.items.first)
         #expect(fixture.model.board.items.count == 1)
         #expect(item.kind == .sticky)
-        #expect(item.text == "mailto:alguem@apple.com")
+        #expect(item.text == "mailto:someone@example.com")
     }
 
     // MARK: Imagem e PDF vêm antes
