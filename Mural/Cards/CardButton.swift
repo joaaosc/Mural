@@ -40,63 +40,75 @@ struct CardButton: View {
 
     var body: some View {
         HeroSlot(id: item.id, context: hero) {
-            Button(action: activate) {
-                ZStack(alignment: .bottomLeading) {
-                    CardView(item: item, model: model)
-                    CardCaptionView(caption: item.caption)
+            cardSurface
+        }
+    }
+
+    /// Mantém o `ConfirmationDialog` fora da árvore enquanto nenhum cartão está pedindo confirmação.
+    /// Cada cartão continua anexando o diálogo no instante em que `isConfirmingDelete` muda para `true`.
+    @ViewBuilder
+    private var cardSurface: some View {
+        let card = Button(action: activate) {
+            ZStack(alignment: .bottomLeading) {
+                CardView(item: item, model: model)
+                CardCaptionView(caption: item.caption)
+            }
+        }
+        .buttonStyle(.plain)
+        // Só no botão do cartão: aplicado depois das sobreposições, o rótulo cobriria também o da bolinha.
+        .accessibilityLabel(item.title)
+        .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: Theme.cardCorner)
+                    .strokeBorder(.tint, lineWidth: 3)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if selection?.isActive == true {
+                SelectionBadge(isSelected: isSelected)
+                    .offset(x: -SelectionBadge.outset, y: -SelectionBadge.outset)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .overlay(alignment: .topLeading) { reminderToggle }
+        .overlay(alignment: .topLeading) { musicToggle }
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Abrir", action: onOpen)
+            if let onRename {
+                Button("Renomear…") { onRename(item.id) }
+            }
+            if let onEditCaption {
+                Button(item.caption == nil ? "Adicionar legenda…" : "Editar legenda…") {
+                    onEditCaption(item.id)
                 }
             }
-            .buttonStyle(.plain)
-            // Só no botão do cartão: aplicado depois das sobreposições, o rótulo cobriria também o da bolinha.
-            .accessibilityLabel(item.title)
-            .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: Theme.cardCorner)
-                        .strokeBorder(.tint, lineWidth: 3)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if selection?.isActive == true {
-                    SelectionBadge(isSelected: isSelected)
-                        .offset(x: -SelectionBadge.outset, y: -SelectionBadge.outset)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay(alignment: .topLeading) { reminderToggle }
-            .overlay(alignment: .topLeading) { musicToggle }
-            .onHover { isHovering = $0 }
-            .contextMenu {
-                Button("Abrir", action: onOpen)
-                if let onRename {
-                    Button("Renomear…") { onRename(item.id) }
-                }
-                if let onEditCaption {
-                    Button(item.caption == nil ? "Adicionar legenda…" : "Editar legenda…") {
-                        onEditCaption(item.id)
-                    }
-                }
-                linkMenu
-                musicMenu
-                notesMenu
-                moveMenu
-                sizeMenu
-                Divider()
-                colorMenu
-                Divider()
-                Button("Apagar…", role: .destructive) { isConfirmingDelete = true }
-            }
-            .confirmationDialog("Apagar “\(item.title)”?", isPresented: $isConfirmingDelete) {
+            linkMenu
+            musicMenu
+            notesMenu
+            moveMenu
+            sizeMenu
+            Divider()
+            colorMenu
+            Divider()
+            Button("Apagar…", role: .destructive) { isConfirmingDelete = true }
+        }
+
+        if isConfirmingDelete {
+            card.confirmationDialog("Apagar “\(item.title)”?", isPresented: $isConfirmingDelete) {
                 Button("Apagar", role: .destructive) {
                     withAnimation(reduceMotion ? nil : .smooth) { onDelete?(item.id) ?? model.delete(item.id) }
                 }
             } message: {
                 Text(ItemKind.deleteWarning(for: item, childCount: model.descendantCount(of: item.id)))
             }
+        } else {
+            card
         }
     }
 
