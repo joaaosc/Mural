@@ -128,6 +128,7 @@ Evidências verificadas após as mudanças:
 - `ReminderPickerTests` e `MuralTests`: 9/9 passaram após as reduções de recomputação.
 - `BoardModelTests`: 23/23 passaram, incluindo invalidação dos caches depois de criar uma nova pasta, cartão e texto livre, a disponibilidade dos snapshots de tamanhos, sua atualização após redimensionar um texto livre e a invalidação do folding após mudar o texto.
 - `CanvasRenderCullingTests`: 9/9 passaram em Debug e 9/9 em Release após incluir o snapshot de tamanhos para cartões e textos livres e consolidar os derivados do `CardButton`. O Release aguardou processos de build concorrentes, mas terminou com todos os testes verdes.
+- Execução Release mais recente de `PerformanceBaselineTests`: 12/12 passaram após as otimizações de extensão e posicionamento; culling de 2.000 cartões mais 2.000 textos mediu 0,000220 s por amostra, posicionamento sequencial de 200 cartões 0,1063 s, leituras derivadas cacheadas aproximadamente 0,000003 s e lookups indexados de cartões 0,000109 s. São baselines da execução atual, não uma comparação pareada nem uma garantia de ganho em produção.
 - formatter do projeto e `scripts/check-xcproj.sh`: sem diferenças ou erros.
 - Uma tentativa focada de `MuralUITests/testContextMenuStoresCardInFolder` não chegou a executar o caso: `MuralUITests-Runner` expirou ao habilitar o modo de automação. Isso é uma falha de inicialização do ambiente de UI, não evidência de falha funcional do menu.
 
