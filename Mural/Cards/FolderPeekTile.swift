@@ -18,18 +18,26 @@ struct FolderPeekItem: Identifiable, Equatable {
         _ children: [BoardItem], limit: Int = 3, fileURL: (BoardItem) -> URL?,
         linkPreviewURL: (BoardItem) -> URL? = { _ in nil }
     ) -> [FolderPeekItem] {
-        children.suffix(max(limit, 0)).map { child in
+        let count = min(max(limit, 0), children.count)
+        guard count > 0 else { return [] }
+
+        var peeks: [FolderPeekItem] = []
+        peeks.reserveCapacity(count)
+        for index in (children.count - count)..<children.count {
+            let child = children[index]
             let url: URL? =
                 if child.kind == .link || child.kind == .music { linkPreviewURL(child) } else {
                     child.kind.storesFile ? fileURL(child) : nil
                 }
-            return FolderPeekItem(
-                id: child.id,
-                kind: child.kind,
-                title: child.title,
-                fileURL: url,
-                stickyColor: child.stickyColor)
+            peeks.append(
+                FolderPeekItem(
+                    id: child.id,
+                    kind: child.kind,
+                    title: child.title,
+                    fileURL: url,
+                    stickyColor: child.stickyColor))
         }
+        return peeks
     }
 }
 
