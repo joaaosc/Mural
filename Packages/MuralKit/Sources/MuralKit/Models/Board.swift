@@ -127,7 +127,19 @@ public struct Board: Codable, Equatable, Sendable {
 
     /// Variante interna que reutiliza um índice de hierarquia preparado pelo `BoardModel`.
     func descendantCount(of folderID: UUID, byParent: [UUID: [BoardItem]]) -> Int {
-        descendants(of: folderID, byParent: byParent).count
+        var count = 0
+        var visited: Set<UUID> = [folderID]
+        var level = byParent[folderID] ?? []
+        while !level.isEmpty {
+            var next: [BoardItem] = []
+            next.reserveCapacity(level.count)
+            for child in level where visited.insert(child.id).inserted {
+                count += 1
+                next.append(contentsOf: byParent[child.id] ?? [])
+            }
+            level = next
+        }
+        return count
     }
 
     /// Quantas pastas há acima do cartão (0 = solto no mural). O nível de uma pasta é a profundidade dela mais 1.
