@@ -236,7 +236,12 @@ public final class BoardModel {
     public func children(of folderID: UUID) -> [BoardItem] {
         let currentBoard = board
         if let cached = childrenCache[folderID] { return cached }
-        let children = currentBoard.children(of: folderID)
+        let children: [BoardItem]
+        if let grouped = folderChildrenByParentCache {
+            children = grouped[folderID] ?? []
+        } else {
+            children = currentBoard.children(of: folderID)
+        }
         if childrenCache.count >= Self.derivedCacheEntryLimit, let evicted = childrenCacheOrder.first {
             childrenCache.removeValue(forKey: evicted)
             childrenCacheOrder.removeFirst()

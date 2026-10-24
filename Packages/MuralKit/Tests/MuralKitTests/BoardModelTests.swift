@@ -62,6 +62,21 @@ struct BoardModelTests {
         #expect(model.folderDestinations(for: second.id).map(\.id) == [destination.id])
     }
 
+    @Test("Filhos reutilizam o índice hierárquico já construído")
+    func childrenReuseHierarchyIndex() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let parent = model.createFolder(named: "Pai")
+        let first = try #require(model.importText("Primeiro", into: parent.id))
+        let second = try #require(model.importText("Segundo", into: parent.id))
+
+        // A consulta de destinos materializa o agrupamento compartilhado por pai.
+        _ = model.folderDestinations(for: first.id)
+        #expect(model.children(of: parent.id).map(\.id) == [first.id, second.id])
+
+        let third = try #require(model.importText("Terceiro", into: parent.id))
+        #expect(model.children(of: parent.id).map(\.id) == [first.id, second.id, third.id])
+    }
+
     @Test("Leituras derivadas memoizadas são invalidadas quando o mural muda")
     func derivedReadCachesInvalidateAfterBoardChange() throws {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)
