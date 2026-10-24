@@ -318,7 +318,7 @@ public final class BoardModel {
             }
         }
         for parentID in grouped.keys {
-            grouped[parentID]?.sort { $0.createdAt < $1.createdAt }
+            grouped[parentID]?.sort(by: Board.isCreatedBefore)
         }
         folderChildrenByParentCache = grouped
         return grouped

@@ -62,6 +62,23 @@ struct BoardModelTests {
         #expect(model.folderDestinations(for: second.id).map(\.id) == [destination.id])
     }
 
+    @Test("Destinos do modelo seguem o desempate por id do mural quando as datas empatam")
+    func folderDestinationsUseBoardTieBreak() throws {
+        let createdAt = Date(timeIntervalSinceReferenceDate: 1000)
+        let parent = BoardItem(kind: .folder, title: "Pai", createdAt: createdAt)
+        let lowID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let highID = try #require(UUID(uuidString: "FFFFFFFF-0000-0000-0000-000000000001"))
+        // Na lista, a pasta de id maior vem antes: só o desempate por id põe a de id menor primeiro.
+        let high = BoardItem(id: highID, kind: .folder, title: "Mesma", createdAt: createdAt, parentID: parent.id)
+        let low = BoardItem(id: lowID, kind: .folder, title: "Mesma", createdAt: createdAt, parentID: parent.id)
+        let card = BoardItem(kind: .sticky, title: "Cartão", createdAt: createdAt)
+        let board = Board(items: [parent, high, low, card])
+        let model = BoardModel(board: board, store: makeStore())
+
+        #expect(model.folderDestinations(for: card.id) == board.folderDestinations(for: card.id))
+        #expect(model.folderDestinations(for: card.id).map(\.id) == [parent.id, low.id, high.id])
+    }
+
     @Test("Leituras derivadas memoizadas são invalidadas quando o mural muda")
     func derivedReadCachesInvalidateAfterBoardChange() throws {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)
