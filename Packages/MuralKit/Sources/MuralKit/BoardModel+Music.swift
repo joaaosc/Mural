@@ -3,7 +3,13 @@ import Foundation
 @MainActor
 extension BoardModel {
     /// Todos os cartões de música do mural, de qualquer nível.
-    public var musicItems: [BoardItem] { board.items.filter { $0.kind == .music } }
+    public var musicItems: [BoardItem] {
+        let currentBoard = board
+        if let musicItemsCache { return musicItemsCache }
+        let musicItems = currentBoard.items.filter { $0.kind == .music }
+        musicItemsCache = musicItems
+        return musicItems
+    }
 
     /// Cria um cartão de música para cada item e grava uma vez ao final, se criou algo.
     ///

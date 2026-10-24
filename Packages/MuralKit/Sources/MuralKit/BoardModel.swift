@@ -21,6 +21,7 @@ public final class BoardModel {
             rootItemsCache = nil
             freeTextsCache = nil
             reminderItemsCache = nil
+            musicItemsCache = nil
             rootExtentCache = nil
             itemIndexCache = nil
             childrenCache.removeAll(keepingCapacity: true)
@@ -42,6 +43,7 @@ public final class BoardModel {
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
     @ObservationIgnored private var reminderItemsCache: [BoardItem]?
+    @ObservationIgnored var musicItemsCache: [BoardItem]?
     @ObservationIgnored private var rootExtentCache: BoardSize?
     @ObservationIgnored private var itemIndexCache: [UUID: Int]?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
