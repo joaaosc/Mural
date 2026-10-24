@@ -45,6 +45,10 @@ public enum BoardRemovalReason: Equatable, Sendable {
     case accessRevoked
     /// A conta do iCloud deste Mac mudou: o que havia pertence a outra conta.
     case accountChanged
+    /// A pessoa apagou os dados do app no iCloud (Ajustes, gerenciar armazenamento) ou redefiniu os dados criptografados: só a cópia
+    /// na nuvem sumiu. O mural continua sendo dela, então quem recebe o aviso não apaga o pacote local; só volta o mural a ser só
+    /// local, sem sincronização.
+    case cloudDataErased
 }
 
 /// Por que o iCloud recusou gravar um registro. O motor traduz o erro do CloudKit para um destes casos.

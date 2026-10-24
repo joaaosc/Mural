@@ -383,9 +383,9 @@ struct BoardSyncCoordinatorTests {
     // MARK: Zona apagada
 
     @Test(
-        "Zona apagada, acesso perdido ou conta trocada: o estado some, o host é avisado do motivo e os avisos do mural também",
+        "Zona apagada, acesso perdido, conta trocada ou dados apagados do iCloud: o estado some, o host é avisado do motivo e os avisos do mural também",
         arguments: [
-            BoardRemovalReason.zoneDeleted, .accessRevoked, .accountChanged,
+            BoardRemovalReason.zoneDeleted, .accessRevoked, .accountChanged, .cloudDataErased,
         ])
     func removedBoardIsForgotten(reason: BoardRemovalReason) async throws {
         let note = makeNote()
