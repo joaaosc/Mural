@@ -301,6 +301,31 @@ struct NoteImageStorageTests {
         #expect(saved.formatVersion == 1)
     }
 
+    @Test("Reconciliação preserva duplicatas legadas válidas e remove as demais")
+    func reconcilePreservesLegacyAttachmentOrder() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = makeModel(directory)
+        let first = try #require(await model.prepareNoteImage(data: try pngData(), fileExtension: "png"))
+        let second = try #require(await model.prepareNoteImage(data: try pngData(), fileExtension: "png"))
+        let note = makeNote(in: model, attachment: first)
+        model.addNoteAttachment(second, to: note.id)
+        model.updateNote(
+            note.id,
+            title: "Nota",
+            text: "\(NoteImageMarkup.line(fileName: first.fileName))\n\n\(NoteImageMarkup.line(fileName: second.fileName))")
+
+        var corrupted = model.board
+        let index = try #require(corrupted.items.firstIndex(where: { $0.id == note.id }))
+        corrupted.items[index].attachments = [first, first, second]
+        model.board = corrupted
+
+        model.updateNote(note.id, title: "Nota", text: NoteImageMarkup.line(fileName: first.fileName))
+        #expect(model.item(id: note.id)?.attachments == [first, first])
+        #expect(exists(model, first.fileName))
+        #expect(!exists(model, second.fileName))
+    }
+
     @Test("updateNote adota o nome citado cujo arquivo existe")
     func updateAdoptsCitedFile() async throws {
         let directory = try makeDirectory()

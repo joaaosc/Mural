@@ -1081,15 +1081,25 @@ public final class BoardModel {
     /// - Returns: os nomes que deixaram de ser anexos da nota.
     private func reconcileAttachments(of item: inout BoardItem) -> [String] {
         let referenced = NoteImageMarkup.referencedFileNames(in: item.text ?? "")
+        let referencedNames = Set(referenced)
         let old = item.attachments ?? []
-        var kept = old.filter { referenced.contains($0.fileName) }
-        for name in referenced where !kept.contains(where: { $0.fileName == name }) {
+        var kept = old.filter { referencedNames.contains($0.fileName) }
+        var keptNames = Set<String>()
+        keptNames.reserveCapacity(kept.count + referenced.count)
+        for attachment in kept { keptNames.insert(attachment.fileName) }
+        for name in referenced where !keptNames.contains(name) {
             let url = importer.itemsDirectory.appendingPathComponent(name)
             guard let metadata = ImageInspector.inspect(url) else { continue }
             kept.append(NoteAttachment(fileName: name, pixelWidth: metadata.pixelWidth, pixelHeight: metadata.pixelHeight))
+            keptNames.insert(name)
         }
         item.attachments = kept.isEmpty ? nil : kept
-        return old.map(\.fileName).filter { name in !kept.contains { $0.fileName == name } }
+        var removed: [String] = []
+        removed.reserveCapacity(old.count)
+        for attachment in old where !keptNames.contains(attachment.fileName) {
+            removed.append(attachment.fileName)
+        }
+        return removed
     }
 
     /// Manda para a remoção os arquivos que saíram de uma nota: no modo imediato, apaga os que o mural
