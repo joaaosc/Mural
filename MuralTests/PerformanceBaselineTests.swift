@@ -119,6 +119,37 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertEqual(foundCount, ids.count)
     }
 
+    func testIndexedFreeTextLookupPerformance() throws {
+        let freeTexts = (0..<200).map { index in
+            BoardFreeText(
+                id: UUID(),
+                text: "Fixture free text \(index)",
+                position: BoardPoint(x: Double(index * 20), y: Double(index * 8)))
+        }
+        let board = Board(freeTexts: freeTexts)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardFreeTextLookup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let model = BoardModel(
+            board: board,
+            store: BoardStore(directory: directory),
+            persistence: .deferred)
+        let ids = freeTexts.map(\.id)
+        for id in ids {
+            _ = model.freeText(id: id)
+        }
+
+        var foundCount = 0
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            foundCount = ids.reduce(into: 0) { count, id in
+                if model.freeText(id: id) != nil { count += 1 }
+            }
+        }
+
+        XCTAssertEqual(foundCount, ids.count)
+    }
+
     func testBatchImportPositioningPerformance() throws {
         let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
         let kinds = Array(repeating: ItemKind.image, count: 200)

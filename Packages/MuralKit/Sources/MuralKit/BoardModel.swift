@@ -24,6 +24,7 @@ public final class BoardModel {
             musicItemsCache = nil
             rootExtentCache = nil
             itemIndexCache = nil
+            freeTextIndexCache = nil
             childrenCache.removeAll(keepingCapacity: true)
             childrenCacheOrder.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
@@ -46,6 +47,7 @@ public final class BoardModel {
     @ObservationIgnored var musicItemsCache: [BoardItem]?
     @ObservationIgnored private var rootExtentCache: BoardSize?
     @ObservationIgnored private var itemIndexCache: [UUID: Int]?
+    @ObservationIgnored private var freeTextIndexCache: [UUID: Int]?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
     @ObservationIgnored private var childrenCacheOrder: [UUID] = []
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
@@ -160,7 +162,21 @@ public final class BoardModel {
         folderDestinationsCacheOrder.append(id)
         return destinations
     }
-    public func freeText(id: UUID) -> BoardFreeText? { board.freeText(id: id) }
+    /// Lookup de texto livre por UUID usando um índice lazy da revisão atual do board.
+    /// A primeira ocorrência vence, como em `Board.freeText(id:)` mesmo em dados corrompidos.
+    public func freeText(id: UUID) -> BoardFreeText? {
+        let currentBoard = board
+        if freeTextIndexCache == nil {
+            var index: [UUID: Int] = [:]
+            index.reserveCapacity(currentBoard.freeTexts.count)
+            for (offset, freeText) in currentBoard.freeTexts.enumerated() {
+                if index[freeText.id] == nil { index[freeText.id] = offset }
+            }
+            freeTextIndexCache = index
+        }
+        guard let offset = freeTextIndexCache?[id], currentBoard.freeTexts.indices.contains(offset) else { return nil }
+        return currentBoard.freeTexts[offset]
+    }
     public func fileURL(for item: BoardItem) -> URL? { importer.fileURL(for: item) }
 
     /// URL de uma imagem citada numa nota, em `Items/`; `nil` se o nome não for de anexo seguro.
@@ -628,7 +644,7 @@ public final class BoardModel {
     /// - Returns: `false` quando o texto não existe ou já tinha o mesmo conteúdo normalizado.
     @discardableResult
     public func updateFreeText(_ freeTextID: UUID, text: String) -> Bool {
-        guard var freeText = board.freeText(id: freeTextID) else { return false }
+        guard var freeText = freeText(id: freeTextID) else { return false }
         let normalized = BoardFreeText.normalized(text)
         guard freeText.text != normalized else { return false }
         freeText.text = normalized
@@ -640,7 +656,7 @@ public final class BoardModel {
     /// Move um texto livre e mantém o ponto dentro do mural.
     @discardableResult
     public func moveFreeText(_ freeTextID: UUID, to position: BoardPoint) -> Bool {
-        guard let current = board.freeText(id: freeTextID), current.position != BoardLayout.clamped(position) else {
+        guard let current = freeText(id: freeTextID), current.position != BoardLayout.clamped(position) else {
             return false
         }
         board.moveFreeText(id: freeTextID, to: position)
