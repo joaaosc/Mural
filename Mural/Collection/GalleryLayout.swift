@@ -22,6 +22,9 @@ struct GalleryLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = proposal.width ?? 900
+        if let cached = cache.arrangement, cache.width == width, cached.frames.count == subviews.count {
+            return cached.size
+        }
         let arranged = makeArrangement(width: width, subviews: subviews)
         cache.arrangement = arranged
         cache.width = width

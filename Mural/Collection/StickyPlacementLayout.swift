@@ -20,6 +20,13 @@ struct StickyPlacementLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = proposal.width ?? 900
+        if cache.width == width, cache.frames.count == subviews.count {
+            var height: CGFloat = 0
+            for frame in cache.frames {
+                height = max(height, frame.maxY)
+            }
+            return CGSize(width: width, height: height)
+        }
         let frames = frames(width: width, subviews: subviews)
         cache.frames = frames
         cache.width = width
