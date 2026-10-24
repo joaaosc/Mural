@@ -58,6 +58,7 @@ struct BoardModelTests {
         #expect(model.rootItems.count == 1)
         #expect(model.children(of: folder.id).isEmpty)
         #expect(model.freeTexts.isEmpty)
+        #expect(model.item(id: folder.id)?.title == "Pasta")
         let initialExtent = model.rootExtent
 
         let card = try #require(model.importText("Cartão", into: folder.id))
@@ -66,6 +67,7 @@ struct BoardModelTests {
         #expect(model.rootItems.map(\.id) == [folder.id])
         #expect(model.children(of: folder.id).map(\.id) == [card.id])
         #expect(model.freeTexts.map(\.id) == [freeText.id])
+        #expect(model.item(id: card.id)?.title == "Cartão")
         #expect(model.rootExtent != initialExtent)
     }
 

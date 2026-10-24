@@ -91,4 +91,29 @@ final class PerformanceBaselineTests: XCTestCase {
 
         XCTAssertGreaterThan(derivedCount, 0)
     }
+
+    func testIndexedItemLookupPerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardItemLookup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let model = BoardModel(
+            board: board,
+            store: BoardStore(directory: directory),
+            persistence: .deferred)
+        let ids = Array(board.items.prefix(200).map(\.id))
+        for id in ids {
+            _ = model.item(id: id)
+        }
+
+        var foundCount = 0
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            foundCount = ids.reduce(into: 0) { count, id in
+                if model.item(id: id) != nil { count += 1 }
+            }
+        }
+
+        XCTAssertEqual(foundCount, ids.count)
+    }
 }

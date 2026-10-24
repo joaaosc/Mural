@@ -21,6 +21,7 @@ public final class BoardModel {
             rootItemsCache = nil
             freeTextsCache = nil
             rootExtentCache = nil
+            itemIndexCache = nil
             childrenCache.removeAll(keepingCapacity: true)
             childrenCacheOrder.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
@@ -40,6 +41,7 @@ public final class BoardModel {
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
     @ObservationIgnored private var rootExtentCache: BoardSize?
+    @ObservationIgnored private var itemIndexCache: [UUID: Int]?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
     @ObservationIgnored private var childrenCacheOrder: [UUID] = []
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
@@ -125,7 +127,21 @@ public final class BoardModel {
         childrenCacheOrder.append(folderID)
         return children
     }
-    public func item(id: UUID) -> BoardItem? { board.item(id: id) }
+    /// Lookup by UUID uses a lazy index for the current board revision. The first
+    /// occurrence wins, matching `Board.item(id:)` even if corrupted data repeats an ID.
+    public func item(id: UUID) -> BoardItem? {
+        let currentBoard = board
+        if itemIndexCache == nil {
+            var index: [UUID: Int] = [:]
+            index.reserveCapacity(currentBoard.items.count)
+            for (offset, item) in currentBoard.items.enumerated() {
+                if index[item.id] == nil { index[item.id] = offset }
+            }
+            itemIndexCache = index
+        }
+        guard let offset = itemIndexCache?[id], currentBoard.items.indices.contains(offset) else { return nil }
+        return currentBoard.items[offset]
+    }
     /// Destinos memoizados enquanto o board não muda. Menus e gestos podem pedir os destinos de vários cartões
     /// durante a mesma avaliação; o cálculo puro de `Board` continua disponível para snapshots independentes.
     public func folderDestinations(for id: UUID) -> [FolderDestination] {
