@@ -110,7 +110,7 @@ public enum CardRecordMapping {
         let fileName = try reader.string(.fileName)
         let attachments = try reader.json([NoteAttachment].self, .attachments)
         // O nome vem de outra pessoa e vira caminho em `Items/`: nada de sair da pasta.
-        for name in (fileName.map { [$0] } ?? []) + (attachments ?? []).map(\.fileName) where !isSafeFileName(name) {
+        for name in (fileName.map { [$0] } ?? []) + (attachments ?? []).map(\.fileName) where !BoardRepository.isSafeAssetName(name) {
             throw CardRecordMappingError.invalidRecord("nome de arquivo fora de Items/: \(name)")
         }
 
@@ -181,6 +181,16 @@ public enum CardRecordMapping {
         return name
     }
 
+    /// A versão do formato que o registro do mural declara, ou `nil` se o registro não é do mural ou não a traz. Quem sincroniza
+    /// recusa editar um mural gravado por um app mais novo (versão maior que `Board.currentFormatVersion`): regravá-lo perderia o que
+    /// o app novo guardou.
+    public static func boardFormatVersion(from record: CloudRecord) -> Int? {
+        guard record.type == CloudSchema.RecordType.mural.rawValue,
+            case .int(let version)? = record.fields[CloudSchema.Key.formatVersion.rawValue]
+        else { return nil }
+        return Int(exactly: version)
+    }
+
     // MARK: Arquivo de mídia
 
     /// Os campos do registro de um arquivo de `Items/`: o arquivo e o cartão a que ele pertence. O nome do registro é o do arquivo.
@@ -195,7 +205,7 @@ public enum CardRecordMapping {
     /// arquivo ou tem um nome que sairia de `Items/`: o nome vem de outra pessoa e vira caminho no disco.
     public static func mediaFile(from record: CloudRecord) -> (fileName: String, url: URL)? {
         guard record.type == CloudSchema.RecordType.mediaFile.rawValue,
-            isSafeFileName(record.id.name),
+            BoardRepository.isSafeAssetName(record.id.name),
             case .asset(let url)? = record.fields[CloudSchema.Key.file.rawValue]
         else { return nil }
         return (record.id.name, url)
@@ -227,11 +237,6 @@ public enum CardRecordMapping {
             throw CardRecordMappingError.invalidRecord("o nome do registro não é um UUID: \(record.id.name)")
         }
         return id
-    }
-
-    /// Um nome de arquivo de `Items/`: um único componente, sem ocultos, `..`, `/` nem `:`. É a mesma regra do `BoardRepository`.
-    private static func isSafeFileName(_ name: String) -> Bool {
-        !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains(":") && name == (name as NSString).lastPathComponent
     }
 }
 

@@ -514,8 +514,9 @@ public actor BoardRepository {
             withIntermediateDirectories: true)
     }
 
-    /// Nome de arquivo de mídia aceito: um único componente, sem ocultos nem `..`.
-    static func isSafeAssetName(_ name: String) -> Bool {
+    /// Nome de arquivo de mídia aceito: um único componente, sem ocultos nem `..`. É público para o iCloud (`MuralSync`) usar a
+    /// mesma regra, em vez de uma cópia, ao receber nomes de outras pessoas.
+    public static func isSafeAssetName(_ name: String) -> Bool {
         !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains(":")
             && name == (name as NSString).lastPathComponent
     }
