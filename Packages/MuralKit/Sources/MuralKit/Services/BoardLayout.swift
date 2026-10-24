@@ -151,10 +151,13 @@ public enum BoardLayout {
 
     /// Canto inferior direito ocupado pelos cartões soltos; um mural vazio ocupa zero.
     public static func extent(of items: [BoardItem]) -> (width: Double, height: Double) {
-        items.reduce((width: 0, height: 0)) { partial, item in
+        var extent = (width: 0.0, height: 0.0)
+        for item in items {
             let itemSize = size(of: item)
-            return (max(partial.width, item.position.x + itemSize.width), max(partial.height, item.position.y + itemSize.height))
+            extent.width = max(extent.width, item.position.x + itemSize.width)
+            extent.height = max(extent.height, item.position.y + itemSize.height)
         }
+        return extent
     }
 
     /// Extensão ocupada pelos cartões e textos livres do mural.
@@ -162,13 +165,13 @@ public enum BoardLayout {
         of items: [BoardItem], freeTexts: [BoardFreeText]
     ) -> (width: Double, height: Double) {
         let itemsExtent = extent(of: items)
-        return freeTexts.reduce(itemsExtent) { partial, text in
+        var extent = itemsExtent
+        for text in freeTexts {
             let textSize = size(of: text)
-            return (
-                width: max(partial.width, text.position.x + textSize.width),
-                height: max(partial.height, text.position.y + textSize.height)
-            )
+            extent.width = max(extent.width, text.position.x + textSize.width)
+            extent.height = max(extent.height, text.position.y + textSize.height)
         }
+        return extent
     }
 
     /// Primeira posição de uma grade que não encosta em cartões nem em outros textos livres. O texto novo tem o tamanho padrão;

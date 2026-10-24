@@ -164,13 +164,13 @@ public final class BoardModel {
         let itemSizes = rootItemSizesCache
         let extent: (width: Double, height: Double)
         if let itemSizes, itemSizes.count == items.count {
-            extent = items.reduce((width: 0.0, height: 0.0)) { partial, item in
-                guard let size = itemSizes[item.id] else { return partial }
-                return (
-                    width: max(partial.width, item.position.x + size.width),
-                    height: max(partial.height, item.position.y + size.height)
-                )
+            var cachedExtent = (width: 0.0, height: 0.0)
+            for item in items {
+                guard let size = itemSizes[item.id] else { continue }
+                cachedExtent.width = max(cachedExtent.width, item.position.x + size.width)
+                cachedExtent.height = max(cachedExtent.height, item.position.y + size.height)
             }
+            extent = cachedExtent
         } else {
             extent = BoardLayout.extent(of: items)
         }
@@ -178,21 +178,21 @@ public final class BoardModel {
         let freeTextSizes = freeTextSizesCache
         let fullExtent: (width: Double, height: Double)
         if let freeTextSizes, freeTextSizes.count == texts.count {
-            fullExtent = texts.reduce(extent) { partial, freeText in
-                guard let size = freeTextSizes[freeText.id] else { return partial }
-                return (
-                    width: max(partial.width, freeText.position.x + size.width),
-                    height: max(partial.height, freeText.position.y + size.height)
-                )
+            var cachedFullExtent = extent
+            for freeText in texts {
+                guard let size = freeTextSizes[freeText.id] else { continue }
+                cachedFullExtent.width = max(cachedFullExtent.width, freeText.position.x + size.width)
+                cachedFullExtent.height = max(cachedFullExtent.height, freeText.position.y + size.height)
             }
+            fullExtent = cachedFullExtent
         } else {
-            fullExtent = texts.reduce(extent) { partial, freeText in
+            var uncachedFullExtent = extent
+            for freeText in texts {
                 let size = BoardLayout.size(of: freeText)
-                return (
-                    width: max(partial.width, freeText.position.x + size.width),
-                    height: max(partial.height, freeText.position.y + size.height)
-                )
+                uncachedFullExtent.width = max(uncachedFullExtent.width, freeText.position.x + size.width)
+                uncachedFullExtent.height = max(uncachedFullExtent.height, freeText.position.y + size.height)
             }
+            fullExtent = uncachedFullExtent
         }
         let result = BoardSize(width: fullExtent.width, height: fullExtent.height)
         rootExtentCache = result
