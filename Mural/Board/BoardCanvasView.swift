@@ -121,7 +121,7 @@ struct BoardCanvasView: View {
             .marqueeSelecting(
                 in: Self.space, selection: selection, lineWidth: 1 / zoom.zoom, isActive: $isMarqueeActive
             ) {
-                cardFrames(of: model.rootItems)
+                cardFrames(of: items)
             }
             // Os arrastos medem neste espaço, em pontos do mural, sem o zoom.
             .coordinateSpace(.named(Self.space))

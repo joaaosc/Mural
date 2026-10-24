@@ -35,17 +35,6 @@ struct CollectionView: View {
     /// (`onGeometryChange`) leem o nome fora do MainActor.
     private nonisolated static let space = "collection-content"
 
-    private var children: [BoardItem] { model.children(of: folder.id) }
-    /// Os cartões das colunas: tudo, menos os post-its largados num lugar livre da pasta.
-    private var columnItems: [BoardItem] { children.filter { !$0.isPlacedInFolder } }
-    /// Os post-its soltos, na ordem da lista: o último fica por cima.
-    private var placedStickies: [BoardItem] { model.board.placedStickies(in: folder.id) }
-    /// O post-it arrastado ainda está nas colunas: elas passam por cima dos soltos até ele ser largado.
-    private var isDraggingFromColumns: Bool {
-        guard let id = stickyDrag?.id else { return false }
-        return columnItems.contains { $0.id == id }
-    }
-
     /// Seletor de ⌘ só quando esta pasta é o nível de cima (sem um item aberto por cima dela).
     private var selection: CardSelection? {
         guard let session, session.path.last == .collection(folder.id) else { return nil }
@@ -53,6 +42,16 @@ struct CollectionView: View {
     }
 
     var body: some View {
+        let children = model.children(of: folder.id)
+        // Os cartões das colunas: tudo, menos os post-its largados num lugar livre da pasta.
+        let columnItems = children.filter { !$0.isPlacedInFolder }
+        // Os post-its soltos, na ordem da lista: o último fica por cima.
+        let placedStickies = model.board.placedStickies(in: folder.id)
+        let isDraggingFromColumns =
+            stickyDrag.map { drag in
+                columnItems.contains { $0.id == drag.id }
+            } ?? false
+
         ScrollView {
             Group {
                 if children.isEmpty {
@@ -61,7 +60,7 @@ struct CollectionView: View {
                     ZStack(alignment: .topLeading) {
                         GalleryLayout {
                             ForEach(columnItems) { item in
-                                measuredCard(for: item)
+                                measuredCard(for: item, columnItems: columnItems)
                                     .galleryLane(item.kind.storesFile || item.kind == .link ? .media : .notes)
                                     .zIndex(stickyDrag?.id == item.id ? 1 : 0)
                             }
@@ -70,7 +69,7 @@ struct CollectionView: View {
                         StickyPlacementLayout {
                             ForEach(placedStickies) { item in
                                 let place = item.folderPosition ?? .zero
-                                measuredCard(for: item)
+                                measuredCard(for: item, columnItems: columnItems)
                                     .stickyPlacement(CGPoint(x: place.x, y: place.y))
                                     .zIndex(stickyDrag?.id == item.id ? 1 : 0)
                             }
@@ -128,7 +127,7 @@ struct CollectionView: View {
         .accessibilityHidden(restoring)
     }
 
-    private func card(for item: BoardItem) -> some View {
+    private func card(for item: BoardItem, columnItems: [BoardItem]) -> some View {
         CardButton(
             item: item,
             model: model,
@@ -149,14 +148,14 @@ struct CollectionView: View {
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
         .cardEmphasis(BoardFilter.emphasis(for: item, kind: filter, color: colorFilter))
         .dropTargetHighlight(stickyDrag?.tracker.target == item.id)
-        .highPriorityGesture(stickyMoveGesture(for: item), isEnabled: item.kind == .sticky)
+        .highPriorityGesture(stickyMoveGesture(for: item, columnItems: columnItems), isEnabled: item.kind == .sticky)
         .offset(stickyOffset(for: item))
     }
 
     /// O cartão com o id de rolagem e a medição do quadro dele no espaço do conteúdo. O arrasto (`.offset`) vem antes
     /// da medição, então `itemFrames` guarda o quadro sem ele.
-    private func measuredCard(for item: BoardItem) -> some View {
-        card(for: item)
+    private func measuredCard(for item: BoardItem, columnItems: [BoardItem]) -> some View {
+        card(for: item, columnItems: columnItems)
             .id(item.id)
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(Self.space))
@@ -180,16 +179,16 @@ struct CollectionView: View {
     /// soltar, sem animação: o post-it fica onde o ponteiro o deixou, solto por cima das colunas e dos outros cartões.
     /// Soltar sobre uma subpasta (destacada antes de soltar) o guarda nela, desde que o domínio aceite o destino: ele
     /// sai desta pasta e perde o lugar solto. Os outros tipos de cartão não se movem.
-    private func stickyMoveGesture(for item: BoardItem) -> some Gesture {
+    private func stickyMoveGesture(for item: BoardItem, columnItems: [BoardItem]) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDraggingSticky) { _, isDragging, _ in isDragging = true }
             .onChanged { value in
-                stickyDrag = drag(of: item, moved: value)
+                stickyDrag = drag(of: item, moved: value, columnItems: columnItems)
             }
             .onEnded { value in
                 // Decide pelo ponto em que o botão foi solto: num arrasto rápido ele pode não ter chegado num
                 // `onChanged`, e o destino anotado estaria atrasado.
-                if let folderID = drag(of: item, moved: value).tracker.target {
+                if let folderID = drag(of: item, moved: value, columnItems: columnItems).tracker.target {
                     store(item, in: folderID)
                     return
                 }
@@ -216,12 +215,12 @@ struct CollectionView: View {
     /// O arrasto de `item` com o ponteiro onde `value` o deixou. No primeiro movimento, anota as subpastas que podem
     /// guardar o post-it e a que já estava sob o ponteiro (ela só vira destino depois que o ponteiro sai dela uma
     /// vez); depois, só acompanha o ponteiro.
-    private func drag(of item: BoardItem, moved value: DragGesture.Value) -> StickyDrag {
+    private func drag(of item: BoardItem, moved value: DragGesture.Value, columnItems: [BoardItem]) -> StickyDrag {
         var current: StickyDrag
         if let existing = stickyDrag, existing.id == item.id {
             current = existing
         } else {
-            let accepted = acceptedSubfolders(for: item)
+            let accepted = acceptedSubfolders(for: item, among: columnItems)
             current = StickyDrag(
                 id: item.id, translation: .zero,
                 tracker: FolderDropTracker(startFolder: subfolder(at: value.startLocation, among: accepted)),
@@ -233,7 +232,7 @@ struct CollectionView: View {
     }
 
     /// As subpastas desta pasta (as das colunas) que o domínio aceita como destino do post-it.
-    private func acceptedSubfolders(for item: BoardItem) -> [UUID] {
+    private func acceptedSubfolders(for item: BoardItem, among columnItems: [BoardItem]) -> [UUID] {
         let accepted = Set(model.board.folderDestinations(for: item.id).map(\.id))
         return columnItems.filter { $0.kind == .folder && accepted.contains($0.id) }.map(\.id)
     }
