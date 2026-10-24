@@ -58,6 +58,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `BoardModel.referencedLinkPreviewFiles`: a coleta de imagens, ícones e capas de música passou a percorrer os itens uma vez, em vez de executar duas passagens separadas.
 - `MarqueeSelecting`: os quadros dos cartões são capturados no início do arrasto de seleção e reutilizados nos eventos seguintes, evitando reconstruir o dicionário a cada movimento sem alterar a seleção ou o cancelamento do gesto.
 - `CollectionView`: cartões de coluna e post-its posicionados são particionados numa única passagem sobre `model.children(of:)`, evitando uma segunda varredura do board para obter os post-its.
+- `BoardCanvasView` e `CollectionView`: o estado do tocador só é consultado para cartões de música; cartões de outros tipos recebem diretamente `.idle`, sem lookup desnecessário por cartão.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.

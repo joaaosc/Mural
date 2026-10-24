@@ -254,7 +254,7 @@ struct BoardCanvasView: View {
             onResize: { id, size in commitResize(.item(id), to: size) },
             onToggleReminder: onToggleReminder,
             onToggleMusic: onToggleMusic,
-            musicPhase: musicPhase?(item.id) ?? .idle,
+            musicPhase: item.kind == .music ? musicPhase?(item.id) ?? .idle : .idle,
             selection: selection)
     }
 
