@@ -23,7 +23,11 @@ struct StickyPlacementLayout: Layout {
         let frames = frames(width: width, subviews: subviews)
         cache.frames = frames
         cache.width = width
-        return CGSize(width: width, height: frames.map(\.maxY).max() ?? 0)
+        var height: CGFloat = 0
+        for frame in frames {
+            height = max(height, frame.maxY)
+        }
+        return CGSize(width: width, height: height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
