@@ -18,12 +18,20 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
     public var base: Board
     /// O nome do mural como está no iCloud; nil antes do primeiro envio.
     public var baseName: String?
+    /// A versão do formato que o registro do mural tem no iCloud; nil antes do primeiro envio. Fica à parte porque a base só mostra a
+    /// versão que o conteúdo exige: se os cartões forem aceitos e o registro do mural não, o iCloud segue com a versão antiga e o
+    /// mural continua pendente.
+    public var baseBoardFormatVersion: Int?
     /// O número de empilhamento de cada cartão como está no iCloud.
     public var layers: [UUID: Double]
     /// Campos de sistema de cada registro pelo nome (opacos aqui: o motor de verdade guarda o arquivamento do `CKRecord`).
     public var systemFields: [String: Data]
     /// Arquivos de `Items/` que já estão no iCloud.
     public var uploadedFiles: Set<String>
+    /// O cartão a que cada arquivo de `uploadedFiles` pertence (o campo `cardID` do registro), pelo nome do arquivo. Só entra um dono
+    /// que este Mac conhece. Com ele o arquivo sai do iCloud mesmo depois de o cartão já ter saído da base, e o arquivo de um cartão de
+    /// app mais novo (`unsupportedRecordNames`) nunca sai.
+    public var mediaOwners: [String: UUID]
     /// Registros de um app mais novo, que este Mac não entende e nunca apaga nem regrava.
     public var unsupportedRecordNames: Set<String>
 
@@ -31,22 +39,26 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         cloud: BoardCloudInfo,
         base: Board = Board(),
         baseName: String? = nil,
+        baseBoardFormatVersion: Int? = nil,
         layers: [UUID: Double] = [:],
         systemFields: [String: Data] = [:],
         uploadedFiles: Set<String> = [],
+        mediaOwners: [String: UUID] = [:],
         unsupportedRecordNames: Set<String> = []
     ) {
         self.cloud = cloud
         self.base = base
         self.baseName = baseName
+        self.baseBoardFormatVersion = baseBoardFormatVersion
         self.layers = layers
         self.systemFields = systemFields
         self.uploadedFiles = uploadedFiles
+        self.mediaOwners = mediaOwners
         self.unsupportedRecordNames = unsupportedRecordNames
     }
 
     private enum CodingKeys: String, CodingKey {
-        case cloud, base, baseName, layers, systemFields, uploadedFiles, unsupportedRecordNames
+        case cloud, base, baseName, baseBoardFormatVersion, layers, systemFields, uploadedFiles, mediaOwners, unsupportedRecordNames
     }
 
     public init(from decoder: any Decoder) throws {
@@ -54,6 +66,9 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         cloud = try container.decode(BoardCloudInfo.self, forKey: .cloud)
         base = try container.decode(Board.self, forKey: .base)
         baseName = try container.decodeIfPresent(String.self, forKey: .baseName)
+        // Os dois campos novos faltam nos estados gravados antes deles: ausentes valem nil e vazio.
+        baseBoardFormatVersion = try container.decodeIfPresent(Int.self, forKey: .baseBoardFormatVersion)
+        mediaOwners = try container.decodeIfPresent([String: UUID].self, forKey: .mediaOwners) ?? [:]
         var layers: [UUID: Double] = [:]
         for (name, layer) in try container.decode([String: Double].self, forKey: .layers) {
             // Duas chaves para o mesmo UUID (maiúsculas e minúsculas) só existem em arquivo mexido à mão.
@@ -73,9 +88,11 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         try container.encode(cloud, forKey: .cloud)
         try container.encode(base, forKey: .base)
         try container.encodeIfPresent(baseName, forKey: .baseName)
+        try container.encodeIfPresent(baseBoardFormatVersion, forKey: .baseBoardFormatVersion)
         try container.encode(Dictionary(uniqueKeysWithValues: layers.map { ($0.key.uuidString, $0.value) }), forKey: .layers)
         try container.encode(systemFields, forKey: .systemFields)
         try container.encode(uploadedFiles.sorted(), forKey: .uploadedFiles)
+        try container.encode(mediaOwners, forKey: .mediaOwners)
         try container.encode(unsupportedRecordNames.sorted(), forKey: .unsupportedRecordNames)
     }
 }

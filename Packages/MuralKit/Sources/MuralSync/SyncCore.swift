@@ -60,12 +60,14 @@ public enum SyncCore {
     ///
     /// - Cartões e textos livres: o que `BoardChanges` aponta entre a base e o mural daqui, mais os cartões cujo número de
     ///   empilhamento muda (`StackingOrder`).
-    /// - O registro do mural: se o nome ou a versão do formato mudou, ou se ele nunca foi enviado.
+    /// - O registro do mural: se o nome ou a versão do formato que o conteúdo exige difere do que o registro tem no iCloud
+    ///   (`baseBoardFormatVersion`, e não a da base, que pode ter andado sem ele), ou se ele nunca foi enviado.
     /// - Mídia: arquivos que algum cartão cita, existem em `itemsDirectory` e ainda não subiram; e os que subiram e nenhum cartão cita
-    ///   mais, desde que um cartão da base os citasse. Essa condição deixa em paz a mídia de um cartão de app mais novo, que este
-    ///   Mac não entende e por isso nunca esteve na base.
+    ///   mais, se o dono (`mediaOwners`) não é de app mais novo. Sem dono conhecido, só se um cartão da base os citava: um arquivo que
+    ///   chegou antes do seu cartão não pode passar por arquivo de cartão apagado.
     ///
-    /// Um registro de app mais novo (`unsupportedRecordNames`) nunca é gravado nem apagado, para não perder o que o app novo guardou.
+    /// Um registro de app mais novo (`unsupportedRecordNames`, ou o mural com versão do formato que esta build não lê) nunca é
+    /// gravado nem apagado, para não perder o que o app novo guardou.
     public static func pendingChanges(
         state: BoardSyncState,
         local: Board,
@@ -94,28 +96,32 @@ public enum SyncCore {
         for id in changes.savedFreeTextIDs { save(id.uuidString) }
         for id in changes.deletedFreeTextIDs { delete(id.uuidString) }
 
-        if state.baseName == nil
-            || CardRecordMapping.boardFields(name: name, board: local)
-                != CardRecordMapping.boardFields(name: state.baseName ?? "", board: state.base)
-        {
+        if canWriteBoardRecord(state), state.baseName != name || state.baseBoardFormatVersion != local.requiredFormatVersion {
             save(CloudSchema.muralRecordName)
         }
 
+        let cited = Set(local.items.flatMap(\.assetFileNames))
         // O nome do arquivo vira caminho em `Items/`: um nome que saísse da pasta nunca sobe.
-        for file in Set(local.items.flatMap(\.assetFileNames)) where !state.uploadedFiles.contains(file) {
+        for file in cited where !state.uploadedFiles.contains(file) {
             guard BoardRepository.isSafeAssetName(file), fileExists(itemsDirectory.appendingPathComponent(file, isDirectory: false)) else {
                 continue
             }
             save(file)
         }
-        for file in changes.releasedFileNames where state.uploadedFiles.contains(file) { delete(file) }
+        for file in state.uploadedFiles where !cited.contains(file) {
+            if let owner = state.mediaOwners[file] {
+                if !state.unsupportedRecordNames.contains(owner.uuidString) { delete(file) }
+            } else if changes.releasedFileNames.contains(file) {
+                delete(file)
+            }
+        }
         return pending
     }
 
     /// O registro a enviar para `id`, com os valores atuais deste Mac e os campos de sistema que o iCloud deu da última vez.
     ///
-    /// O tipo vem de quem o nome representa aqui: o registro `mural`, um cartão, um texto livre ou um arquivo de `Items/`. Cartão de
-    /// app mais novo (`unsupportedRecordNames`) não gera registro.
+    /// O tipo vem de quem o nome representa aqui: o registro `mural`, um cartão, um texto livre ou um arquivo de `Items/`. Não gera
+    /// registro o cartão de app mais novo (`unsupportedRecordNames`) nem o mural cuja versão do formato esta build não lê.
     /// - Returns: `nil` se o que o registro representa não existe mais aqui (a mudança some) ou se é de app mais novo.
     /// - Throws: `CardRecordMappingError.recordTooLarge` se os campos do cartão passam do limite do iCloud.
     public static func record(
@@ -127,7 +133,7 @@ public enum SyncCore {
         }
 
         if id.name == CloudSchema.muralRecordName {
-            return build(.mural, CardRecordMapping.boardFields(name: name, board: local))
+            return canWriteBoardRecord(state) ? build(.mural, CardRecordMapping.boardFields(name: name, board: local)) : nil
         }
         if let uuid = entityID(of: id.name) {
             if let index = local.items.firstIndex(where: { $0.id == uuid }) {
@@ -149,8 +155,8 @@ public enum SyncCore {
     // MARK: Depois de enviar
 
     /// O iCloud aceitou estes registros: a base passa a ter exatamente os valores enviados (o cartão e o seu número, o texto livre, o
-    /// nome do mural, o arquivo em `uploadedFiles`) e os campos de sistema que ele devolveu. Um registro que esta build não entende
-    /// (app mais novo) não entra na base: fica só em `unsupportedRecordNames`.
+    /// nome e a versão do formato do mural, o arquivo em `uploadedFiles` com o seu dono) e os campos de sistema que ele devolveu.
+    /// Um registro que esta build não entende (app mais novo) não entra na base: fica só em `unsupportedRecordNames`.
     ///
     /// O que mudou aqui durante o envio não está nos registros e por isso continua pendente. Ou entra tudo, ou o estado fica como
     /// estava.
@@ -158,13 +164,13 @@ public enum SyncCore {
     ///   isso é erro de quem chama.
     public static func confirmSaved(_ records: [CloudRecord], into state: inout BoardSyncState) throws {
         var updated = state
-        for record in records { _ = try absorb(record, into: &updated) }
+        for record in records { _ = try absorb(record, into: &updated, isOwnUpload: true) }
         updated.base.formatVersion = updated.base.requiredFormatVersion
         state = updated
     }
 
-    /// O iCloud apagou estes registros: o que os nomes representam sai da base, dos números de empilhamento, de `uploadedFiles` e dos
-    /// campos de sistema. Nome que não representa nada é ignorado.
+    /// O iCloud apagou estes registros: o que os nomes representam sai da base, dos números de empilhamento, de `uploadedFiles` (com o
+    /// dono) e dos campos de sistema. Nome que não representa nada é ignorado.
     public static func confirmDeleted(_ ids: [CloudRecordID], into state: inout BoardSyncState) {
         for id in ids { forget(id.name, from: &state) }
         state.base.formatVersion = state.base.requiredFormatVersion
@@ -225,7 +231,7 @@ public enum SyncCore {
     /// Lê o registro e o incorpora ao estado, ou devolve `nil` se está ilegível (nada muda).
     private static func readable(_ record: CloudRecord, into state: inout BoardSyncState) throws -> Absorbed? {
         do {
-            return try absorb(record, into: &state)
+            return try absorb(record, into: &state, isOwnUpload: false)
         } catch CardRecordMappingError.invalidRecord {
             return nil
         }
@@ -242,11 +248,15 @@ public enum SyncCore {
         case mediaFile(fileName: String, url: URL)
     }
 
-    /// Lê o registro e o põe no estado: a base, os números, o nome, os arquivos enviados e os campos de sistema. Um registro de app mais
-    /// novo só entra em `unsupportedRecordNames`; um que volta a ser entendido sai de lá. O registro é lido por inteiro antes de o
-    /// estado mudar, então quem falha não deixa nada pela metade.
+    /// Lê o registro e o põe no estado: a base, os números, o nome e a versão do mural, os arquivos enviados com os seus donos e os
+    /// campos de sistema. Um registro de app mais novo só entra em `unsupportedRecordNames`; um que volta a ser entendido sai de lá. O
+    /// registro é lido por inteiro antes de o estado mudar, então quem falha não deixa nada pela metade.
+    ///
+    /// O dono de um arquivo só é guardado se este Mac o conhece: um cartão da base ou de app mais novo, ou qualquer um quando o envio
+    /// foi daqui (`isOwnUpload`). O arquivo que chega antes do seu cartão fica sem dono e ganha um quando o cartão chega; guardar o
+    /// dono antes disso faria o arquivo parecer o de um cartão já apagado.
     /// - Throws: `CardRecordMappingError.invalidRecord` se o registro não pode ser lido.
-    private static func absorb(_ record: CloudRecord, into state: inout BoardSyncState) throws -> Absorbed {
+    private static func absorb(_ record: CloudRecord, into state: inout BoardSyncState, isOwnUpload: Bool) throws -> Absorbed {
         let recordName = record.id.name
         let absorbed: Absorbed
         switch CloudSchema.RecordType(rawValue: record.type) {
@@ -256,6 +266,9 @@ public enum SyncCore {
                 upsert(item, into: &state.base.items)
                 if let layer { state.layers[item.id] = layer }
                 state.unsupportedRecordNames.remove(recordName)
+                for file in item.assetFileNames where state.uploadedFiles.contains(file) && state.mediaOwners[file] == nil {
+                    state.mediaOwners[file] = item.id
+                }
                 absorbed = .card(item)
             case .unsupported:
                 state.unsupportedRecordNames.insert(recordName)
@@ -270,6 +283,7 @@ public enum SyncCore {
                 throw CardRecordMappingError.invalidRecord("o registro do mural precisa se chamar mural e ter nome: \(recordName)")
             }
             state.baseName = name
+            state.baseBoardFormatVersion = CardRecordMapping.boardFormatVersion(from: record)
             absorbed = .board(name: name)
         case .mediaFile?:
             guard let file = CardRecordMapping.mediaFile(from: record) else {
@@ -277,6 +291,9 @@ public enum SyncCore {
                     "o registro do arquivo não traz o arquivo ou o nome sai de Items/: \(recordName)")
             }
             state.uploadedFiles.insert(file.fileName)
+            if let owner = CardRecordMapping.mediaCardID(from: record), isOwnUpload || isKnownCard(owner, in: state) {
+                state.mediaOwners[file.fileName] = owner
+            }
             absorbed = .mediaFile(fileName: file.fileName, url: file.url)
         case nil:
             throw CardRecordMappingError.invalidRecord("o tipo de registro é desconhecido: \(record.type)")
@@ -286,6 +303,7 @@ public enum SyncCore {
     }
 
     /// Tira do estado o que o nome representava. Devolve os ids que estavam na base como cartão ou texto livre, para `receive` contar.
+    /// O dono de um arquivo sai junto com o arquivo, não com o cartão.
     @discardableResult
     private static func forget(_ recordName: String, from state: inout BoardSyncState) -> (itemID: UUID?, freeTextID: UUID?) {
         var forgotten: (itemID: UUID?, freeTextID: UUID?) = (nil, nil)
@@ -300,8 +318,14 @@ public enum SyncCore {
             }
             state.layers[id] = nil
         }
-        // Sem o registro do mural no iCloud, o nome volta a ser pendente e ele é regravado.
-        if recordName == CloudSchema.muralRecordName { state.baseName = nil }
+        // Sem o registro do mural no iCloud, o nome e a versão voltam a ser pendentes e ele é regravado.
+        if recordName == CloudSchema.muralRecordName {
+            state.baseName = nil
+            state.baseBoardFormatVersion = nil
+        }
+        // O dono sai junto com o arquivo. Os donos que apontam para um cartão que saiu ficam: é por eles que o arquivo dele ainda pode
+        // ser apagado, mesmo com o cartão já fora da base.
+        state.mediaOwners[recordName] = nil
         state.uploadedFiles.remove(recordName)
         state.unsupportedRecordNames.remove(recordName)
         state.systemFields[recordName] = nil
@@ -312,6 +336,16 @@ public enum SyncCore {
     /// registro, senão o número enviado não seria o que fez o cartão ficar pendente.
     private static func reassignedLayers(state: BoardSyncState, local: Board) -> [UUID: Double] {
         StackingOrder.assignments(for: local.items.map(\.id), previous: state.layers)
+    }
+
+    /// O registro do mural pode ser regravado? Não, se foi gravado por um app mais novo: a versão do formato dele cairia.
+    private static func canWriteBoardRecord(_ state: BoardSyncState) -> Bool {
+        (state.baseBoardFormatVersion ?? 0) <= Board.currentFormatVersion
+    }
+
+    /// Este Mac conhece o cartão: ele está na base ou é de um app mais novo.
+    private static func isKnownCard(_ id: UUID, in state: BoardSyncState) -> Bool {
+        state.base.items.contains { $0.id == id } || state.unsupportedRecordNames.contains(id.uuidString)
     }
 
     private static func zoneID(of state: BoardSyncState) -> CloudZoneID {

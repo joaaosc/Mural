@@ -461,6 +461,21 @@ struct CardRecordMappingTests {
         #expect(media.url == url)
     }
 
+    @Test("O cartão dono vem do campo cardID do registro de mídia, e só se for um UUID")
+    func mediaCardIDComesFromTheCardIDField() {
+        let cardID = UUID()
+        let url = URL(fileURLWithPath: "/tmp/cache/foto.jpg")
+        let fields = CardRecordMapping.mediaFields(fileURL: url, cardID: cardID)
+
+        #expect(CardRecordMapping.mediaCardID(from: SyncFixtures.record(.mediaFile, name: "foto.jpg", fields: fields)) == cardID)
+        #expect(
+            CardRecordMapping.mediaCardID(from: SyncFixtures.record(.mediaFile, name: "foto.jpg", fields: ["file": .asset(url)])) == nil)
+        #expect(
+            CardRecordMapping.mediaCardID(from: SyncFixtures.record(.mediaFile, name: "foto.jpg", fields: ["cardID": .string("x")])) == nil)
+        #expect(CardRecordMapping.mediaCardID(from: SyncFixtures.record(.mediaFile, name: "foto.jpg", fields: ["cardID": .int(1)])) == nil)
+        #expect(CardRecordMapping.mediaCardID(from: SyncFixtures.record(.card, name: "foto.jpg", fields: fields)) == nil)
+    }
+
     @Test("Registro de mídia sem arquivo, de outro tipo ou com nome que sairia de Items/ não vale")
     func invalidMediaRecordsGiveNothing() {
         let url = URL(fileURLWithPath: "/tmp/cache/foto.jpg")

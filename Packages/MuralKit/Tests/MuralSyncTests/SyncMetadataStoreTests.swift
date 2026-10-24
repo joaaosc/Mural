@@ -40,6 +40,7 @@ struct SyncMetadataStoreTests {
         #expect(loaded.base.freeTexts == state.base.freeTexts)
         #expect(loaded.layers == state.layers && loaded.systemFields == state.systemFields)
         #expect(loaded.baseName == "Casa 🏠" && loaded.cloud == SyncFixtures.cloudInfo)
+        #expect(loaded.baseBoardFormatVersion == 10 && loaded.mediaOwners == state.mediaOwners && loaded.mediaOwners.count == 2)
         let dates = { (board: Board) in board.items.map { $0.createdAt.timeIntervalSinceReferenceDate.bitPattern } }
         #expect(dates(loaded.base) == dates(state.base), "as datas voltam bit a bit")
     }
@@ -57,9 +58,10 @@ struct SyncMetadataStoreTests {
         let loaded = try #require(try await store.state(for: id))
         #expect(loaded == state)
         #expect(loaded.baseName == nil && loaded.base == Board() && loaded.layers.isEmpty)
+        #expect(loaded.baseBoardFormatVersion == nil && loaded.mediaOwners.isEmpty)
         #expect(loaded.systemFields.isEmpty && loaded.uploadedFiles.isEmpty && loaded.unsupportedRecordNames.isEmpty)
         let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: stateFile(id, in: directory))) as? [String: Any])
-        #expect(object["baseName"] == nil)
+        #expect(object["baseName"] == nil && object["baseBoardFormatVersion"] == nil)
     }
 
     @Test("Gravar de novo troca o estado, e cada mural guarda o seu")
@@ -89,17 +91,20 @@ struct SyncMetadataStoreTests {
             var layers: [UUID: Double] = [:]
             var systemFields: [String: Data] = [:]
             var uploaded = Set<String>()
+            var owners: [String: UUID] = [:]
             var unsupported = Set<String>()
             for index in reversed ? Array(ids.indices.reversed()) : Array(ids.indices) {
                 let name = ids[index].uuidString
                 layers[ids[index]] = Double(index)
                 systemFields[name] = Data([UInt8(index % 256)])
                 uploaded.insert("\(name).jpg")
+                owners["\(name).jpg"] = ids[index]
                 unsupported.insert(name)
             }
             return BoardSyncState(
-                cloud: SyncFixtures.cloudInfo, layers: layers, systemFields: systemFields, uploadedFiles: uploaded,
-                unsupportedRecordNames: unsupported)
+                cloud: SyncFixtures.cloudInfo, baseBoardFormatVersion: 3, layers: layers, systemFields: systemFields,
+                uploadedFiles: uploaded,
+                mediaOwners: owners, unsupportedRecordNames: unsupported)
         }
         let directory = temporaryDirectory()
         defer { cleanUp(directory) }
@@ -113,6 +118,49 @@ struct SyncMetadataStoreTests {
         let forwardBytes = try Data(contentsOf: stateFile(forward, in: directory))
         #expect(forwardBytes == (try Data(contentsOf: stateFile(backward, in: directory))))
         #expect(try await store.state(for: forward) == state(reversed: true))
+    }
+
+    @Test("Um estado gravado antes da versão do mural e dos donos dos arquivos continua abrindo, com nil e vazio")
+    func stateWrittenBeforeTheNewFieldsStillOpens() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let id = BoardID()
+        let owner = UUID()
+        let state = BoardSyncState(
+            cloud: SyncFixtures.cloudInfo, baseName: "Casa", baseBoardFormatVersion: 3, layers: [owner: 0.5],
+            uploadedFiles: ["foto.jpg"], mediaOwners: ["foto.jpg": owner])
+        let store = SyncMetadataStore(directory: directory)
+        try await store.save(state, for: id)
+        // Como o arquivo era antes: sem os dois campos.
+        let url = stateFile(id, in: directory)
+        var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(object["baseBoardFormatVersion"] != nil && object["mediaOwners"] != nil)
+        object["baseBoardFormatVersion"] = nil
+        object["mediaOwners"] = nil
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+
+        let loaded = try #require(try await store.state(for: id))
+
+        #expect(loaded.baseBoardFormatVersion == nil && loaded.mediaOwners.isEmpty)
+        var expected = state
+        expected.baseBoardFormatVersion = nil
+        expected.mediaOwners = [:]
+        #expect(loaded == expected, "o resto do estado abre como estava")
+    }
+
+    @Test("Dono de arquivo que não é UUID é arquivo ilegível")
+    func badMediaOwnerIsCorrupted() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let id = BoardID()
+        try await store.save(SyncFixtures.syncState(), for: id)
+        let url = stateFile(id, in: directory)
+        var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        object["mediaOwners"] = ["foto.jpg": "não é UUID"]
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+
+        await #expect(throws: SyncMetadataStoreError.self) { try await store.state(for: id) }
     }
 
     // MARK: Onde fica no disco
@@ -131,15 +179,25 @@ struct SyncMetadataStoreTests {
 
         #expect(CloudDatabaseScope.private.rawValue == "private" && CloudDatabaseScope.shared.rawValue == "shared")
         let fileManager = FileManager.default
-        #expect(try fileManager.contentsOfDirectory(atPath: directory.appendingPathComponent("boards").path) == ["\(id.rawValue.uuidString).json"])
-        #expect(Set(try fileManager.contentsOfDirectory(atPath: directory.path)) == ["boards", "engine-private.data", "engine-shared.data"])
+        #expect(
+            try fileManager.contentsOfDirectory(atPath: directory.appendingPathComponent("boards").path) == [
+                "\(id.rawValue.uuidString).json"
+            ])
+        #expect(
+            Set(try fileManager.contentsOfDirectory(atPath: directory.path)) == ["boards", "engine-private.data", "engine-shared.data"])
         #expect(try Data(contentsOf: directory.appendingPathComponent("engine-private.data")) == Data([1, 2, 3]))
         #expect(try Data(contentsOf: directory.appendingPathComponent("engine-shared.data")) == Data([4, 5]))
 
         // O JSON é legível: as camadas ficam por UUID e os conjuntos em lista ordenada.
         let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: stateFile(id, in: directory))) as? [String: Any])
         #expect(
-            Set(object.keys) == ["cloud", "base", "baseName", "layers", "systemFields", "uploadedFiles", "unsupportedRecordNames"])
+            Set(object.keys) == [
+                "cloud", "base", "baseName", "baseBoardFormatVersion", "layers", "systemFields", "uploadedFiles", "mediaOwners",
+                "unsupportedRecordNames",
+            ])
+        #expect(object["baseBoardFormatVersion"] as? Int == 10)
+        let owners = try #require(object["mediaOwners"] as? [String: String])
+        #expect(owners == state.mediaOwners.mapValues(\.uuidString))
         let layers = try #require(object["layers"] as? [String: Double])
         #expect(layers == Dictionary(uniqueKeysWithValues: state.layers.map { ($0.key.uuidString, $0.value) }))
         #expect(object["uploadedFiles"] as? [String] == state.uploadedFiles.sorted())

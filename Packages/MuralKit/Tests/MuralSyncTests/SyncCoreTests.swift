@@ -179,8 +179,13 @@ struct SyncCoreTests {
         }
         #expect(bits(state.base.items) == bits(local.items))
         #expect(state.base.formatVersion == local.requiredFormatVersion)
-        #expect(state.baseName == Self.boardName)
+        #expect(state.baseName == Self.boardName && state.baseBoardFormatVersion == local.requiredFormatVersion)
         #expect(state.uploadedFiles == [Self.imageFile, Self.attachmentFile, Self.pdfFile])
+        #expect(Set(state.mediaOwners.keys) == state.uploadedFiles)
+        for file in state.uploadedFiles {
+            let firstOwner = local.items.first { $0.assetFileNames.contains(file) }?.id
+            #expect(state.mediaOwners[file] == firstOwner, "o dono é o primeiro cartão que cita \(file)")
+        }
         #expect(Set(state.layers.keys) == Set(local.items.map(\.id)))
         #expect(Set(state.systemFields.keys) == names(of: first))
         #expect(state.systemFields["mural"] == Data("v1:mural".utf8))
@@ -376,6 +381,64 @@ struct SyncCoreTests {
         #expect(pending(scenario.state, scenario.local, scenario.items).isEmpty)
     }
 
+    @Test("Cartão que sobe a versão do formato aceito sem o registro do mural: o mural continua pendente até ser aceito")
+    func boardStaysPendingWhenOnlyTheCardIsAccepted() throws {
+        var scenario = try syncedScenario(board: Board(items: [BoardItem(kind: .sticky, title: "Tinta", text: "Azul")]))
+        defer { cleanUp(scenario.items) }
+        #expect(scenario.state.baseBoardFormatVersion == 1)
+        let link = BoardItem(
+            kind: .link, title: "Site",
+            link: LinkInfo(url: URL(string: "https://example.com/a")!, pageTitle: "Página", siteName: "Exemplo", summary: "Resumo"))
+        scenario.local.items.append(link)
+        var linkRecord = try #require(try record(cardID(link), scenario))
+        linkRecord.systemFields = Data("v2".utf8)
+
+        try SyncCore.confirmSaved([linkRecord], into: &scenario.state)
+
+        #expect(scenario.state.base.requiredFormatVersion == 3, "a base já exige a versão 3")
+        #expect(scenario.state.baseBoardFormatVersion == 1, "o registro do mural no iCloud segue na 1")
+        #expect(pending(scenario.state, scenario.local, scenario.items) == saves(["mural"]))
+
+        var mural = try #require(try record(recordID("mural"), scenario))
+        mural.systemFields = Data("v2".utf8)
+        try SyncCore.confirmSaved([mural], into: &scenario.state)
+        #expect(scenario.state.baseBoardFormatVersion == 3)
+        #expect(pending(scenario.state, scenario.local, scenario.items).isEmpty)
+    }
+
+    @Test("Apagado o registro do mural no iCloud, o nome e a versão voltam a ser pendentes e o mural é regravado")
+    func deletedBoardRecordIsPendingAgain() throws {
+        var scenario = try syncedScenario()
+        defer { cleanUp(scenario.items) }
+        #expect(scenario.state.baseName == Self.boardName && scenario.state.baseBoardFormatVersion == 10)
+
+        let received = try SyncCore.receive(saved: [], deleted: [recordID("mural")], into: &scenario.state)
+
+        #expect(received.isEmpty && received.name == nil)
+        #expect(scenario.state.baseName == nil && scenario.state.baseBoardFormatVersion == nil)
+        #expect(scenario.state.systemFields["mural"] == nil)
+        #expect(pending(scenario.state, scenario.local, scenario.items) == saves(["mural"]))
+    }
+
+    @Test("Mural gravado por um app mais novo: a versão fica guardada e o registro do mural não é regravado")
+    func boardFromNewerAppIsNotRewritten() throws {
+        var scenario = try syncedScenario()
+        defer { cleanUp(scenario.items) }
+        var mural = SyncFixtures.record(
+            .mural, name: "mural",
+            fields: ["name": .string("Nome do app novo"), "formatVersion": .int(Int64(Board.currentFormatVersion) + 1)])
+        mural.systemFields = Data("app-novo".utf8)
+
+        let received = try SyncCore.receive(saved: [mural], deleted: [], into: &scenario.state)
+
+        #expect(received.name == "Nome do app novo" && scenario.state.baseBoardFormatVersion == Board.currentFormatVersion + 1)
+        let edited = scenario.local.items[0].id
+        scenario.local.items[0].title = "Editado aqui"
+        let changes = pending(scenario.state, scenario.local, scenario.items, name: "Outro nome")
+        #expect(changes == saves([edited.uuidString]), "os cartões seguem, o mural não")
+        #expect(try record(recordID("mural"), scenario) == nil)
+    }
+
     // MARK: Apagar
 
     @Test("Cartão apagado: apaga o registro dele e a mídia que só ele citava, não a que outro cartão ainda cita")
@@ -401,25 +464,113 @@ struct SyncCoreTests {
                 == deletes([alone.id.uuidString, first.id.uuidString, second.id.uuidString, Self.imageFile, Self.attachmentFile]))
     }
 
-    @Test("Mídia de um cartão de app mais novo nunca sai, mesmo sem nenhum cartão daqui a citar")
-    func newerAppMediaIsNeverDeleted() throws {
+    @Test(
+        "Mídia de um cartão de app mais novo nunca sai, chegue o arquivo antes ou depois do registro do cartão",
+        arguments: [false, true])
+    func newerAppMediaIsNeverDeleted(mediaFirst: Bool) throws {
         var scenario = try syncedScenario()
         defer { cleanUp(scenario.items) }
-        let newer = try newerCard(BoardItem(kind: .image, title: "Do app novo", fileName: Self.newerFile))
+        let owner = BoardItem(kind: .image, title: "Do app novo", fileName: Self.newerFile)
+        let newer = try newerCard(owner)
         let media = SyncFixtures.record(
             .mediaFile, name: Self.newerFile,
             fields: CardRecordMapping.mediaFields(
-                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(Self.newerFile), cardID: UUID()))
-        _ = try SyncCore.receive(saved: [newer, media], deleted: [], into: &scenario.state)
-        #expect(scenario.state.uploadedFiles.contains(Self.newerFile))
-
+                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(Self.newerFile), cardID: owner.id))
         scenario.local.items = []
         scenario.local.freeTexts = []
+        let deletedNames = { names(of: pending(scenario.state, scenario.local, scenario.items), deleting: true) }
 
-        let deleted = names(of: pending(scenario.state, scenario.local, scenario.items), deleting: true)
+        for record in mediaFirst ? [media, newer] : [newer, media] {
+            _ = try SyncCore.receive(saved: [record], deleted: [], into: &scenario.state)
+            #expect(!deletedNames().contains(Self.newerFile), "nem no meio do caminho")
+        }
+
+        #expect(scenario.state.uploadedFiles.contains(Self.newerFile))
+        #expect(scenario.state.unsupportedRecordNames == [owner.id.uuidString])
         let known = scenario.state.base.items.map(\.id.uuidString) + scenario.state.base.freeTexts.map(\.id.uuidString)
-        #expect(deleted == Set(known + [Self.imageFile, Self.attachmentFile, Self.pdfFile]), "sai o que este Mac conhecia, e só isso")
-        #expect(!deleted.contains(Self.newerFile) && !deleted.contains(newer.id.name))
+        #expect(
+            deletedNames() == Set(known + [Self.imageFile, Self.attachmentFile, Self.pdfFile]), "sai o que este Mac conhecia, e só isso")
+        #expect(!deletedNames().contains(owner.id.uuidString))
+    }
+
+    @Test("Cartão apagado aceito antes do arquivo: apagar o arquivo continua pendente, até ele sair")
+    func fileDeletionSurvivesTheCardBeingConfirmedFirst() throws {
+        let alone = BoardItem(kind: .image, title: "Só eu", fileName: Self.imageFile)
+        let keeper = BoardItem(kind: .sticky, title: "Fica", text: "x")
+        var scenario = try syncedScenario(board: Board(items: [alone, keeper]))
+        defer { cleanUp(scenario.items) }
+        #expect(scenario.state.mediaOwners == [Self.imageFile: alone.id])
+        scenario.local.items.removeAll { $0.id == alone.id }
+        #expect(pending(scenario.state, scenario.local, scenario.items) == deletes([alone.id.uuidString, Self.imageFile]))
+
+        SyncCore.confirmDeleted([cardID(alone)], into: &scenario.state)
+
+        #expect(scenario.state.base.item(id: alone.id) == nil)
+        #expect(
+            pending(scenario.state, scenario.local, scenario.items) == deletes([Self.imageFile]),
+            "o cartão já saiu da base, mas o arquivo dele continua pendente")
+        SyncCore.confirmDeleted([recordID(Self.imageFile)], into: &scenario.state)
+        #expect(pending(scenario.state, scenario.local, scenario.items).isEmpty)
+        #expect(scenario.state.uploadedFiles.isEmpty && scenario.state.mediaOwners.isEmpty)
+    }
+
+    @Test("Arquivo que chega antes do seu cartão não é apagado; com o cartão aqui, apagá-lo também apaga o arquivo")
+    func mediaArrivingBeforeItsCardIsKept() throws {
+        var scenario = try syncedScenario()
+        defer { cleanUp(scenario.items) }
+        let arrived = "CCCCCCCC-0000-4000-8000-000000000009.png"
+        let card = BoardItem(kind: .image, title: "Da Ana", fileName: arrived)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("download.tmp")
+        let media = SyncFixtures.record(.mediaFile, name: arrived, fields: CardRecordMapping.mediaFields(fileURL: url, cardID: card.id))
+        let top = (scenario.state.layers.values.max() ?? 0) + 1
+
+        _ = try SyncCore.receive(saved: [media], deleted: [], into: &scenario.state)
+
+        #expect(scenario.state.uploadedFiles.contains(arrived) && scenario.state.mediaOwners[arrived] == nil, "o cartão dele não chegou")
+        #expect(pending(scenario.state, scenario.local, scenario.items).isEmpty, "arquivo sem cartão ainda não é de cartão apagado")
+
+        let received = try SyncCore.receive(saved: [try serverCard(card, layer: top)], deleted: [], into: &scenario.state)
+        scenario.local = BoardMerge.apply(received.changes, to: scenario.local, base: received.previousBase).board
+
+        #expect(scenario.state.mediaOwners[arrived] == card.id, "com o cartão aqui, o arquivo ganha dono")
+        #expect(pending(scenario.state, scenario.local, scenario.items).isEmpty)
+        scenario.local.items.removeAll { $0.id == card.id }
+        #expect(pending(scenario.state, scenario.local, scenario.items) == deletes([card.id.uuidString, arrived]))
+        SyncCore.confirmDeleted([cardID(card)], into: &scenario.state)
+        #expect(pending(scenario.state, scenario.local, scenario.items) == deletes([arrived]))
+    }
+
+    @Test("Arquivo aceito sem o cartão (lote partido): se o cartão sumir antes de subir, o arquivo ainda sai")
+    func fileAcceptedWithoutItsCardStillLeavesWhenTheCardVanishes() throws {
+        let card = BoardItem(kind: .image, title: "Foto", fileName: Self.imageFile)
+        var local = Board(items: [card])
+        let items = try makeItemsDirectory(files: [Self.imageFile])
+        defer { cleanUp(items) }
+        var state = BoardSyncState(cloud: Self.cloud)
+        var media = try #require(
+            try SyncCore.record(for: recordID(Self.imageFile), state: state, local: local, name: Self.boardName, itemsDirectory: items))
+        media.systemFields = Data("v1".utf8)
+
+        try SyncCore.confirmSaved([media], into: &state)
+        local.items.removeAll()
+
+        #expect(state.base.items.isEmpty && state.mediaOwners == [Self.imageFile: card.id])
+        #expect(names(of: pending(state, local, items), deleting: true) == [Self.imageFile])
+    }
+
+    @Test("Estado sem donos de arquivo (gravado antes deles): vale a regra de um cartão da base citar o arquivo")
+    func stateWithoutOwnersFallsBackToTheBase() throws {
+        let alone = BoardItem(kind: .image, title: "Só eu", fileName: Self.imageFile)
+        let keeper = BoardItem(kind: .sticky, title: "Fica", text: "x")
+        var scenario = try syncedScenario(board: Board(items: [alone, keeper]))
+        defer { cleanUp(scenario.items) }
+        scenario.state.mediaOwners = [:]
+        scenario.state.uploadedFiles.insert(Self.newerFile)
+        scenario.local.items.removeAll { $0.id == alone.id }
+
+        #expect(pending(scenario.state, scenario.local, scenario.items) == deletes([alone.id.uuidString, Self.imageFile]))
+        SyncCore.confirmDeleted([cardID(alone)], into: &scenario.state)
+        #expect(pending(scenario.state, scenario.local, scenario.items).isEmpty, "sem dono e sem cartão da base que o cite, fica")
     }
 
     @Test("Depois que o iCloud apaga, o que o nome representava sai da base, dos números, dos arquivos enviados e dos campos de sistema")
@@ -634,6 +785,8 @@ struct SyncCoreTests {
 
         #expect(received.changes.savedFreeTexts == [freeText] && received.name == "Nome novo" && received.files == [Self.imageFile: url])
         #expect(state.base.freeTexts == [freeText] && state.baseName == "Nome novo" && state.uploadedFiles == [Self.imageFile])
+        #expect(state.baseBoardFormatVersion == 7, "a versão que o registro do mural declara")
+        #expect(state.mediaOwners.isEmpty, "o cartão dono do arquivo não chegou")
         #expect(state.systemFields[freeText.id.uuidString] == Data("t".utf8) && !received.isEmpty)
 
         let removed = try SyncCore.receive(

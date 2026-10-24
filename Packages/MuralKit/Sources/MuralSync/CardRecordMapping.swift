@@ -211,6 +211,15 @@ public enum CardRecordMapping {
         return (record.id.name, url)
     }
 
+    /// O cartão a que o registro de um arquivo de mídia diz pertencer, ou `nil` se o registro não é de arquivo, não traz o cartão
+    /// ou o campo não é um UUID.
+    public static func mediaCardID(from record: CloudRecord) -> UUID? {
+        guard record.type == CloudSchema.RecordType.mediaFile.rawValue,
+            case .string(let text)? = record.fields[CloudSchema.Key.cardID.rawValue]
+        else { return nil }
+        return UUID(uuidString: text)
+    }
+
     // MARK: Interno
 
     /// Os campos com o nome que vai para o iCloud.

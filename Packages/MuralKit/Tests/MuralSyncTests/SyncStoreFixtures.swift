@@ -23,7 +23,8 @@ extension SyncFixtures {
             kind: .sticky, title: "Tinta", createdAt: thirdFractionalDate, parentID: folder.id, text: "Tinta azul", stickyColor: .yellow,
             folderPosition: BoardPoint(x: 8, y: 40))
         let note = BoardItem(
-            kind: .text, title: "Nota", createdAt: fractionalDate, position: BoardPoint(x: 300, y: 80.5), text: "Texto da nota\ncom 2 linhas",
+            kind: .text, title: "Nota", createdAt: fractionalDate, position: BoardPoint(x: 300, y: 80.5),
+            text: "Texto da nota\ncom 2 linhas",
             attachments: [NoteAttachment(fileName: "AAAAAAAA-0000-4000-8000-000000000002.png", pixelWidth: 640, pixelHeight: 480)])
         let image = BoardItem(
             kind: .image, title: "Foto", createdAt: otherFractionalDate, position: BoardPoint(x: 10, y: 300),
@@ -48,7 +49,8 @@ extension SyncFixtures {
             reminder: ReminderSnapshot(
                 identifier: "ABC", title: "Pagar", dueDate: otherFractionalDate, dueHasTime: true, priority: 1, listTitle: "Casa"))
         let music = BoardItem(
-            kind: .music, title: "Álbum", music: MusicSnapshot(kind: .album, catalogID: "1234", title: "Álbum", subtitle: "Artista", duration: 215.5))
+            kind: .music, title: "Álbum",
+            music: MusicSnapshot(kind: .album, catalogID: "1234", title: "Álbum", subtitle: "Artista", duration: 215.5))
         let freeText = BoardFreeText(text: "Oi", position: BoardPoint(x: 5, y: 6), createdAt: fractionalDate)
         return Board(
             items: [folder, subfolder, sticky, note, image, video, pdf, list, link, reminder, music], freeTexts: [freeText])
@@ -62,13 +64,20 @@ extension SyncFixtures {
             layers[item.id] = Double(index) + 0.5
             systemFields[item.id.uuidString] = Data([0x62, 0x70, UInt8(index)])
         }
+        let uploaded = ["AAAAAAAA-0000-4000-8000-000000000001.jpg", "AAAAAAAA-0000-4000-8000-000000000002.png"]
+        var owners: [String: UUID] = [:]
+        for file in uploaded {
+            if let owner = board.items.first(where: { $0.assetFileNames.contains(file) }) { owners[file] = owner.id }
+        }
         return BoardSyncState(
             cloud: cloudInfo,
             base: board,
             baseName: "Casa 🏠",
+            baseBoardFormatVersion: board.requiredFormatVersion,
             layers: layers,
             systemFields: systemFields,
-            uploadedFiles: ["AAAAAAAA-0000-4000-8000-000000000001.jpg", "AAAAAAAA-0000-4000-8000-000000000002.png"],
+            uploadedFiles: Set(uploaded),
+            mediaOwners: owners,
             unsupportedRecordNames: ["11111111-2222-3333-4444-555555555555", "99999999-8888-7777-6666-555555555555"])
     }
 }
