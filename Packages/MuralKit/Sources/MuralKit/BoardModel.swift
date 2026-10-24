@@ -20,6 +20,7 @@ public final class BoardModel {
         didSet {
             rootItemsCache = nil
             freeTextsCache = nil
+            rootExtentCache = nil
             childrenCache.removeAll(keepingCapacity: true)
             childrenCacheOrder.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
@@ -38,6 +39,7 @@ public final class BoardModel {
     @ObservationIgnored private var deferredDeletions: Set<String> = []
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
+    @ObservationIgnored private var rootExtentCache: BoardSize?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
     @ObservationIgnored private var childrenCacheOrder: [UUID] = []
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
@@ -98,6 +100,17 @@ public final class BoardModel {
         let freeTexts = currentBoard.freeTexts
         freeTextsCache = freeTexts
         return freeTexts
+    }
+
+    /// Extensão ocupada pelo mural solto, memoizada enquanto o `board` não muda.
+    /// O getter ainda lê `board` antes do cache para manter a dependência observável.
+    public var rootExtent: BoardSize {
+        let currentBoard = board
+        if let rootExtentCache { return rootExtentCache }
+        let extent = BoardLayout.extent(of: currentBoard.rootItems, freeTexts: currentBoard.freeTexts)
+        let result = BoardSize(width: extent.width, height: extent.height)
+        rootExtentCache = result
+        return result
     }
 
     public func children(of folderID: UUID) -> [BoardItem] {

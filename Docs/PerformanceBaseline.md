@@ -43,6 +43,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `85d20c0`: o cache de miniaturas passou a cancelar somente o consumidor que saiu, cancelar o trabalho compartilhado quando não há consumidores e evitar decodificação/cache prematuros de imagens originais.
 - `7691b07`: `BoardCanvasView` reutiliza o array de cartões já calculado no `body`; `CollectionView` calcula uma vez por avaliação os filhos, cartões de coluna e post-its posicionados.
 - `BoardCanvasView`: durante um arraste, a lista de pastas raiz aceitas é filtrada uma vez no início do gesto e reutilizada nos eventos seguintes, sem alterar o cálculo de destino de `BoardLayout`.
+- `BoardModel.rootExtent`: a extensão ocupada pelo mural solto é memoizada por versão do `board`; `BoardCanvasView` e o ajuste à janela reutilizam o valor sem varrer cartões em cada avaliação.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
@@ -57,7 +58,7 @@ Evidências verificadas após as mudanças:
 - `swift test --package-path Packages/MuralKit`: passou;
 - `ThumbnailCacheTests`: 7/7 passaram;
 - `PhotoImportDiagnosticsTests`: 7/7 passaram;
-- `PerformanceBaselineTests`: 3/3 passaram em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; as leituras derivadas memoizadas mediram tempo monotônico médio de 0,000003 s e pico físico de memória médio de 28.073,378 kB, e o cenário de 200 consultas de destinos sob o limite FIFO mediu 0,067 s e 32.261,152 kB, sempre nas cinco iterações. O cenário estrutural marcou 0,005 s e 34.161,696 kB. Esses números são baselines da execução atual, não uma comparação antes/depois; o pico físico varia com o processo e deve ser comparado em execuções pareadas.
+- `PerformanceBaselineTests`: 3/3 passaram em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; após a memoização da extensão, as leituras derivadas memoizadas mediram tempo monotônico médio de 0,000003 s e pico físico de memória médio de 27.932,475 kB, e o cenário de 200 consultas de destinos sob o limite FIFO mediu 0,064 s e 64.419,730 kB, sempre nas cinco iterações. O cenário estrutural marcou 0,005 s e 65.304,475 kB. Esses números são baselines da execução atual, não uma comparação antes/depois; o pico físico varia com o processo e deve ser comparado em execuções pareadas.
 - `ThumbnailPerformanceTests`: 1/1 passou em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário mediu tempo monotônico médio de 0,011 s e pico físico de memória médio de 35.914,784 kB nas cinco iterações.
 - `ReminderPickerTests` e `MuralTests`: 9/9 passaram após as reduções de recomputação.
 - `BoardModelTests`: 19/19 passaram, incluindo invalidação dos caches depois de criar uma nova pasta, cartão e texto livre.

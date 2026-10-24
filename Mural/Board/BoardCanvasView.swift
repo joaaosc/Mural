@@ -76,7 +76,7 @@ struct BoardCanvasView: View {
     var body: some View {
         let items = model.rootItems
         let freeTexts = model.freeTexts
-        let extent = BoardLayout.extent(of: items, freeTexts: freeTexts)
+        let extent = model.rootExtent
         let viewport = zoom.viewport
         // Como num quadro branco: sempre uma tela de folga à direita e embaixo, para o
         // zoom poder manter parado o ponto sob os dedos (ou o centro da janela).

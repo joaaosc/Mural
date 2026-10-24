@@ -58,13 +58,15 @@ struct BoardModelTests {
         #expect(model.rootItems.count == 1)
         #expect(model.children(of: folder.id).isEmpty)
         #expect(model.freeTexts.isEmpty)
+        let initialExtent = model.rootExtent
 
         let card = try #require(model.importText("Cartão", into: folder.id))
-        let freeText = model.createFreeText("Texto")
+        let freeText = model.createFreeText("Texto", at: BoardPoint(x: 1_000, y: 1_000))
 
         #expect(model.rootItems.map(\.id) == [folder.id])
         #expect(model.children(of: folder.id).map(\.id) == [card.id])
         #expect(model.freeTexts.map(\.id) == [freeText.id])
+        #expect(model.rootExtent != initialExtent)
     }
 
     @Test("Marcar item da lista é gravado")

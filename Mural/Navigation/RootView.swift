@@ -758,7 +758,7 @@ private struct LoadedRootView: View {
             session.registerUndo(of: arrangement, in: undoManager, animation: animation)
         }
         // O mural ainda não mediu a extensão nova: atualiza antes de ajustar o zoom.
-        let extent = BoardLayout.extent(of: model.rootItems, freeTexts: model.freeTexts)
+        let extent = model.rootExtent
         session.zoom.contentExtent = CGSize(width: extent.width, height: extent.height)
         session.zoom.fitToWindow()
     }
