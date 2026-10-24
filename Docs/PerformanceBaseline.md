@@ -6,7 +6,7 @@ Performance é validada por cenário e por evidência, não por uma afirmação 
 
 As fixtures devem conter 100, 500 e 2.000 cards, com 10%, 50% e 90% de mídia, HEIC/JPEG/PNG, vídeos, PDFs, pastas aninhadas, notas com anexos, links com e sem prévia, lembretes e músicas. `PerformanceBoardFixture` em `Packages/MuralKit/Sources/MuralKit/Fixtures/PerformanceBoardFixture.swift` gera esses perfis com IDs, datas, metadados e posições determinísticos.
 
-Essa primeira fixture é apenas um corpus estrutural: nomes de mídia, previews e artwork não correspondem a assets reais e nenhum arquivo binário é criado. Ela serve para medir contagem, hierarquia, layout e metadados. Decode, thumbnail, I/O e custos de mídia real exigem um corpus separado de arquivos representativos, a ser adicionado antes das medições correspondentes.
+Essa primeira fixture é apenas um corpus estrutural: nomes de mídia, previews e artwork não correspondem a assets reais e nenhum arquivo binário é criado. Ela serve para medir contagem, hierarquia, layout e metadados. `ThumbnailPerformanceTests` acrescenta um cenário separado que gera temporariamente um PNG determinístico de 2048×1536 para medir decode/redução ImageIO; ele não representa ainda a variedade de fotos, vídeos, PDFs ou I/O de um mural real.
 
 Medir cold launch, warm launch/resume, primeira tela interativa, mural e pasta grandes, scroll, zoom, marquee, arraste para pasta, importação de lote, thumbnails, prévias, autosave, fechar/reabrir e save/reopen do pacote.
 
@@ -44,6 +44,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `7691b07`: `BoardCanvasView` reutiliza o array de cartões já calculado no `body`; `CollectionView` calcula uma vez por avaliação os filhos, cartões de coluna e post-its posicionados.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
+- `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
 
 Evidências verificadas após as mudanças:
 
@@ -52,6 +53,7 @@ Evidências verificadas após as mudanças:
 - `ThumbnailCacheTests`: 7/7 passaram;
 - `PhotoImportDiagnosticsTests`: 7/7 passaram;
 - `PerformanceBaselineTests`: 1/1 passou em Debug e 1/1 em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário Release mediu tempo monotônico médio de 0,005102 s e pico físico de memória médio de 30.226,235 kB nas cinco iterações.
+- `ThumbnailPerformanceTests`: 1/1 passou em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário mediu tempo monotônico médio de 0,011 s e pico físico de memória médio de 35.914,784 kB nas cinco iterações.
 - formatter do projeto e `scripts/check-xcproj.sh`: sem diferenças ou erros.
 
 A suíte macOS completa ultrapassou o link depois da correção de produto, mas foi interrompida após 22 casos com três falhas de runtime do ambiente; não é considerada verde. A primeira gravação de 10 segundos com `xctrace` atingiu o limite de coleta, mas o empacotador do Instruments falhou ao salvar o trace por não conseguir obter `~/Library/Application Support/Instruments/Packages/lock`. Depois de liberar artefatos gerados, uma gravação Debug foi salva em `/tmp/Mural-performance-launch.trace`; `xctrace show` mediu CPU média agregada de 5,9%, mínimo de 0%, máximo de 140% e desvio de 19%. O mesmo cenário em Release foi compilado com sucesso e salvo em `/tmp/Mural-performance-launch-release.trace`, com CPU média de 7,0%, mínimo de 0%, máximo de 150% e desvio de 21,3%. Esses números são apenas baselines de lançamento desta execução e não representam uma redução percentual nem medem interação com um mural grande. O próximo gate é repetir o cenário Release antes/depois com uma fixture carregada e comparar Time Profiler/SwiftUI, Allocations, File Activity e Energy Log.
