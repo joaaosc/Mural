@@ -33,6 +33,9 @@ nonisolated enum StickyPlacement {
     /// Subpasta sob `point`, entre `candidates` (as que o domínio aceita), pelos quadros medidos no espaço do conteúdo.
     /// Como no mural, as bordas de cima e da esquerda contam como dentro; a de baixo e a da direita, não.
     static func folder(under point: CGPoint, frames: [UUID: CGRect], among candidates: [UUID]) -> UUID? {
-        candidates.first { frames[$0]?.contains(point) == true }
+        for candidate in candidates {
+            if frames[candidate]?.contains(point) == true { return candidate }
+        }
+        return nil
     }
 }

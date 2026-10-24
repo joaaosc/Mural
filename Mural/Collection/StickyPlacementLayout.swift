@@ -47,7 +47,12 @@ struct StickyPlacementLayout: Layout {
     }
 
     private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
-        subviews.map { StickyPlacement.frame(for: $0[StickyPlacementKey.self], width: width) }
+        var result: [CGRect] = []
+        result.reserveCapacity(subviews.count)
+        for subview in subviews {
+            result.append(StickyPlacement.frame(for: subview[StickyPlacementKey.self], width: width))
+        }
+        return result
     }
 }
 
