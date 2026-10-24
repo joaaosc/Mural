@@ -211,12 +211,16 @@ public enum BoardLayout {
     public static func freeTextID(
         at point: BoardPoint, among texts: [BoardFreeText], excluding excluded: UUID? = nil
     ) -> UUID? {
-        texts.last { text in
-            guard text.id != excluded else { return false }
+        for text in texts.reversed() {
+            guard text.id != excluded else { continue }
             let textSize = size(of: text)
-            return point.x >= text.position.x && point.x < text.position.x + textSize.width
+            if point.x >= text.position.x && point.x < text.position.x + textSize.width
                 && point.y >= text.position.y && point.y < text.position.y + textSize.height
-        }?.id
+            {
+                return text.id
+            }
+        }
+        return nil
     }
 
     /// Retângulo delimitador ocupado pelos cartões soltos; um mural vazio devolve nulo.
@@ -254,8 +258,10 @@ public enum BoardLayout {
         gap: Double = 24
     ) -> BoardPoint {
         let newSize = cardSize(for: kind)
-        let occupied = items.map { item -> (BoardPoint, (width: Double, height: Double)) in
-            (item.position, size(of: item))
+        var occupied: [(BoardPoint, (width: Double, height: Double))] = []
+        occupied.reserveCapacity(items.count)
+        for item in items {
+            occupied.append((item.position, size(of: item)))
         }
         return freePosition(
             size: newSize, avoiding: occupied, origin: origin, step: step, columns: columns, gap: gap)
@@ -264,8 +270,10 @@ public enum BoardLayout {
     /// O mesmo de `freePosition(for:avoiding:)` para um cartão que já existe e volta ao mural (saindo de uma pasta): a vaga é
     /// procurada com o tamanho que ele tem (`size(of:)`), para um post-it redimensionado não cair por cima dos vizinhos.
     public static func freePosition(for item: BoardItem, avoiding items: [BoardItem]) -> BoardPoint {
-        let occupied = items.map { other -> (BoardPoint, (width: Double, height: Double)) in
-            (other.position, size(of: other))
+        var occupied: [(BoardPoint, (width: Double, height: Double))] = []
+        occupied.reserveCapacity(items.count)
+        for other in items {
+            occupied.append((other.position, size(of: other)))
         }
         return freePosition(size: size(of: item), avoiding: occupied, origin: BoardPoint(x: 80, y: 80))
     }
@@ -305,8 +313,10 @@ public enum BoardLayout {
         kinds: [ItemKind], anchor: BoardPoint?, avoiding items: [BoardItem], gap: Double = 24
     ) -> [BoardPoint] {
         guard let anchor else {
-            var occupied: [(BoardPoint, (width: Double, height: Double))] = items.map {
-                ($0.position, size(of: $0))
+            var occupied: [(BoardPoint, (width: Double, height: Double))] = []
+            occupied.reserveCapacity(items.count + kinds.count)
+            for item in items {
+                occupied.append((item.position, size(of: item)))
             }
             var result: [BoardPoint] = []
             result.reserveCapacity(kinds.count)
@@ -318,7 +328,11 @@ public enum BoardLayout {
             }
             return result
         }
-        var occupied: [(BoardPoint, (width: Double, height: Double))] = items.map { ($0.position, size(of: $0)) }
+        var occupied: [(BoardPoint, (width: Double, height: Double))] = []
+        occupied.reserveCapacity(items.count + kinds.count)
+        for item in items {
+            occupied.append((item.position, size(of: item)))
+        }
         var result: [BoardPoint] = []
         for (index, kind) in kinds.enumerated() {
             let newSize = cardSize(for: kind)
@@ -370,12 +384,15 @@ public enum BoardLayout {
     /// - Parameter excluded: pasta a ignorar, como a que está sendo arrastada.
     public static func folderID(at point: BoardPoint, among items: [BoardItem], excluding excluded: UUID? = nil) -> UUID? {
         let size = cardSize(for: .folder)
-        let hit = items.last { item in
-            guard item.kind == .folder, item.parentID == nil, item.id != excluded else { return false }
-            return point.x >= item.position.x && point.x < item.position.x + size.width
+        for item in items.reversed() {
+            guard item.kind == .folder, item.parentID == nil, item.id != excluded else { continue }
+            if point.x >= item.position.x && point.x < item.position.x + size.width
                 && point.y >= item.position.y && point.y < item.position.y + size.height
+            {
+                return item.id
+            }
         }
-        return hit?.id
+        return nil
     }
 
     static func overlaps(
