@@ -91,10 +91,21 @@ struct BoardCanvasView: View {
         let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
         let alwaysRendered = Set(
             [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 })
+        let alwaysRenderedFreeTexts = Set(
+            [
+                freeTextDrag?.id,
+                hoveredResizable?.freeTextID,
+                resizing?.target.freeTextID,
+            ].compactMap { $0 })
         let renderedItems = CanvasRenderCulling.visibleItems(
             items,
             in: renderViewport,
             alwaysInclude: alwaysRendered,
+            forceAll: isMarqueeActive || accessibilityEnabled)
+        let renderedFreeTexts = CanvasRenderCulling.visibleFreeTexts(
+            freeTexts,
+            in: renderViewport,
+            alwaysInclude: alwaysRenderedFreeTexts,
             forceAll: isMarqueeActive || accessibilityEnabled)
 
         ScrollView([.horizontal, .vertical]) {
@@ -108,7 +119,7 @@ struct BoardCanvasView: View {
                         .offset(offset(for: item))
                         .zIndex(focus.layer(for: item))
                 }
-                ForEach(freeTexts) { freeText in
+                ForEach(renderedFreeTexts) { freeText in
                     BoardFreeTextView(
                         freeText: freeText,
                         size: displayedSize(of: freeText),

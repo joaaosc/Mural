@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import MuralKit
 
-/// Seleção geométrica dos cartões que precisam existir na árvore do canvas agora.
-/// O frame do `ScrollView` continua cobrindo o mural inteiro; só os cartões fora da
+/// Seleção geométrica dos elementos que precisam existir na árvore do canvas agora.
+/// O frame do `ScrollView` continua cobrindo o mural inteiro; só os elementos fora da
 /// janela (com uma margem de pré-carregamento) deixam de construir subviews SwiftUI.
 enum CanvasRenderCulling {
     static func logicalVisibleRect(_ visibleRect: CGRect, zoom: CGFloat) -> CGRect {
@@ -53,11 +53,41 @@ enum CanvasRenderCulling {
         }
     }
 
+    static func visibleFreeTexts(
+        _ freeTexts: [BoardFreeText],
+        in logicalViewport: CGRect,
+        alwaysInclude: Set<UUID> = [],
+        overscan: CGFloat = 1,
+        forceAll: Bool = false
+    ) -> [BoardFreeText] {
+        guard !forceAll, !logicalViewport.isEmpty,
+            logicalViewport.minX.isFinite, logicalViewport.minY.isFinite,
+            logicalViewport.width.isFinite, logicalViewport.height.isFinite,
+            overscan.isFinite, overscan >= 0
+        else { return freeTexts }
+
+        let extraWidth = max(logicalViewport.width, 1) * overscan
+        let extraHeight = max(logicalViewport.height, 1) * overscan
+        let renderRect = logicalViewport.insetBy(dx: -extraWidth, dy: -extraHeight)
+        return freeTexts.filter { freeText in
+            alwaysInclude.contains(freeText.id) || frame(of: freeText).intersects(renderRect)
+        }
+    }
+
     private static func frame(of item: BoardItem) -> CGRect {
         let size = BoardLayout.size(of: item)
         return CGRect(
             x: item.position.x,
             y: item.position.y,
+            width: size.width,
+            height: size.height)
+    }
+
+    private static func frame(of freeText: BoardFreeText) -> CGRect {
+        let size = BoardLayout.size(of: freeText)
+        return CGRect(
+            x: freeText.position.x,
+            y: freeText.position.y,
             width: size.width,
             height: size.height)
     }

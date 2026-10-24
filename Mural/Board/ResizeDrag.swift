@@ -7,6 +7,11 @@ struct ResizeDrag: Equatable {
     enum Target: Equatable {
         case item(UUID)
         case freeText(UUID)
+
+        var freeTextID: UUID? {
+            guard case .freeText(let id) = self else { return nil }
+            return id
+        }
     }
 
     var target: Target

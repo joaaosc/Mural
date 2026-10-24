@@ -31,6 +31,38 @@ struct CanvasRenderCullingTests {
         #expect(result.map(\.id) == [visible.id, dragged.id])
     }
 
+    @Test("Seleciona textos livres visíveis e preserva o texto em redimensionamento")
+    func visibleFreeTextsPreserveIntersectionAndExplicitTexts() {
+        let visible = BoardFreeText(
+            id: UUID(), text: "Visível", position: BoardPoint(x: 20, y: 20))
+        let outside = BoardFreeText(
+            id: UUID(), text: "Fora", position: BoardPoint(x: 500, y: 500))
+        let resizing = BoardFreeText(
+            id: UUID(), text: "Redimensionando", position: BoardPoint(x: 900, y: 900))
+
+        let result = CanvasRenderCulling.visibleFreeTexts(
+            [visible, outside, resizing],
+            in: CGRect(x: 0, y: 0, width: 200, height: 200),
+            alwaysInclude: [resizing.id],
+            overscan: 0)
+
+        #expect(result.map(\.id) == [visible.id, resizing.id])
+    }
+
+    @Test("O modo completo preserva todos os textos livres")
+    func forceAllPreservesFreeTexts() {
+        let freeTexts = [
+            BoardFreeText(id: UUID(), text: "Visível", position: BoardPoint(x: 20, y: 20)),
+            BoardFreeText(id: UUID(), text: "Fora", position: BoardPoint(x: 900, y: 900)),
+        ]
+
+        #expect(
+            CanvasRenderCulling.visibleFreeTexts(
+                freeTexts,
+                in: CGRect(x: 0, y: 0, width: 100, height: 100),
+                forceAll: true) == freeTexts)
+    }
+
     @Test("A margem de pré-carregamento inclui o próximo cartão")
     func overscanIncludesNearEdge() {
         let near = BoardItem(id: UUID(), kind: .text, title: "Próximo", position: BoardPoint(x: 220, y: 20))
