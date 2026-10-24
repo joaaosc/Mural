@@ -150,6 +150,31 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertEqual(foundCount, ids.count)
     }
 
+    func testBoardModelBatchImportPerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let snapshots = (0..<200).map { index in
+            MusicSnapshot(
+                kind: .song,
+                catalogID: "fixture-song-\(index)",
+                title: "Fixture song \(index)")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardBatchImport-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var createdCount = 0
+        let options = XCTMeasureOptions()
+
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()], options: options) {
+            let model = BoardModel(
+                board: board,
+                store: BoardStore(directory: directory),
+                persistence: .deferred)
+            createdCount = model.importMusic(snapshots).count
+        }
+
+        XCTAssertEqual(createdCount, snapshots.count)
+    }
+
     func testBatchImportPositioningPerformance() throws {
         let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
         let kinds = Array(repeating: ItemKind.image, count: 200)
