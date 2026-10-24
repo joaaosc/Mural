@@ -47,6 +47,7 @@ struct CollectionView: View {
         // Os post-its soltos são derivados da mesma lista já memoizada: não percorremos o board inteiro
         // nem fazemos uma segunda filtragem independente para descobrir os dois grupos.
         let (columnItems, placedStickies) = splitChildren(children)
+        let childIDs = children.map(\.id)
         let isDraggingFromColumns =
             stickyDrag.map { drag in
                 columnItems.contains { $0.id == drag.id }
@@ -109,7 +110,7 @@ struct CollectionView: View {
             captureReadingPosition()
         }
         .task(id: folder.id) { beginRestore() }
-        .onChange(of: children.map(\.id), initial: true) { _, ids in
+        .onChange(of: childIDs, initial: true) { _, ids in
             let liveIDs = Set(ids)
             itemFrames = itemFrames.filter { liveIDs.contains($0.key) }
             confirmRestoreIfPossible()
