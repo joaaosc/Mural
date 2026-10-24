@@ -50,6 +50,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `BoardModel.musicItems`: a coleção derivada passou a ser memoizada por versão do `board`, com invalidação junto dos demais caches.
 - `BoardModel.reminderItems`: a filtragem de lembretes também é memoizada por versão do `board`, preservando a ordem original e a invalidação junto dos demais derivados.
 - `BoardModel.insertBatch`: importações de arquivos preparados e de lotes agora calculam as posições livres uma vez contra o snapshot dos cartões raiz, em vez de refiltrar o mural a cada item.
+- `BoardModel.insertBatch` também monta um snapshot atualizado e o atribui uma única vez, evitando invalidar caches derivados e notificar o SwiftUI repetidamente durante um lote.
 - `BoardModel.importLinks` e `BoardModel.importMusic`: lotes de links e músicas agora passam pelo mesmo posicionamento em lote, preservando deduplicação, ordem e âncora sem repetir a varredura do mural a cada cartão.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.

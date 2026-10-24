@@ -863,7 +863,10 @@ public final class BoardModel {
                 placed[index].position = position
             }
         }
-        for item in placed { board.add(item) }
+        var updatedBoard = board
+        updatedBoard.items.append(contentsOf: placed)
+        updatedBoard.formatVersion = updatedBoard.requiredFormatVersion
+        board = updatedBoard
         return placed
     }
 
