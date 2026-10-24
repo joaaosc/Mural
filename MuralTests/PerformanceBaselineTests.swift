@@ -129,5 +129,46 @@ final class PerformanceBaselineTests: XCTestCase {
         }
 
         XCTAssertEqual(positions.count, kinds.count)
+        var occupied = board.rootItems
+        let reference = kinds.map { kind in
+            let position = BoardLayout.freePosition(for: kind, avoiding: occupied)
+            occupied.append(BoardItem(kind: kind, title: "", position: position))
+            return position
+        }
+        XCTAssertEqual(positions, reference)
+    }
+
+    func testSequentialImportPositioningReferencePerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let kinds = Array(repeating: ItemKind.image, count: 200)
+        var positions: [BoardPoint] = []
+
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            var occupied = board.rootItems
+            positions = kinds.map { kind in
+                let position = BoardLayout.freePosition(for: kind, avoiding: occupied)
+                occupied.append(BoardItem(kind: kind, title: "", position: position))
+                return position
+            }
+        }
+
+        XCTAssertEqual(positions.count, kinds.count)
+    }
+
+    func testBoardScanPerItemImportPositioningReferencePerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let kinds = Array(repeating: ItemKind.image, count: 200)
+        var insertedCount = 0
+
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            var workingBoard = board
+            for kind in kinds {
+                let position = BoardLayout.freePosition(for: kind, avoiding: workingBoard.rootItems)
+                workingBoard.add(BoardItem(kind: kind, title: "", position: position))
+            }
+            insertedCount = workingBoard.items.count - board.items.count
+        }
+
+        XCTAssertEqual(insertedCount, kinds.count)
     }
 }
