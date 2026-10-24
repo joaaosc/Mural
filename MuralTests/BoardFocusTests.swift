@@ -84,4 +84,13 @@ struct BoardFocusTests {
         #expect(focus.emphasis(for: note) == 0.25)
         #expect(focus.layer(for: note) == 0)
     }
+
+    @Test("A camada aceita o destaque já calculado pelo canvas")
+    func layerReusesProvidedEmphasis() {
+        let item = card(.text)
+        let focus = BoardFocus()
+
+        #expect(focus.layer(for: item, emphasis: 0.25) == 0)
+        #expect(focus.layer(for: item, emphasis: 1) == 1)
+    }
 }

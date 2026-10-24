@@ -23,10 +23,10 @@ struct BoardFocus: Equatable {
     /// Empilhamento: o arrastado por cima de tudo, a pasta de destino logo abaixo dele, a pasta
     /// em foco acima do resto e, com um filtro, os destacados à frente dos esmaecidos. Como o
     /// esmaecido continua sólido, um cartão apagado por cima esconderia parte do destacado.
-    func layer(for item: BoardItem) -> Double {
+    func layer(for item: BoardItem, emphasis: Double? = nil) -> Double {
         if item.id == dragged { return 4 }
         if item.id == dropTarget { return 3 }
         if item.id == hoveredFolder { return 2 }
-        return emphasis(for: item) < 1 ? 0 : 1
+        return (emphasis ?? self.emphasis(for: item)) < 1 ? 0 : 1
     }
 }
