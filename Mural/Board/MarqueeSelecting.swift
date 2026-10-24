@@ -38,6 +38,9 @@ private struct MarqueeSelecting: ViewModifier {
     @State private var isShiftHeld = false
     /// Volta sozinho a falso, inclusive quando o gesto é cancelado sem `onEnded`.
     @GestureState private var isDragging = false
+    /// Os quadros não mudam enquanto o gesto começou no vazio; capturá-los uma vez evita
+    /// reconstruir o dicionário inteiro a cada evento de movimento.
+    @State private var marqueeFrames: [UUID: CGRect] = [:]
 
     func body(content: Content) -> some View {
         content
@@ -80,17 +83,19 @@ private struct MarqueeSelecting: ViewModifier {
                 ignoresDrag = true
                 return
             }
+            marqueeFrames = frames()
             marquee = MarqueeSelection(start: value.startLocation, base: selection.selected)
             isActive = true
         }
         marquee?.current = value.location
         if let marquee {
-            selection.select(marquee.selection(in: frames()))
+            selection.select(marquee.selection(in: marqueeFrames))
         }
     }
 
     private func finish() {
         marquee = nil
+        marqueeFrames.removeAll(keepingCapacity: true)
         ignoresDrag = false
         if isActive { isActive = false }
     }
