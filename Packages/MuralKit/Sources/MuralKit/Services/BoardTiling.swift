@@ -17,15 +17,17 @@ public enum BoardTiling {
     ) -> [UUID: BoardPoint] {
         let ordered = insertionOrder(items)
         guard !ordered.isEmpty else { return [:] }
-        let sized = ordered.map {
-            let size = BoardLayout.size(of: $0)
-            return SizedItem(item: $0, size: BoardSize(width: size.width, height: size.height))
-        }
         let ratio = aspect.isFinite && aspect > 0 ? aspect : defaultAspect
         // Área-alvo: a soma dos cartões com o vão, no formato pedido. Cada corte é feito no lado
         // mais comprido dela, então o mosaico se aproxima do formato da janela.
-        let area = sized.reduce(0.0) { total, entry in
-            return total + (entry.size.width + gap) * (entry.size.height + gap)
+        var sized: [SizedItem] = []
+        sized.reserveCapacity(ordered.count)
+        var area = 0.0
+        for item in ordered {
+            let size = BoardLayout.size(of: item)
+            let sizedItem = SizedItem(item: item, size: BoardSize(width: size.width, height: size.height))
+            sized.append(sizedItem)
+            area += (sizedItem.size.width + gap) * (sizedItem.size.height + gap)
         }
         let width = (area * ratio).squareRoot()
         let tree = node(for: sized[...], region: (width, area / width), gap: gap)
