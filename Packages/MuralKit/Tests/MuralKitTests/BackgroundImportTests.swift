@@ -97,4 +97,29 @@ struct BackgroundImportTests {
         #expect(item.fileName?.hasSuffix(".heic") == true)
         #expect(model.commit(prepared).count == 1)
     }
+
+    @Test("Cancelamento antes da preparação tipada não cria itens nem arquivos")
+    func cancelledTypedPreparationLeavesNoFiles() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let itemsDirectory = root.appendingPathComponent("Items", isDirectory: true)
+        let model = BoardModel(
+            board: Board(), store: BoardStore(directory: root.appendingPathComponent("Board.mural", isDirectory: true)),
+            persistence: .deferred)
+        let sourceURL = try source(in: root, named: "cancelled-provider-file", bytes: 32)
+        let typedFile = BoardModel.TypedFile(
+            url: sourceURL, contentTypeIdentifier: UTType.jpeg.identifier, title: "Foto")
+
+        let task = Task {
+            try? await Task.sleep(for: .seconds(1))
+            return await model.prepareTypedFiles([typedFile])
+        }
+        task.cancel()
+        let prepared = await task.value
+
+        #expect(prepared.items.isEmpty)
+        #expect(prepared.failures.isEmpty)
+        #expect(model.board.items.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: itemsDirectory.path))
+    }
 }

@@ -156,7 +156,8 @@ public final class BoardModel {
     /// Copies files whose uniform type is already known, preserving the
     /// provider's classification through staging and commit.
     public func prepareTypedFiles(_ files: [TypedFile], parentID: UUID? = nil) async -> PreparedImport {
-        await Self.copyTypedFiles(files, parentID: parentID, importer: importer)
+        guard !Task.isCancelled else { return PreparedImport(items: [], failures: []) }
+        return await Self.copyTypedFiles(files, parentID: parentID, importer: importer)
     }
 
     /// Grava dados colados (imagem, PDF) fora do Main Actor.
@@ -246,6 +247,7 @@ public final class BoardModel {
         var items: [BoardItem] = []
         var failures: [String] = []
         for file in files {
+            guard !Task.isCancelled else { break }
             do {
                 try Task.checkCancellation()
                 items.append(

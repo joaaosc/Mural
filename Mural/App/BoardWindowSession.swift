@@ -136,6 +136,7 @@ final class BoardWindowSession {
     @ObservationIgnored private var windowCloseHandled = false
     @ObservationIgnored private var exportTask: Task<Void, Never>?
     @ObservationIgnored private var photoImportTask: Task<Void, Never>?
+    @ObservationIgnored private var photoImportOperationID: UUID?
     @ObservationIgnored private let cleanupTransferOperation: @Sendable (URL) async throws -> Void
     @ObservationIgnored private var pendingSaveCopyResult: Result<URL, any Error>?
     @ObservationIgnored private(set) var restoreTarget: CGPoint?
@@ -606,6 +607,7 @@ final class BoardWindowSession {
     func invalidatePresentation() {
         photoImportTask?.cancel()
         photoImportTask = nil
+        photoImportOperationID = nil
         presentationEpoch = UUID()
     }
 
@@ -613,9 +615,15 @@ final class BoardWindowSession {
     /// or window close can cancel it before staging more files.
     func startPhotoImport(_ items: [PhotosPickerItem], animation: Animation? = nil) {
         photoImportTask?.cancel()
+        let operationID = UUID()
+        photoImportOperationID = operationID
         photoImportTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { photoImportTask = nil }
+            defer {
+                guard self.photoImportOperationID == operationID else { return }
+                self.photoImportTask = nil
+                self.photoImportOperationID = nil
+            }
             await importPhotos(items, animation: animation)
         }
     }
@@ -1603,6 +1611,7 @@ final class BoardWindowSession {
         isClosed = true
         photoImportTask?.cancel()
         photoImportTask = nil
+        photoImportOperationID = nil
         musicPlayback.stop(boardID: boardID)
         openSessions.unregister(self)
         pendingAutosaveDebounce?.cancel()
