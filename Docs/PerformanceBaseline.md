@@ -35,3 +35,21 @@ Os pontos de baixo risco já instrumentados incluem cópia de arquivos, cópia t
 O spike registra somente eventos agregados de chegada (`Metric report observed` e `Diagnostic report observed`). Não acessa títulos, URLs, caminhos, IDs ou qualquer outro campo dos relatórios, e não tem armazenamento local nem transporte de rede. A compilação confirma apenas a integração da API e a forma do ciclo de vida cancelável; não confirma a entrega de payloads reais, a frequência diária dos relatórios ou comportamento de produção.
 
 Referências Apple: [Improving your app’s performance](https://sosumi.ai/documentation/xcode/improving-your-app-s-performance), [Writing and running performance tests](https://sosumi.ai/documentation/xcode/writing-and-running-performance-tests), [MetricManager](https://sosumi.ai/documentation/metrickit/metricmanager), [metricReports](https://sosumi.ai/documentation/metrickit/metricmanager/metricreports), [diagnosticReports](https://sosumi.ai/documentation/metrickit/metricmanager/diagnosticreports), [Monitoring app performance with MetricKit](https://sosumi.ai/documentation/metrickit/monitoring-app-performance-with-metrickit) e [Applying Liquid Glass to custom views](https://sosumi.ai/documentation/swiftui/applying-liquid-glass-to-custom-views).
+
+### Ciclo executado em 2026-10-24
+
+As orientações de manter `body` rápido, evitar cálculos derivados repetidos e comparar um perfil posterior com o anterior foram aplicadas em dois pontos sem alterar a hierarquia ou as features da interface:
+
+- `85d20c0`: o cache de miniaturas passou a cancelar somente o consumidor que saiu, cancelar o trabalho compartilhado quando não há consumidores e evitar decodificação/cache prematuros de imagens originais.
+- `7691b07`: `BoardCanvasView` reutiliza o array de cartões já calculado no `body`; `CollectionView` calcula uma vez por avaliação os filhos, cartões de coluna e post-its posicionados.
+- `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
+
+Evidências verificadas após as mudanças:
+
+- build macOS do app `com.joaocosta.Mural`: passou;
+- `swift test --package-path Packages/MuralKit`: passou;
+- `ThumbnailCacheTests`: 7/7 passaram;
+- `PhotoImportDiagnosticsTests`: 7/7 passaram;
+- formatter do projeto e `scripts/check-xcproj.sh`: sem diferenças ou erros.
+
+A suíte macOS completa ultrapassou o link depois da correção de produto, mas foi interrompida após 22 casos com três falhas de runtime do ambiente; não é considerada verde. Uma gravação de 10 segundos com `xctrace` atingiu o limite de coleta, porém o empacotador do Instruments falhou ao salvar o trace por não conseguir obter `~/Library/Application Support/Instruments/Packages/lock`. Portanto, ainda não há perfil quantitativo `before/after`, nem percentual de redução de CPU, memória, I/O ou energia a declarar. O próximo gate é repetir a gravação quando o lock do Instruments estiver disponível e então comparar Time Profiler/SwiftUI, Allocations, File Activity e Energy Log em Release.
