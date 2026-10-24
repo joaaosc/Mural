@@ -113,9 +113,11 @@ public final class BoardModel {
     /// Extensão ocupada pelo mural solto, memoizada enquanto o `board` não muda.
     /// O getter ainda lê `board` antes do cache para manter a dependência observável.
     public var rootExtent: BoardSize {
-        let currentBoard = board
+        let _ = board
         if let rootExtentCache { return rootExtentCache }
-        let extent = BoardLayout.extent(of: currentBoard.rootItems, freeTexts: currentBoard.freeTexts)
+        // Reutiliza os snapshots derivados que o canvas normalmente já pediu na mesma avaliação,
+        // sem perder a leitura observável de `board` acima.
+        let extent = BoardLayout.extent(of: rootItems, freeTexts: freeTexts)
         let result = BoardSize(width: extent.width, height: extent.height)
         rootExtentCache = result
         return result

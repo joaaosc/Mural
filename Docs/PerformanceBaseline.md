@@ -44,6 +44,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `7691b07`: `BoardCanvasView` reutiliza o array de cartões já calculado no `body`; `CollectionView` calcula uma vez por avaliação os filhos, cartões de coluna e post-its posicionados.
 - `BoardCanvasView`: durante um arraste, a lista de pastas raiz aceitas é filtrada uma vez no início do gesto e reutilizada nos eventos seguintes, sem alterar o cálculo de destino de `BoardLayout`.
 - `BoardModel.rootExtent`: a extensão ocupada pelo mural solto é memoizada por versão do `board`; `BoardCanvasView` e o ajuste à janela reutilizam o valor sem varrer cartões em cada avaliação.
+- `BoardModel.rootExtent`: a primeira computação agora reutiliza os snapshots memoizados de `rootItems` e `freeTexts` quando o canvas já os pediu na mesma avaliação, sem alterar a dependência observável do `board`.
 - `BoardModel.item(id:)`: o lookup passou a usar um índice lazy de UUID para a versão atual do `board`, preservando a primeira ocorrência em dados duplicados e invalidando o índice em qualquer mutação.
 - `BoardModel.freeText(id:)`: o lookup de textos livres passou a usar um índice lazy de UUID para a versão atual do `board`, reduzindo o custo dos eventos repetidos de redimensionamento e preservando a primeira ocorrência em dados duplicados.
 - Lookups internos de cartões em atualizações de notas, lembretes, música, links, captions, tags e movimentação passaram a reutilizar o índice de cartões do modelo.
