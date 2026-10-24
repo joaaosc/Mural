@@ -20,6 +20,9 @@ struct CardButton: View {
     var onRename: ((UUID) -> Void)? = nil
     /// Abre a edição da legenda persistente; `nil` esconde a ação na prévia de pasta.
     var onEditCaption: ((UUID) -> Void)? = nil
+    /// Muda o tamanho de um post-it solto no mural (`nil` volta ao padrão); `nil` esconde o submenu "Tamanho". Pastas e prévias
+    /// de pasta não passam: o post-it guardado numa pasta não muda de tamanho.
+    var onResize: ((UUID, BoardSize?) -> Void)? = nil
     /// Marca ou reabre o lembrete; `nil` onde a bolinha não é clicável (a prévia de pasta).
     var onToggleReminder: ((UUID) -> Void)? = nil
     /// Toca ou pausa a música; `nil` onde o botão não aparece (a prévia de pasta).
@@ -81,6 +84,7 @@ struct CardButton: View {
                 musicMenu
                 notesMenu
                 moveMenu
+                sizeMenu
                 Divider()
                 colorMenu
                 Divider()
@@ -217,6 +221,19 @@ struct CardButton: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Só no post-it solto no mural: os tamanhos predefinidos e a volta ao padrão, a alternativa ao arrasto do canto do cartão.
+    @ViewBuilder
+    private var sizeMenu: some View {
+        if let onResize, item.kind == .sticky {
+            BoardSizeMenu(
+                sides: BoardLayout.stickyPresetSides,
+                isStandard: BoardLayout.size(of: item) == BoardLayout.cardSize(for: item.kind)
+            ) { size in
+                withAnimation(reduceMotion ? nil : .smooth) { onResize(item.id, size) }
             }
         }
     }

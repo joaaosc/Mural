@@ -1013,6 +1013,12 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    /// Grava o tamanho de um texto livre; `nil` devolve o quadrado padrão.
+    func resizeFreeText(_ freeTextID: UUID, to size: BoardSize?) {
+        guard !isClosed, model?.resizeFreeText(freeTextID, to: size) == true else { return }
+        captureBoardIfNeeded()
+    }
+
     func placeInFolder(_ itemID: UUID, at position: BoardPoint) {
         guard !isClosed, let model else { return }
         model.placeInFolder(itemID, at: position)
@@ -1501,6 +1507,12 @@ final class BoardWindowSession {
     func move(_ itemID: UUID, to position: BoardPoint) {
         guard !isClosed else { return }
         model?.move(itemID, to: position)
+        captureBoardIfNeeded()
+    }
+
+    /// Grava o tamanho de um post-it solto no mural; `nil` devolve o tamanho padrão.
+    func resize(_ itemID: UUID, to size: BoardSize?) {
+        guard !isClosed, model?.resize(itemID, to: size) == true else { return }
         captureBoardIfNeeded()
     }
 

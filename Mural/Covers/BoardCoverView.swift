@@ -18,9 +18,11 @@ struct BoardCoverView: View {
             // Na janela o mural é vidro e mostra o que há atrás; a capa não tem nada atrás, então leva o cinza sólido.
             Theme.canvas
             ForEach(layout.items) { item in
-                let size = BoardLayout.cardSize(for: item.kind)
+                let size = BoardLayout.size(of: item)
                 let origin = layout.coverPoint(for: item.position)
                 CardView(item: item, model: model)
+                    // O post-it com tamanho escolhido leva a letra e a margem proporcionais, como no mural.
+                    .contentScaled(for: item, width: size.width, height: size.height)
                     .frame(width: size.width, height: size.height)
                     // A escala parte do canto de cima, à esquerda, e o deslocamento leva esse canto ao lugar da capa.
                     .scaleEffect(layout.scale, anchor: .topLeading)
@@ -29,7 +31,8 @@ struct BoardCoverView: View {
             // Como no mural, os textos livres ficam por cima dos cartões.
             ForEach(layout.freeTexts) { freeText in
                 let origin = layout.coverPoint(for: freeText.position)
-                CoverFreeText(text: freeText.text)
+                let size = BoardLayout.size(of: freeText)
+                CoverFreeText(text: freeText.text, size: BoardSize(width: size.width, height: size.height))
                     .scaleEffect(layout.scale, anchor: .topLeading)
                     .offset(x: origin.x, y: origin.y)
             }
@@ -41,18 +44,20 @@ struct BoardCoverView: View {
     }
 }
 
-/// Texto livre na capa: o mesmo quadrado e o mesmo texto do mural (`BoardFreeTextView`), com um branco translúcido
-/// no lugar do vidro.
+/// Texto livre na capa: a mesma caixa (no tamanho do mural) e o mesmo texto do mural (`BoardFreeTextView`), com um branco
+/// translúcido no lugar do vidro.
 private struct CoverFreeText: View {
     let text: String
+    /// Tamanho do texto no mural, em pontos do mural.
+    let size: BoardSize
 
     var body: some View {
         Text(text.isEmpty ? "Texto livre" : text)
-            .font(.system(size: 20))
+            .font(.system(size: BoardFreeTextView.fontSize(for: size)))
             .multilineTextAlignment(.center)
             .lineLimit(10)
             .minimumScaleFactor(0.65)
-            .frame(width: BoardLayout.freeTextSide, height: BoardLayout.freeTextSide)
+            .frame(width: size.width, height: size.height)
             .clipped()
             .background(.white.opacity(0.55), in: .rect(cornerRadius: 24))
     }

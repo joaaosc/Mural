@@ -1,3 +1,4 @@
+import AppKit
 import MuralKit
 import SwiftUI
 
@@ -22,8 +23,13 @@ struct BoardCanvasView: View {
     var onToggleMusic: ((UUID) -> Void)? = nil
     var musicPhase: ((UUID) -> MusicCardPhase)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
+    /// Grava o tamanho de um post-it, arrastando o canto ou pelo menu (`nil` volta ao padrão). `nil` fala direto com o modelo,
+    /// como `onMove`.
+    var onResize: ((UUID, BoardSize?) -> Void)? = nil
     var onFreeTextEdit: ((UUID) -> Void)? = nil
     var onFreeTextMove: ((UUID, BoardPoint) -> Void)? = nil
+    /// O mesmo de `onResize` para um texto livre.
+    var onFreeTextResize: ((UUID, BoardSize?) -> Void)? = nil
     var onFreeTextDelete: ((UUID) -> Void)? = nil
     /// "Renomear…" no menu de qualquer cartão.
     var onRename: ((UUID) -> Void)? = nil
@@ -39,6 +45,10 @@ struct BoardCanvasView: View {
     @State private var drag: CardDrag?
     /// Texto livre arrastado e quanto andou, em pontos do mural (sem zoom).
     @State private var freeTextDrag: FreeTextDrag?
+    /// Post-it ou texto livre com o ponteiro em cima: é quando a alça de redimensionar aparece.
+    @State private var hoveredResizable: ResizeDrag.Target?
+    /// Redimensionamento em andamento e o tamanho que o arrasto do canto dá ao elemento agora, em pontos do mural.
+    @State private var resizing: ResizeDrag?
     /// Cartão encolhendo em direção à pasta onde está sendo guardado; sai do mural no fim.
     @State private var storing: UUID?
     /// Retângulo de Shift + arrastar aberto: a prévia de pasta não aparece enquanto ele existe.
@@ -91,9 +101,16 @@ struct BoardCanvasView: View {
                 ForEach(freeTexts) { freeText in
                     BoardFreeTextView(
                         freeText: freeText,
+                        size: displayedSize(of: freeText),
                         onEdit: { onFreeTextEdit?(freeText.id) },
-                        onDelete: { onFreeTextDelete?(freeText.id) }
+                        onDelete: { onFreeTextDelete?(freeText.id) },
+                        onResize: { size in
+                            withAnimation(reduceMotion ? nil : .smooth) { commitResize(.freeText(freeText.id), to: size) }
+                        }
                     )
+                    // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do texto, que decide pelo canto.
+                    .resizeHandle(isVisible: showsResizeHandle(for: .freeText(freeText.id)), zoom: zoom.zoom)
+                    .onHover { inside in resizableHoverChanged(.freeText(freeText.id), inside: inside) }
                     .offset(freeTextOffset(for: freeText))
                     .zIndex(100)
                     .highPriorityGesture(freeTextMoveGesture(for: freeText))
@@ -104,7 +121,7 @@ struct BoardCanvasView: View {
             .marqueeSelecting(
                 in: Self.space, selection: selection, lineWidth: 1 / zoom.zoom, isActive: $isMarqueeActive
             ) {
-                Self.cardFrames(of: model.rootItems)
+                cardFrames(of: model.rootItems)
             }
             // Os arrastos medem neste espaço, em pontos do mural, sem o zoom.
             .coordinateSpace(.named(Self.space))
@@ -145,6 +162,9 @@ struct BoardCanvasView: View {
             // numa posição que nunca foi persistida.
             freeTextDrag = nil
             Task { @MainActor in
+                // O mesmo vale para o redimensionar: o tamanho ao vivo não pode ficar desenhado sem ter sido gravado. Fica para
+                // a volta seguinte, como o arrasto abaixo, para não apagar o tamanho na frente do `onEnded` que o grava.
+                resizing = nil
                 // Um cartão sendo guardado ainda precisa do arrasto até o fim da animação.
                 guard drag != nil, storing == nil else { return }
                 drag = nil
@@ -174,7 +194,7 @@ struct BoardCanvasView: View {
 
     @ViewBuilder
     private func cardGroup(for item: BoardItem) -> some View {
-        let size = BoardLayout.cardSize(for: item.kind)
+        let size = displayedSize(of: item)
         if item.kind == .folder {
             // O leque da pasta sai pela borda direita: a prévia começa depois dele, com a folga de 14 pt de sempre.
             HStack(alignment: .top, spacing: FolderCard.fanReach + 14) {
@@ -203,6 +223,15 @@ struct BoardCanvasView: View {
                 }
             }
             .onHover { inside in pointerMoved(over: item.id, inside: inside) }
+        } else if BoardLayout.isResizable(item.kind) {
+            cardButton(item, open: [.item(item.id)])
+                .frame(width: size.width, height: size.height)
+                // A letra e a margem do post-it acompanham o tamanho mostrado, inclusive durante o arrasto do canto.
+                .contentScaled(for: item, width: size.width, height: size.height)
+                // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do cartão, que decide pelo canto.
+                .resizeHandle(isVisible: showsResizeHandle(for: .item(item.id)), zoom: zoom.zoom)
+                .onHover { inside in resizableHoverChanged(.item(item.id), inside: inside) }
+                .highPriorityGesture(moveGesture(for: item))
         } else {
             cardButton(item, open: [.item(item.id)])
                 .frame(width: size.width, height: size.height)
@@ -222,10 +251,25 @@ struct BoardCanvasView: View {
             onSetColorTag: onSetColorTag,
             onRename: onRename,
             onEditCaption: onEditCaption,
+            onResize: { id, size in commitResize(.item(id), to: size) },
             onToggleReminder: onToggleReminder,
             onToggleMusic: onToggleMusic,
             musicPhase: musicPhase?(item.id) ?? .idle,
             selection: selection)
+    }
+
+    /// Tamanho do cartão na tela: o do arrasto do canto em andamento ou, fora dele, o do domínio (`BoardLayout.size(of:)`).
+    private func displayedSize(of item: BoardItem) -> BoardSize {
+        if let resizing, resizing.target == .item(item.id) { return resizing.size }
+        let size = BoardLayout.size(of: item)
+        return BoardSize(width: size.width, height: size.height)
+    }
+
+    /// O mesmo de `displayedSize(of:)` para um texto livre.
+    private func displayedSize(of freeText: BoardFreeText) -> BoardSize {
+        if let resizing, resizing.target == .freeText(freeText.id) { return resizing.size }
+        let size = BoardLayout.size(of: freeText)
+        return BoardSize(width: size.width, height: size.height)
     }
 
     /// Posição do cartão: a gravada mais o arrasto em andamento.
@@ -244,7 +288,7 @@ struct BoardCanvasView: View {
     private func storeAnchor(for item: BoardItem) -> UnitPoint {
         guard let drag, drag.id == item.id, let target = drag.tracker?.target, let folder = model.item(id: target)
         else { return .center }
-        let size = BoardLayout.cardSize(for: item.kind)
+        let size = displayedSize(of: item)
         let folderSize = BoardLayout.cardSize(for: .folder)
         let origin = offset(for: item)
         return UnitPoint(
@@ -272,10 +316,17 @@ struct BoardCanvasView: View {
     /// de 4 pontos de movimento e, por ter prioridade sobre o botão, impede que o arrasto abra o cartão.
     /// Soltar sobre uma pasta guarda o cartão nela; pastas também podem ser guardadas, mas só nas
     /// que o domínio aceita (não nela mesma, nas de dentro dela nem além do último nível).
+    ///
+    /// Num post-it, o arrasto que começa no quadrado do canto inferior direito (a alça) muda o tamanho em vez do lugar. É este
+    /// gesto que decide, pelo ponto onde o arrasto começou: um segundo gesto no canto perderia para este, que tem prioridade.
     private func moveGesture(for item: BoardItem) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDragging) { _, isDragging, _ in isDragging = true }
             .onChanged { value in
+                if startsResize(of: item, at: value.startLocation) {
+                    updateResize(.item(item.id), with: value)
+                    return
+                }
                 // Outro cartão ainda está entrando numa pasta: espera a animação terminar.
                 guard storing == nil else { return }
                 // No começo do arrasto, anota a pasta que já estava sob o ponteiro.
@@ -296,6 +347,10 @@ struct BoardCanvasView: View {
                 drag = current
             }
             .onEnded { value in
+                if startsResize(of: item, at: value.startLocation) {
+                    endResize(.item(item.id), with: value)
+                    return
+                }
                 guard storing == nil, var final = drag, final.id == item.id else { return }
                 // Decide pelo ponto em que o botão foi solto: num arrasto rápido ele pode não ter
                 // chegado num `onChanged`, e o destino anotado estaria atrasado.
@@ -321,13 +376,23 @@ struct BoardCanvasView: View {
             }
     }
 
+    /// Arrasto de um texto livre. Como no post-it, o arrasto que começa no quadrado do canto inferior direito muda o tamanho em
+    /// vez do lugar.
     private func freeTextMoveGesture(for freeText: BoardFreeText) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDragging) { _, isDragging, _ in isDragging = true }
             .onChanged { value in
+                if startsResize(of: freeText, at: value.startLocation) {
+                    updateResize(.freeText(freeText.id), with: value)
+                    return
+                }
                 freeTextDrag = FreeTextDrag(id: freeText.id, translation: value.translation)
             }
             .onEnded { value in
+                if startsResize(of: freeText, at: value.startLocation) {
+                    endResize(.freeText(freeText.id), with: value)
+                    return
+                }
                 let target = BoardPoint(
                     x: freeText.position.x + value.translation.width,
                     y: freeText.position.y + value.translation.height
@@ -340,6 +405,95 @@ struct BoardCanvasView: View {
                 freeTextDrag = nil
                 onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
             }
+    }
+
+    // MARK: Redimensionar
+
+    /// Se um arrasto que começou em `point` (em pontos do mural) pegou a alça de um post-it. Com o seletor de ⌘ aberto a alça não
+    /// existe, e o arrasto do canto volta a mover.
+    private func startsResize(of item: BoardItem, at point: CGPoint) -> Bool {
+        guard BoardLayout.isResizable(item.kind), selection?.isActive != true else { return false }
+        return isInResizeCorner(point, origin: item.position, size: BoardLayout.size(of: item))
+    }
+
+    /// O mesmo de `startsResize(of:at:)` para um texto livre.
+    private func startsResize(of freeText: BoardFreeText, at point: CGPoint) -> Bool {
+        guard selection?.isActive != true else { return false }
+        return isInResizeCorner(point, origin: freeText.position, size: BoardLayout.size(of: freeText))
+    }
+
+    /// O quadrado do canto inferior direito do elemento: 18 pontos de tela, ou seja `18 / zoom` pontos do mural, como o da alça.
+    /// Num elemento que fica pequeno na tela (zoom baixo), o quadrado não passa de metade do menor lado, para sobrar onde pegar
+    /// e mover. O ponto de partida é medido no tamanho gravado: o arrasto ainda não tinha mudado nada.
+    private func isInResizeCorner(_ point: CGPoint, origin: BoardPoint, size: (width: Double, height: Double)) -> Bool {
+        let reach = min(ResizeHandle.cornerSide / zoom.zoom, min(size.width, size.height) / 2)
+        let right = origin.x + size.width
+        let bottom = origin.y + size.height
+        return point.x >= right - reach && point.x <= right && point.y >= bottom - reach && point.y <= bottom
+    }
+
+    /// O tamanho que o arrasto do canto dá ao elemento, a partir do tamanho gravado. A mesma conta vale enquanto o ponteiro se
+    /// move e ao soltar, quando o estado ao vivo pode já ter sido limpo. `nil` se o elemento deixou de existir.
+    private func resizedSize(for target: ResizeDrag.Target, translation: CGSize, keepingProportion: Bool) -> BoardSize? {
+        switch target {
+        case .item(let id):
+            guard let item = model.item(id: id) else { return nil }
+            return BoardLayout.resizedSize(
+                of: item, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
+        case .freeText(let id):
+            guard let freeText = model.freeText(id: id) else { return nil }
+            return BoardLayout.resizedSize(
+                of: freeText, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
+        }
+    }
+
+    /// Atualiza o tamanho ao vivo. Com Shift, mantém a proporção do tamanho de partida.
+    private func updateResize(_ target: ResizeDrag.Target, with value: DragGesture.Value) {
+        let keepsProportion = NSEvent.modifierFlags.contains(.shift)
+        guard let size = resizedSize(for: target, translation: value.translation, keepingProportion: keepsProportion) else { return }
+        resizing = ResizeDrag(target: target, size: size, keepsProportion: keepsProportion)
+    }
+
+    /// Grava o tamanho em que o arrasto terminou, sem animação: o elemento já está onde o ponteiro o deixou. Recalcula pelo ponto
+    /// onde o botão foi solto, e não pelo último tamanho ao vivo, que num arrasto rápido pode estar atrasado. A proporção é a do
+    /// último movimento, para o valor gravado ser o que a pessoa via.
+    private func endResize(_ target: ResizeDrag.Target, with value: DragGesture.Value) {
+        let keepsProportion = resizing?.target == target ? resizing?.keepsProportion : nil
+        let size = resizedSize(
+            for: target, translation: value.translation, keepingProportion: keepsProportion ?? NSEvent.modifierFlags.contains(.shift))
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if let size { commitResize(target, to: size) }
+            resizing = nil
+        }
+        onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
+    }
+
+    /// Entrega o tamanho a quem grava: a sessão, ou direto o modelo quando o mural roda sem sessão. `nil` volta ao padrão.
+    private func commitResize(_ target: ResizeDrag.Target, to size: BoardSize?) {
+        switch target {
+        case .item(let id):
+            if let onResize { onResize(id, size) } else { _ = model.resize(id, to: size) }
+        case .freeText(let id):
+            if let onFreeTextResize { onFreeTextResize(id, size) } else { _ = model.resizeFreeText(id, to: size) }
+        }
+    }
+
+    /// A alça aparece com o ponteiro sobre o elemento ou durante o arrasto do canto; some com o seletor de ⌘ aberto e enquanto
+    /// qualquer elemento está sendo movido ou o retângulo de Shift está aberto.
+    private func showsResizeHandle(for target: ResizeDrag.Target) -> Bool {
+        guard selection?.isActive != true else { return false }
+        if resizing?.target == target { return true }
+        return hoveredResizable == target && resizing == nil && drag == nil && freeTextDrag == nil && !isMarqueeActive
+    }
+
+    private func resizableHoverChanged(_ target: ResizeDrag.Target, inside: Bool) {
+        if inside {
+            hoveredResizable = target
+        } else if hoveredResizable == target {
+            hoveredResizable = nil
+        }
     }
 
     /// Aceita o drop no domínio imediatamente. A animação de armazenamento não
@@ -369,11 +523,11 @@ struct BoardCanvasView: View {
         if drag == nil && !isDragging && !isMarqueeActive { hoveredFolder = pointerFolder }
     }
 
-    /// Quadro de cada cartão solto, em pontos do mural; a pasta conta só o cartão, sem o leque.
-    private static func cardFrames(of items: [BoardItem]) -> [UUID: CGRect] {
+    /// Quadro de cada cartão solto, em pontos do mural, no tamanho mostrado; a pasta conta só o cartão, sem o leque.
+    private func cardFrames(of items: [BoardItem]) -> [UUID: CGRect] {
         Dictionary(
             uniqueKeysWithValues: items.map { item in
-                let size = BoardLayout.cardSize(for: item.kind)
+                let size = displayedSize(of: item)
                 return (item.id, CGRect(x: item.position.x, y: item.position.y, width: size.width, height: size.height))
             })
     }
