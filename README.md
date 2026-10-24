@@ -152,10 +152,10 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
 - **Ícone do Mural na barra de menus**, enquanto o app está aberto (mesmo sem janela): abre um painel
   de vidro com a **vitrine dos murais**, em 3D como o Cover Flow, com reflexo. Cada capa mostra o mural
-  inteiro, desenhada com os próprios cartões; as laterais ficam levemente apagadas, e a do centro é a
-  escolhida. O centro começa no último mural usado pelo painel; senão, no da aba ativa; senão, no
-  editado por último. ← → ou dois dedos trocam de mural, digitar letras procura pelo nome e Return
-  abre o mural do centro. Visualizar › Abrir Painel de Murais abre o mesmo painel no meio da tela.
+  inteiro, desenhada com os próprios cartões; as laterais ficam escurecidas, mais a cada passo para longe
+  do centro, e a do centro, sem véu, é a escolhida. O centro começa no último mural usado pelo painel;
+  senão, no da aba ativa; senão, no editado por último. ← → ou dois dedos trocam de mural, digitar
+  letras procura pelo nome e Return abre o mural do centro. Visualizar › Abrir Painel de Murais abre o mesmo painel no meio da tela.
 - **⌘` de qualquer app** abre e fecha o painel (outra combinação, ou nenhuma, nos Ajustes). Com dois
   Mural abertos, só o que mostra o ícone responde ao atalho.
 - **Arrastar o painel** pelo fundo o muda de lugar, e ele reabre ali; nos Ajustes dá para desligar
@@ -186,32 +186,48 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   janela, e **Sair do Mural**; na aba Painel, o atalho e o lugar do painel. Se o macOS pedir,
   "Permitir nos Ajustes do Sistema…" leva aos Itens de Início de Sessão.
 
+## Murais compartilhados pelo iCloud (em construção)
+
+- **Só o mural posto no iCloud sincroniza**; os outros continuam só no Mac. Cada mural compartilhado é
+  uma zona do CloudKit, sincronizada pelo `CKSyncEngine`, sem servidor próprio e dentro do sandbox.
+- **Duas edições ao mesmo tempo** se juntam campo a campo: texto por linha, lista por item; o que não
+  dá para juntar vira uma cópia de conflito, sem perder o que cada pessoa escreveu.
+- **Só leitura**: quem só pode ver recebe as mudanças das outras pessoas, mas nada do que faz muda o
+  mural compartilhado. Frases curtas, prévias de link e capas de música continuam de cada Mac.
+- Hoje, só em Debug, Arquivo › **Pôr Este Mural no iCloud** envia o mural da aba ao banco privado, e a
+  barra da janela mostra o estado da sincronização. Falta o convite para outra pessoa, o segundo Mac
+  adotar um mural criado no primeiro e o modo só leitura na interface.
+- Os testes usam um iCloud em memória; o app aberto só para hospedar os testes não sincroniza.
+
 ## Requisitos
 
 - macOS 27 e Xcode 27.2 ou mais novo (o projeto usa o formato JSON `project.xcproj`).
-- O pacote [StretchText](../Workbench/StretchText) em `../Workbench/StretchText`, ao lado
-  desta pasta: o projeto e o `MuralKit` apontam para ele por caminho relativo. A imagem dentro
-  da nota e a tarefa clicável precisam da `main` do Workbench a partir de `d67fd91` (bloco de
-  imagem e `togglingTask`/`stretchMarkdownTaskToggle`).
+- O pacote [StretchText](https://github.com/joaaosc/StretchText), baixado do GitHub pelo Swift
+  Package Manager (a partir da 1.0.0 no `MuralKit` e da 1.0.2 no projeto do app).
 - Para a escolha das frases pelo modelo: um Mac com Apple Intelligence ligada. Sem ela,
   o app funciona com a primeira frase.
 - Para tocar e listar faixas do Apple Music: o serviço MusicKit ligado no App ID do app
   (developer.apple.com › Certificates, Identifiers & Profiles › Identifiers › App Services ›
   MusicKit). Sem ele o build passa e o cartão aparece, mas tocar mostra um erro.
+- Para o iCloud: o App ID com iCloud (CloudKit, container `iCloud.com.joaocosta.Mural`) e Push
+  Notifications, e um perfil de provisionamento que inclua os dois (um build com
+  `-allowProvisioningUpdates` os registra). Sem o entitlement do CloudKit, a sincronização fica desligada.
 
 ## Estrutura
 
 | Pasta | Conteúdo |
 | --- | --- |
-| `Packages/MuralKit` | Domínio sem interface: modelos, importação, gravação, paleta, estado observável. |
-| `Mural/` | App: telas organizadas por área (`Tabs`, `Board`, `Collection`, `Detail`, `Cards`, `Chrome`, `Navigation`, `Input`, `Media`, `Style`, `MenuBar` com o painel da barra de menus e `Covers` com as capas da vitrine). |
+| `Packages/MuralKit` | Domínio sem interface: modelos, importação, gravação, paleta, estado observável, junção de edições (`MuralKit`) e sincronização com o iCloud (`MuralSync`). |
+| `Mural/` | App: telas organizadas por área (`Tabs`, `Board`, `Collection`, `Detail`, `Cards`, `Chrome`, `Navigation`, `Input`, `Media`, `Style`, `MenuBar` com o painel da barra de menus, `Covers` com as capas da vitrine e `Cloud` com a ligação ao iCloud). |
 | `MuralTests/` | Testes do app com Swift Testing. |
 | `MuralUITests/` | Testes de interface que abrem o app com um mural de teste isolado. |
 | `Config/Project.xcconfig` | Configurações de build comuns a todos os alvos. |
 | `scripts/` | Verificação completa e conferência do arquivo de projeto. |
 
 Os dados ficam em `~/Library/Containers/com.joaocosta.Mural/Data/Library/Application Support/Mural`:
-`board.json` com o mural e `Items/` com as cópias dos arquivos colados.
+cada mural é um pacote em `Boards/<id>.mural/` (`manifest.json`, `board.json` e `Items/` com as cópias dos
+arquivos colados). Ao lado ficam `BoardCovers/` (capas da vitrine), `LinkPreviews/` (imagens das prévias),
+`Sync/` (o que este Mac sabe de cada mural no iCloud) e `Backups/` (cópia de um mural antes de ir ao iCloud).
 
 ## Comandos
 
