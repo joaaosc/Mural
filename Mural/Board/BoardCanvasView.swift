@@ -233,7 +233,7 @@ struct BoardCanvasView: View {
         if item.kind == .folder {
             // O leque da pasta sai pela borda direita: a prévia começa depois dele, com a folga de 14 pt de sempre.
             HStack(alignment: .top, spacing: FolderCard.fanReach + 14) {
-                cardButton(item, open: [.collection(item.id)])
+                cardButton(item, open: [.collection(item.id)], size: size)
                     .frame(width: size.width, height: size.height)
                     .dropTargetHighlight(focus.dropTarget == item.id)
                     .highPriorityGesture(moveGesture(for: item))
@@ -259,7 +259,7 @@ struct BoardCanvasView: View {
             }
             .onHover { inside in pointerMoved(over: item.id, inside: inside) }
         } else if BoardLayout.isResizable(item.kind) {
-            cardButton(item, open: [.item(item.id)])
+            cardButton(item, open: [.item(item.id)], size: size)
                 .frame(width: size.width, height: size.height)
                 // A letra e a margem do post-it acompanham o tamanho mostrado, inclusive durante o arrasto do canto.
                 .contentScaled(for: item, width: size.width, height: size.height)
@@ -268,13 +268,17 @@ struct BoardCanvasView: View {
                 .onHover { inside in resizableHoverChanged(.item(item.id), inside: inside) }
                 .highPriorityGesture(moveGesture(for: item))
         } else {
-            cardButton(item, open: [.item(item.id)])
+            cardButton(item, open: [.item(item.id)], size: size)
                 .frame(width: size.width, height: size.height)
                 .highPriorityGesture(moveGesture(for: item))
         }
     }
 
-    private func cardButton(_ item: BoardItem, open destinations: [Destination]) -> some View {
+    private func cardButton(
+        _ item: BoardItem,
+        open destinations: [Destination],
+        size: BoardSize? = nil
+    ) -> some View {
         CardButton(
             item: item,
             model: model,
@@ -287,6 +291,10 @@ struct BoardCanvasView: View {
             onRename: onRename,
             onEditCaption: onEditCaption,
             onResize: { id, size in commitResize(.item(id), to: size) },
+            isStandardSize: size.map { displayedSize in
+                let standard = BoardLayout.cardSize(for: item.kind)
+                return displayedSize.width == standard.width && displayedSize.height == standard.height
+            },
             onToggleReminder: onToggleReminder,
             onToggleMusic: onToggleMusic,
             musicPhase: item.kind == .music ? musicPhase?(item.id) ?? .idle : .idle,

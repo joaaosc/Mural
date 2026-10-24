@@ -23,6 +23,9 @@ struct CardButton: View {
     /// Muda o tamanho de um post-it solto no mural (`nil` volta ao padrão); `nil` esconde o submenu "Tamanho". Pastas e prévias
     /// de pasta não passam: o post-it guardado numa pasta não muda de tamanho.
     var onResize: ((UUID, BoardSize?) -> Void)? = nil
+    /// Tamanho já calculado pelo canvas, quando disponível. Evita repetir o cálculo
+    /// de `BoardLayout.size(of:)` só para marcar o preset padrão do submenu.
+    var isStandardSize: Bool? = nil
     /// Marca ou reabre o lembrete; `nil` onde a bolinha não é clicável (a prévia de pasta).
     var onToggleReminder: ((UUID) -> Void)? = nil
     /// Toca ou pausa a música; `nil` onde o botão não aparece (a prévia de pasta).
@@ -206,7 +209,7 @@ struct CardButton: View {
     /// Nota, post-it e lista: mandar o texto ao app Notas.
     @ViewBuilder
     private var notesMenu: some View {
-        if [.text, .sticky, .checklist].contains(item.kind) {
+        if item.kind == .text || item.kind == .sticky || item.kind == .checklist {
             Button("Salvar no Notas") { NotesSharing().share(item, model: model, from: nil) }
         }
     }
@@ -246,7 +249,7 @@ struct CardButton: View {
         if let onResize, item.kind == .sticky {
             BoardSizeMenu(
                 sides: BoardLayout.stickyPresetSides,
-                isStandard: BoardLayout.size(of: item) == BoardLayout.cardSize(for: item.kind)
+                isStandard: isStandardSize ?? (BoardLayout.size(of: item) == BoardLayout.cardSize(for: item.kind))
             ) { size in
                 withAnimation(reduceMotion ? nil : .smooth) { onResize(item.id, size) }
             }
