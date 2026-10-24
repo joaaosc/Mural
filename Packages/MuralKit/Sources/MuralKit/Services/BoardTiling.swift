@@ -3,9 +3,9 @@ import Foundation
 /// Mosaico do mural, como num gerenciador de janelas que divide o espaço em árvore (BSP): os
 /// cartões soltos ganham blocos sem sobreposição e com vãos iguais.
 ///
-/// Os cartões mantêm o tamanho. Por isso a árvore é equilibrada (divide a lista ao meio, como o
-/// `--balance` do yabai) em vez de cada cartão dividir o bloco do anterior: com tamanho fixo, essa
-/// divisão sucessiva deixaria o primeiro cartão sozinho num bloco enorme e o resto numa escada.
+/// Os cartões mantêm o tamanho, o padrão do tipo ou o que a pessoa escolheu (`BoardLayout.size(of:)`). Por isso a árvore é
+/// equilibrada (divide a lista ao meio, como o `--balance` do yabai) em vez de cada cartão dividir o bloco do anterior: com
+/// tamanho fixo, essa divisão sucessiva deixaria o primeiro cartão sozinho num bloco enorme e o resto numa escada.
 public enum BoardTiling {
     /// Formato padrão (largura ÷ altura) quando a janela ainda não tem tamanho.
     public static let defaultAspect = 1.6
@@ -21,7 +21,7 @@ public enum BoardTiling {
         // Área-alvo: a soma dos cartões com o vão, no formato pedido. Cada corte é feito no lado
         // mais comprido dela, então o mosaico se aproxima do formato da janela.
         let area = ordered.reduce(0.0) { total, item in
-            let size = BoardLayout.cardSize(for: item.kind)
+            let size = BoardLayout.size(of: item)
             return total + (size.width + gap) * (size.height + gap)
         }
         let width = (area * ratio).squareRoot()
@@ -64,7 +64,7 @@ public enum BoardTiling {
     /// e mede o bloco de baixo para cima.
     private static func node(for items: ArraySlice<BoardItem>, region: (width: Double, height: Double), gap: Double) -> Node {
         if items.count == 1, let item = items.first {
-            let size = BoardLayout.cardSize(for: item.kind)
+            let size = BoardLayout.size(of: item)
             return .leaf(item.id, width: size.width, height: size.height)
         }
         let middle = items.startIndex + (items.count + 1) / 2

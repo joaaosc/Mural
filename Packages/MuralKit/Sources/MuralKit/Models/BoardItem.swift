@@ -39,6 +39,10 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     /// Lugar livre do post-it dentro da pasta, depois que a pessoa o arrastou lá: canto superior esquerdo, com `x` a partir
     /// do meio da pasta e `y` a partir do topo. `nil` deixa o cartão nas colunas da pasta. Murais antigos não têm o campo.
     public var folderPosition: BoardPoint?
+    /// Tamanho que a pessoa escolheu para o cartão solto no mural; `nil` usa o padrão do tipo (`BoardLayout.cardSize(for:)`).
+    /// Por ora só post-its mudam de tamanho (`BoardLayout.isResizable`). Dentro de uma pasta o campo é ignorado, porque a pasta
+    /// usa o próprio layout, mas continua guardado para quando o post-it voltar ao mural. Murais antigos não têm o campo.
+    public var size: BoardSize?
 
     public init(
         id: UUID = UUID(),
@@ -60,7 +64,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         music: MusicSnapshot? = nil,
         colorTag: TagColor? = nil,
         attachments: [NoteAttachment]? = nil,
-        folderPosition: BoardPoint? = nil
+        folderPosition: BoardPoint? = nil,
+        size: BoardSize? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -82,6 +87,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.colorTag = colorTag
         self.attachments = attachments
         self.folderPosition = folderPosition
+        self.size = size
     }
 }
 
@@ -89,7 +95,7 @@ extension BoardItem {
     private enum CodingKeys: String, CodingKey {
         case id, kind, title, createdAt, parentID, position, fileName, text, caption
         case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music
-        case colorTag, attachments, folderPosition
+        case colorTag, attachments, folderPosition, size
     }
 
     public init(from decoder: any Decoder) throws {
@@ -117,7 +123,8 @@ extension BoardItem {
             music: try container.decodeIfPresent(MusicSnapshot.self, forKey: .music),
             colorTag: try container.decodeIfPresent(TagColor.self, forKey: .colorTag),
             attachments: try container.decodeIfPresent([NoteAttachment].self, forKey: .attachments),
-            folderPosition: try container.decodeIfPresent(BoardPoint.self, forKey: .folderPosition))
+            folderPosition: try container.decodeIfPresent(BoardPoint.self, forKey: .folderPosition),
+            size: try container.decodeIfPresent(BoardSize.self, forKey: .size))
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -142,6 +149,7 @@ extension BoardItem {
         try container.encodeIfPresent(colorTag, forKey: .colorTag)
         try container.encodeIfPresent(attachments, forKey: .attachments)
         try container.encodeIfPresent(folderPosition, forKey: .folderPosition)
+        try container.encodeIfPresent(size, forKey: .size)
     }
 }
 

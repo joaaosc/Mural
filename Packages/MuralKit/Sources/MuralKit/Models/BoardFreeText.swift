@@ -9,17 +9,22 @@ public struct BoardFreeText: Codable, Identifiable, Hashable, Sendable {
     public var text: String
     public var position: BoardPoint
     public var createdAt: Date
+    /// Tamanho que a pessoa escolheu para o texto no mural; `nil` usa o quadrado padrão (`BoardLayout.freeTextSize`).
+    /// Murais antigos não têm o campo.
+    public var size: BoardSize?
 
     public init(
         id: UUID = UUID(),
         text: String,
         position: BoardPoint = .zero,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        size: BoardSize? = nil
     ) {
         self.id = id
         self.text = Self.normalized(text)
         self.position = position
         self.createdAt = createdAt
+        self.size = size
     }
 
     /// Remove espaços vazios nas pontas e limita o valor sem dividir caracteres compostos.
@@ -29,7 +34,7 @@ public struct BoardFreeText: Codable, Identifiable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, text, position, createdAt
+        case id, text, position, createdAt, size
     }
 
     public init(from decoder: any Decoder) throws {
@@ -38,7 +43,8 @@ public struct BoardFreeText: Codable, Identifiable, Hashable, Sendable {
             id: try container.decode(UUID.self, forKey: .id),
             text: try container.decode(String.self, forKey: .text),
             position: try container.decode(BoardPoint.self, forKey: .position),
-            createdAt: try container.decode(Date.self, forKey: .createdAt)
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            size: try container.decodeIfPresent(BoardSize.self, forKey: .size)
         )
     }
 }

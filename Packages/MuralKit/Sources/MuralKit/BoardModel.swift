@@ -550,6 +550,15 @@ public final class BoardModel {
         return true
     }
 
+    /// Muda o tamanho de um texto livre (regras em `Board.resizeFreeText`): `nil`, ou o tamanho padrão, devolve o quadrado padrão.
+    /// - Returns: `false` quando o texto não existe ou já tinha esse tamanho.
+    @discardableResult
+    public func resizeFreeText(_ freeTextID: UUID, to size: BoardSize?) -> Bool {
+        guard board.resizeFreeText(id: freeTextID, to: size) else { return false }
+        persist()
+        return true
+    }
+
     /// Apaga um texto livre sem tocar nos arquivos dos cartões.
     @discardableResult
     public func deleteFreeText(_ freeTextID: UUID) -> Bool {
@@ -596,6 +605,16 @@ public final class BoardModel {
         persist()
     }
 
+    /// Muda o tamanho de um cartão solto (regras em `Board.resize`, hoje só post-it): `nil`, ou o tamanho padrão do tipo, devolve
+    /// o cartão ao padrão. Não muda a posição nem leva o cartão para cima dos outros.
+    /// - Returns: `false` quando o cartão não existe, não muda de tamanho ou já tinha esse tamanho.
+    @discardableResult
+    public func resize(_ itemID: UUID, to size: BoardSize?) -> Bool {
+        guard board.resize(id: itemID, to: size) else { return false }
+        persist()
+        return true
+    }
+
     /// Põe o post-it num lugar livre da pasta onde ele está, por cima dos outros (regras em `Board.placeInFolder`).
     public func placeInFolder(_ itemID: UUID, at position: BoardPoint) {
         guard board.placeInFolder(id: itemID, at: position) else { return }
@@ -625,7 +644,8 @@ public final class BoardModel {
     /// Tira o cartão de dentro da pasta e o solta no mural, numa posição livre (a mesma regra de colar).
     public func moveToBoard(_ itemID: UUID) {
         guard let item = board.item(id: itemID), item.parentID != nil else { return }
-        let position = BoardLayout.freePosition(for: item.kind, avoiding: board.rootItems)
+        // A vaga é do tamanho que o cartão tem: um post-it redimensionado guarda o tamanho dentro da pasta.
+        let position = BoardLayout.freePosition(for: item, avoiding: board.rootItems)
         guard board.moveToBoard(id: itemID, at: position) else { return }
         persist()
     }

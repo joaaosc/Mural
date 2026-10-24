@@ -13,7 +13,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 8: cartão de música (Apple Music).
     /// - 9: post-it num lugar livre dentro da pasta (`BoardItem.folderPosition`).
     /// - 10: legenda separada do corpo (`BoardItem.caption`).
-    public static let currentFormatVersion = 10
+    /// - 11: tamanho escolhido para post-it e texto livre (`BoardItem.size`, `BoardFreeText.size`).
+    public static let currentFormatVersion = 11
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -69,12 +70,14 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.kind == .music }) { version = max(version, 8) }
         if items.contains(where: { $0.folderPosition != nil }) { version = max(version, 9) }
         if items.contains(where: { $0.caption != nil }) { version = max(version, 10) }
+        if items.contains(where: { $0.size != nil }) { version = max(version, 11) }
         return version
     }
 
     static func minimumFormatVersion(for items: [BoardItem], freeTexts: [BoardFreeText]) -> Int {
         var version = minimumFormatVersion(for: items)
         if !freeTexts.isEmpty { version = max(version, 7) }
+        if freeTexts.contains(where: { $0.size != nil }) { version = max(version, 11) }
         return version
     }
 
@@ -166,6 +169,7 @@ public struct Board: Codable, Equatable, Sendable {
     public mutating func add(_ freeText: BoardFreeText) {
         var placed = freeText
         placed.position = BoardLayout.clamped(placed.position)
+        placed.size = BoardLayout.normalizedFreeTextSize(placed.size)
         freeTexts.append(placed)
         formatVersion = requiredFormatVersion
     }
@@ -175,6 +179,7 @@ public struct Board: Codable, Equatable, Sendable {
         var updated = freeText
         updated.text = BoardFreeText.normalized(updated.text)
         updated.position = BoardLayout.clamped(updated.position)
+        updated.size = BoardLayout.normalizedFreeTextSize(updated.size)
         freeTexts[index] = updated
         formatVersion = requiredFormatVersion
     }
@@ -191,6 +196,19 @@ public struct Board: Codable, Equatable, Sendable {
     public mutating func moveFreeText(id: UUID, to position: BoardPoint) -> Bool {
         guard let index = freeTexts.firstIndex(where: { $0.id == id }) else { return false }
         freeTexts[index].position = BoardLayout.clamped(position)
+        formatVersion = requiredFormatVersion
+        return true
+    }
+
+    /// Muda o tamanho de um texto livre. O tamanho é normalizado (`BoardLayout.normalizedFreeTextSize`): `nil`, ou um tamanho igual
+    /// ao padrão, devolve o texto ao quadrado padrão, e o mural deixa de exigir a versão 11 se nenhum outro elemento tiver tamanho.
+    /// - Returns: `false`, sem alterar nada, se o texto não existe ou já tinha esse tamanho.
+    @discardableResult
+    public mutating func resizeFreeText(id: UUID, to size: BoardSize?) -> Bool {
+        guard let index = freeTexts.firstIndex(where: { $0.id == id }) else { return false }
+        let normalized = BoardLayout.normalizedFreeTextSize(size)
+        guard freeTexts[index].size != normalized else { return false }
+        freeTexts[index].size = normalized
         formatVersion = requiredFormatVersion
         return true
     }
@@ -221,6 +239,21 @@ public struct Board: Codable, Equatable, Sendable {
         var item = items.remove(at: index)
         item.position = position
         items.append(item)
+        formatVersion = requiredFormatVersion
+        return true
+    }
+
+    /// Muda o tamanho de um cartão que pode mudar de tamanho (`BoardLayout.isResizable`, hoje só o post-it). O tamanho é
+    /// normalizado (`BoardLayout.normalizedSize(_:for:)`): `nil`, ou um tamanho igual ao padrão do tipo, devolve o cartão ao padrão,
+    /// e o mural deixa de exigir a versão 11 se nenhum outro elemento tiver tamanho. A ordem da lista não muda: o cartão não vai
+    /// para cima dos outros. Um post-it guardado numa pasta também aceita o tamanho, que só vale quando ele volta ao mural.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe, não muda de tamanho ou já tinha esse tamanho.
+    @discardableResult
+    public mutating func resize(id: UUID, to size: BoardSize?) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), BoardLayout.isResizable(items[index].kind) else { return false }
+        let normalized = BoardLayout.normalizedSize(size, for: items[index].kind)
+        guard items[index].size != normalized else { return false }
+        items[index].size = normalized
         formatVersion = requiredFormatVersion
         return true
     }

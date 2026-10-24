@@ -10,6 +10,7 @@ struct BoardFormatVersionTests {
     let child: BoardItem
     let otherFolder = BoardItem(kind: .folder, title: "Outra pasta", position: BoardPoint(x: 400, y: 100))
     let note = BoardItem(kind: .text, title: "Nota", position: BoardPoint(x: 100, y: 400))
+    let freeText = BoardFreeText(text: "Anotação", position: BoardPoint(x: 600, y: 300))
     let items: [BoardItem]
 
     init() {
@@ -25,7 +26,7 @@ struct BoardFormatVersionTests {
 
     /// O mural como uma build antiga o gravou: lido de um JSON com `formatVersion` 0.
     private func olderBoard() throws -> Board {
-        let encoded = try JSONEncoder().encode(Board(items: items))
+        let encoded = try JSONEncoder().encode(Board(items: items, freeTexts: [freeText]))
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object["formatVersion"] = 0
         let board = try JSONDecoder().decode(Board.self, from: JSONSerialization.data(withJSONObject: object))
@@ -68,12 +69,14 @@ struct BoardFormatVersionTests {
             ("moveIntoFolder de cartão de uma pasta para outra", { $0.moveIntoFolder(id: child.id, folderID: otherFolder.id) }),
             ("moveToBoard", { $0.moveToBoard(id: child.id, at: BoardPoint(x: 7, y: 7)) }),
             ("placeInFolder", { $0.placeInFolder(id: child.id, at: BoardPoint(x: 0, y: 40)) }),
+            ("resize de post-it", { $0.resize(id: child.id, to: BoardSize(width: 200, height: 200)) }),
+            ("resizeFreeText", { $0.resizeFreeText(id: freeText.id, to: BoardSize(width: 300, height: 200)) }),
         ]
         for mutation in mutations {
             let older = try olderBoard()
             var board = older
             mutation.apply(&board)
-            #expect(board.items != older.items, "\(mutation.name) não alterou o mural")
+            #expect(board.items != older.items || board.freeTexts != older.freeTexts, "\(mutation.name) não alterou o mural")
             #expect(board.formatVersion == board.requiredFormatVersion, "\(mutation.name) não gravou a versão exigida")
             #expect(board.formatVersion >= 1, "\(mutation.name) deixou a versão antiga")
         }
@@ -129,6 +132,12 @@ struct BoardFormatVersionTests {
             ("moveToBoard de cartão que já está solto", { $0.moveToBoard(id: note.id, at: BoardPoint(x: 5, y: 5)) }),
             ("placeInFolder de cartão solto", { $0.placeInFolder(id: note.id, at: BoardPoint(x: 0, y: 40)) }),
             ("placeInFolder de id desconhecido", { $0.placeInFolder(id: UUID(), at: BoardPoint(x: 0, y: 40)) }),
+            ("resize de cartão que não muda de tamanho", { $0.resize(id: note.id, to: BoardSize(width: 200, height: 200)) }),
+            ("resize de id desconhecido", { $0.resize(id: UUID(), to: BoardSize(width: 200, height: 200)) }),
+            ("resize para o padrão de um post-it sem tamanho", { $0.resize(id: child.id, to: nil) }),
+            ("resizeFreeText de id desconhecido", { $0.resizeFreeText(id: UUID(), to: BoardSize(width: 300, height: 200)) }),
+            ("resizeFreeText para o padrão de um texto sem tamanho", { $0.resizeFreeText(id: freeText.id, to: nil) }),
+            ("resizeFreeText com o quadrado padrão", { $0.resizeFreeText(id: freeText.id, to: BoardSize(width: 180, height: 180)) }),
         ]
         for call in calls {
             let older = try olderBoard()

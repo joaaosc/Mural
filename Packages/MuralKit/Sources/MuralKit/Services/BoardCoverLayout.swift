@@ -19,10 +19,10 @@ public struct BoardCoverLayout: Equatable, Sendable {
 
     /// Calcula o enquadramento de `board` numa capa de `coverWidth` × `coverHeight` pontos.
     ///
-    /// O retângulo de cada cartão é a posição mais o tamanho de `BoardLayout.cardSize(for:)`; o de cada texto livre,
-    /// a posição mais o quadrado de `BoardLayout.freeTextSide`. A escala cabe o conteúdo na capa menos `padding` em
-    /// cada lado (no mínimo 1 ponto de área útil) e nunca passa de `maximumScale`, para um mural pequeno não ser
-    /// ampliado. Um mural vazio fica com `maximumScale` e as duas origens em zero.
+    /// O retângulo de cada cartão e de cada texto livre é a posição mais o tamanho de `BoardLayout.size(of:)`: o padrão do
+    /// tipo (para o texto livre, o quadrado de `BoardLayout.freeTextSide`) ou o que a pessoa escolheu. A escala cabe o conteúdo
+    /// na capa menos `padding` em cada lado (no mínimo 1 ponto de área útil) e nunca passa de `maximumScale`, para um mural
+    /// pequeno não ser ampliado. Um mural vazio fica com `maximumScale` e as duas origens em zero.
     /// - Parameter maximumItems: com mais cartões soltos que isto, ficam os mais recentes (`createdAt`); em empate vale
     ///   a ordem do mural, e os que ficam mantêm a ordem em que estavam. Os textos livres não têm limite.
     public static func make(
@@ -40,17 +40,18 @@ public struct BoardCoverLayout: Equatable, Sendable {
         var maxX = -Double.infinity
         var maxY = -Double.infinity
         for item in items {
-            let size = BoardLayout.cardSize(for: item.kind)
+            let size = BoardLayout.size(of: item)
             minX = min(minX, item.position.x)
             minY = min(minY, item.position.y)
             maxX = max(maxX, item.position.x + size.width)
             maxY = max(maxY, item.position.y + size.height)
         }
         for text in freeTexts {
+            let size = BoardLayout.size(of: text)
             minX = min(minX, text.position.x)
             minY = min(minY, text.position.y)
-            maxX = max(maxX, text.position.x + BoardLayout.freeTextSide)
-            maxY = max(maxY, text.position.y + BoardLayout.freeTextSide)
+            maxX = max(maxX, text.position.x + size.width)
+            maxY = max(maxY, text.position.y + size.height)
         }
 
         let contentWidth = maxX - minX
