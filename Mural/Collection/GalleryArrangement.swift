@@ -73,7 +73,12 @@ nonisolated struct GalleryArrangement {
         guard columns > 0 else { return 0 }
         var heights = Array(repeating: CGFloat.zero, count: columns)
         for index in indices {
-            let column = heights.indices.min { heights[$0] < heights[$1] } ?? 0
+            var column = 0
+            if heights.count > 1 {
+                for candidate in 1..<heights.count where heights[candidate] < heights[column] {
+                    column = candidate
+                }
+            }
             let height = heightForWidth(index, columnWidth)
             frames[index] = CGRect(
                 x: originX + CGFloat(column) * (columnWidth + spacing), y: heights[column], width: columnWidth, height: height)
