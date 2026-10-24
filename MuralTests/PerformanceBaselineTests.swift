@@ -151,6 +151,27 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertGreaterThan(derivedCount, 0)
     }
 
+    func testCachedCanvasSizeSnapshotsPerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardSizeSnapshots-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let model = BoardModel(
+            board: board,
+            store: BoardStore(directory: directory),
+            persistence: .deferred)
+        _ = model.rootItemSizes
+        _ = model.freeTextSizes
+
+        var sizeCount = 0
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            sizeCount = model.rootItemSizes.count + model.freeTextSizes.count
+        }
+
+        XCTAssertEqual(sizeCount, board.rootItems.count + board.freeTexts.count)
+    }
+
     func testIndexedItemLookupPerformance() throws {
         let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
         let directory = FileManager.default.temporaryDirectory

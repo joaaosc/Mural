@@ -309,12 +309,20 @@ struct BoardCanvasView: View {
 
     private func displayedSizes(for items: [BoardItem], when viewport: CGRect) -> [UUID: BoardSize] {
         guard !viewport.isEmpty else { return [:] }
-        return Dictionary(uniqueKeysWithValues: items.map { ($0.id, displayedSize(of: $0)) })
+        var sizes = model.rootItemSizes
+        if let resizing, case .item(let id) = resizing.target {
+            sizes[id] = resizing.size
+        }
+        return sizes
     }
 
     private func displayedSizes(for freeTexts: [BoardFreeText], when viewport: CGRect) -> [UUID: BoardSize] {
         guard !viewport.isEmpty else { return [:] }
-        return Dictionary(uniqueKeysWithValues: freeTexts.map { ($0.id, displayedSize(of: $0)) })
+        var sizes = model.freeTextSizes
+        if let resizing, case .freeText(let id) = resizing.target {
+            sizes[id] = resizing.size
+        }
+        return sizes
     }
 
     /// Posição do cartão: a gravada mais o arrasto em andamento.

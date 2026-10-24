@@ -21,6 +21,8 @@ public final class BoardModel {
             boardRevision &+= 1
             rootItemsCache = nil
             freeTextsCache = nil
+            rootItemSizesCache = nil
+            freeTextSizesCache = nil
             reminderItemsCache = nil
             musicItemsCache = nil
             rootExtentCache = nil
@@ -50,6 +52,8 @@ public final class BoardModel {
     @ObservationIgnored private var deferredDeletions: Set<String> = []
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
+    @ObservationIgnored private var rootItemSizesCache: [UUID: BoardSize]?
+    @ObservationIgnored private var freeTextSizesCache: [UUID: BoardSize]?
     @ObservationIgnored private var reminderItemsCache: [BoardItem]?
     @ObservationIgnored var musicItemsCache: [BoardItem]?
     @ObservationIgnored private var rootExtentCache: BoardSize?
@@ -120,6 +124,35 @@ public final class BoardModel {
         let freeTexts = currentBoard.freeTexts
         freeTextsCache = freeTexts
         return freeTexts
+    }
+
+    /// Tamanhos dos cartões soltos, memoizados enquanto o `board` não muda.
+    /// O canvas consulta o mapa em várias recomposições durante rolagem e zoom;
+    /// manter o derivado junto ao modelo evita repetir `BoardLayout.size(of:)` em
+    /// cada ciclo sem carregar dimensões entre revisões diferentes.
+    public var rootItemSizes: [UUID: BoardSize] {
+        let currentBoard = board
+        if let rootItemSizesCache { return rootItemSizesCache }
+        let sizes = Dictionary(
+            uniqueKeysWithValues: currentBoard.rootItems.map { item in
+                let size = BoardLayout.size(of: item)
+                return (item.id, BoardSize(width: size.width, height: size.height))
+            })
+        rootItemSizesCache = sizes
+        return sizes
+    }
+
+    /// Tamanhos dos textos livres do mural, memoizados enquanto o `board` não muda.
+    public var freeTextSizes: [UUID: BoardSize] {
+        let currentBoard = board
+        if let freeTextSizesCache { return freeTextSizesCache }
+        let sizes = Dictionary(
+            uniqueKeysWithValues: currentBoard.freeTexts.map { freeText in
+                let size = BoardLayout.size(of: freeText)
+                return (freeText.id, BoardSize(width: size.width, height: size.height))
+            })
+        freeTextSizesCache = sizes
+        return sizes
     }
 
     /// Extensão ocupada pelo mural solto, memoizada enquanto o `board` não muda.

@@ -70,6 +70,8 @@ struct BoardModelTests {
         #expect(model.rootItems.count == 1)
         #expect(model.children(of: folder.id).isEmpty)
         #expect(model.freeTexts.isEmpty)
+        #expect(model.rootItemSizes.count == model.rootItems.count)
+        #expect(model.freeTextSizes.isEmpty)
         #expect(model.reminderItems.isEmpty)
         #expect(model.item(id: folder.id)?.title == "Pasta")
         let initialExtent = model.rootExtent
@@ -82,6 +84,8 @@ struct BoardModelTests {
         #expect(model.rootItems.map(\.id) == [folder.id, reminder.id])
         #expect(model.children(of: folder.id).map(\.id) == [card.id])
         #expect(model.freeTexts.map(\.id) == [freeText.id])
+        #expect(model.rootItemSizes.count == model.rootItems.count)
+        #expect(model.freeTextSizes.count == model.freeTexts.count)
         #expect(model.item(id: card.id)?.title == "Cartão")
         #expect(model.reminderItems.map(\.id) == [reminder.id])
         #expect(model.rootExtent != initialExtent)
