@@ -22,17 +22,18 @@ extension BoardModel {
     ) -> [BoardItem] {
         let now = Date.now
         var seen = Set<String>()
-        var created: [BoardItem] = []
+        var pending: [BoardItem] = []
         for snapshot in snapshots where seen.insert(snapshot.dedupeKey).inserted {
             let item = BoardItem(
                 kind: .music,
                 title: snapshot.title,
-                createdAt: now.addingTimeInterval(Double(created.count) * 0.001),
+                createdAt: now.addingTimeInterval(Double(pending.count) * 0.001),
                 parentID: parentID,
                 music: snapshot
             )
-            created.append(insert(item, anchor: anchor))
+            pending.append(item)
         }
+        let created = insertBatch(pending, anchor: anchor)
         if !created.isEmpty { persist() }
         return created
     }

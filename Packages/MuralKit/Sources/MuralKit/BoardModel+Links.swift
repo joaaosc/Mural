@@ -16,24 +16,24 @@ extension BoardModel {
     ) -> [BoardItem] {
         let now = Date.now
         var seen = Set<String>()
-        var created: [BoardItem] = []
+        var pending: [BoardItem] = []
 
         for draft in drafts where WebLink.isWeb(draft.url) {
             guard seen.insert(WebLink.dedupeKey(for: draft.url)).inserted else { continue }
-            let index = Double(created.count)
+            let index = Double(pending.count)
             let title = draft.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let summary = draft.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let imageURL = draft.imageURL.flatMap { WebLink.isWeb($0) ? $0 : nil }
-            let item = BoardItem(
-                kind: .link,
-                title: title.isEmpty ? WebLink.displayHost(of: draft.url) : title,
-                createdAt: now.addingTimeInterval(index * 0.001),
-                parentID: parentID,
-                link: LinkInfo(url: draft.url, summary: summary.isEmpty ? nil : summary, remoteImageURL: imageURL)
-            )
-            created.append(insert(item, anchor: anchor))
+            pending.append(
+                BoardItem(
+                    kind: .link,
+                    title: title.isEmpty ? WebLink.displayHost(of: draft.url) : title,
+                    createdAt: now.addingTimeInterval(index * 0.001),
+                    parentID: parentID,
+                    link: LinkInfo(url: draft.url, summary: summary.isEmpty ? nil : summary, remoteImageURL: imageURL)))
         }
 
+        let created = insertBatch(pending, anchor: anchor)
         if !created.isEmpty { persist() }
         return created
     }
