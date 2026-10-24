@@ -33,6 +33,12 @@ struct ChecklistDocumentTests {
         #expect(doc.sections[0].title.isEmpty)
     }
 
+    @Test("Lista sem itens tem progresso vazio")
+    func emptyProgress() {
+        let doc = ChecklistDocument(title: "Vazia", sections: [])
+        #expect(doc.progress == (0, 0))
+    }
+
     @Test("Título só com # usa o título padrão e itens antes do título ficam sem seção")
     func edgeCases() {
         let doc = ChecklistParser.parse("- primeiro\n#\n- segundo")
