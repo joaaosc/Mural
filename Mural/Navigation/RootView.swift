@@ -228,7 +228,7 @@ private struct LoadedRootView: View {
             session.actions.request = nil
             handle(request)
         }
-        .onChange(of: model.board) { _, _ in
+        .onChange(of: model.boardRevision) { _, _ in
             session.captureBoardIfNeeded()
         }
         // O editor que tinha o foco sai de cena: o foco volta para o mural, onde ⌘V e Esc agem.

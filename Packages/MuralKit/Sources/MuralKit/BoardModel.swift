@@ -18,6 +18,7 @@ public final class BoardModel {
 
     public internal(set) var board: Board {
         didSet {
+            boardRevision &+= 1
             rootItemsCache = nil
             freeTextsCache = nil
             reminderItemsCache = nil
@@ -31,6 +32,9 @@ public final class BoardModel {
             folderDestinationsCacheOrder.removeAll(keepingCapacity: true)
         }
     }
+    /// Revisão monotônica do valor do board, para consumidores que precisam reagir a qualquer mutação
+    /// sem comparar estruturalmente todos os cartões e anexos.
+    public private(set) var boardRevision: UInt64 = 0
     /// Última falha a mostrar ao usuário (importação, gravação, arquivo corrompido).
     public var lastError: String?
     /// Verdadeiro quando o mural salvo não pôde ser lido nem guardado à parte: nada é
