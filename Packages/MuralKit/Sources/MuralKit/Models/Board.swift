@@ -413,14 +413,13 @@ public struct Board: Codable, Equatable, Sendable {
         }
 
         var doomed: Set<UUID> = [id]
-        var level = childrenByParent[id] ?? []
-        while !level.isEmpty {
-            var next: [UUID] = []
-            next.reserveCapacity(level.count)
-            for childID in level where doomed.insert(childID).inserted {
-                next.append(contentsOf: childrenByParent[childID] ?? [])
-            }
-            level = next
+        var queue = childrenByParent[id] ?? []
+        var cursor = 0
+        while cursor < queue.count {
+            let childID = queue[cursor]
+            cursor += 1
+            guard doomed.insert(childID).inserted else { continue }
+            queue.append(contentsOf: childrenByParent[childID] ?? [])
         }
         return doomed
     }
