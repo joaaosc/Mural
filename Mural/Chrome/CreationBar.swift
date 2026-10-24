@@ -34,6 +34,7 @@ struct CreationBar: View {
                 .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
             Button("Fotos…", systemImage: "photo.on.rectangle", action: onAddPhotos)
                 .accessibilityLabel("Adicionar fotos e vídeos do app Fotos")
+                .accessibilityIdentifier("photos-import-button")
                 .help("Adicionar fotos e vídeos do app Fotos")
             Button("Lembretes…", systemImage: "checklist.checked", action: onAddReminders)
                 .help("Adicionar lembretes do app Lembretes")

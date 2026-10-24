@@ -79,6 +79,23 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(back.waitForNonExistence(timeout: 5))
     }
 
+    @MainActor
+    func testPhotosButtonAppearsOnBoardAndInsideFolder() throws {
+        let app = launch()
+        let photosButton = app.buttons["photos-import-button"].firstMatch
+        XCTAssertTrue(photosButton.waitForExistence(timeout: 10), "o botão Fotos deveria aparecer no mural")
+
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10), "a pasta de exemplo deveria estar no mural")
+        folder.click()
+
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.buttons["photos-import-button"].firstMatch.waitForExistence(timeout: 5),
+            "o botão Fotos deveria continuar disponível dentro da pasta"
+        )
+    }
+
     /// Defeito relatado: um clique perto da borda do botão Voltar (fora do desenho da seta)
     /// acendia o vidro, mas não voltava. O clique simulado no centro nunca mostrava o problema.
     @MainActor
