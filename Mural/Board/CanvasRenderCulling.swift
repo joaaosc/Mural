@@ -37,7 +37,8 @@ enum CanvasRenderCulling {
         in logicalViewport: CGRect,
         alwaysInclude: Set<UUID> = [],
         overscan: CGFloat = 1,
-        forceAll: Bool = false
+        forceAll: Bool = false,
+        displayedSizes: [UUID: BoardSize] = [:]
     ) -> [BoardItem] {
         guard !forceAll, !logicalViewport.isEmpty,
             logicalViewport.minX.isFinite, logicalViewport.minY.isFinite,
@@ -49,7 +50,7 @@ enum CanvasRenderCulling {
         let extraHeight = max(logicalViewport.height, 1) * overscan
         let renderRect = logicalViewport.insetBy(dx: -extraWidth, dy: -extraHeight)
         return items.filter { item in
-            alwaysInclude.contains(item.id) || frame(of: item).intersects(renderRect)
+            alwaysInclude.contains(item.id) || frame(of: item, displayedSize: displayedSizes[item.id]).intersects(renderRect)
         }
     }
 
@@ -58,7 +59,8 @@ enum CanvasRenderCulling {
         in logicalViewport: CGRect,
         alwaysInclude: Set<UUID> = [],
         overscan: CGFloat = 1,
-        forceAll: Bool = false
+        forceAll: Bool = false,
+        displayedSizes: [UUID: BoardSize] = [:]
     ) -> [BoardFreeText] {
         guard !forceAll, !logicalViewport.isEmpty,
             logicalViewport.minX.isFinite, logicalViewport.minY.isFinite,
@@ -70,12 +72,13 @@ enum CanvasRenderCulling {
         let extraHeight = max(logicalViewport.height, 1) * overscan
         let renderRect = logicalViewport.insetBy(dx: -extraWidth, dy: -extraHeight)
         return freeTexts.filter { freeText in
-            alwaysInclude.contains(freeText.id) || frame(of: freeText).intersects(renderRect)
+            alwaysInclude.contains(freeText.id)
+                || frame(of: freeText, displayedSize: displayedSizes[freeText.id]).intersects(renderRect)
         }
     }
 
-    private static func frame(of item: BoardItem) -> CGRect {
-        let size = BoardLayout.size(of: item)
+    private static func frame(of item: BoardItem, displayedSize: BoardSize? = nil) -> CGRect {
+        let size = displayedSize ?? boardSize(of: item)
         return CGRect(
             x: item.position.x,
             y: item.position.y,
@@ -83,12 +86,22 @@ enum CanvasRenderCulling {
             height: size.height)
     }
 
-    private static func frame(of freeText: BoardFreeText) -> CGRect {
-        let size = BoardLayout.size(of: freeText)
+    private static func frame(of freeText: BoardFreeText, displayedSize: BoardSize? = nil) -> CGRect {
+        let size = displayedSize ?? boardSize(of: freeText)
         return CGRect(
             x: freeText.position.x,
             y: freeText.position.y,
             width: size.width,
             height: size.height)
+    }
+
+    private static func boardSize(of item: BoardItem) -> BoardSize {
+        let size = BoardLayout.size(of: item)
+        return BoardSize(width: size.width, height: size.height)
+    }
+
+    private static func boardSize(of freeText: BoardFreeText) -> BoardSize {
+        let size = BoardLayout.size(of: freeText)
+        return BoardSize(width: size.width, height: size.height)
     }
 }

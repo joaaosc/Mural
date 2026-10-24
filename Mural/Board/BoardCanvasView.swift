@@ -97,24 +97,30 @@ struct BoardCanvasView: View {
                 hoveredResizable?.freeTextID,
                 resizing?.target.freeTextID,
             ].compactMap { $0 })
+        // O culling e o desenho precisam da mesma geometria. Quando a viewport ainda não foi medida,
+        // não criamos um dicionário extra: o primeiro ciclo já desenha tudo e calcula cada tamanho uma vez.
+        let itemSizes = displayedSizes(for: items, when: renderViewport)
+        let freeTextSizes = displayedSizes(for: freeTexts, when: renderViewport)
         let renderedItems = CanvasRenderCulling.visibleItems(
             items,
             in: renderViewport,
             alwaysInclude: alwaysRendered,
-            forceAll: isMarqueeActive || accessibilityEnabled)
+            forceAll: isMarqueeActive || accessibilityEnabled,
+            displayedSizes: itemSizes)
         let renderedFreeTexts = CanvasRenderCulling.visibleFreeTexts(
             freeTexts,
             in: renderViewport,
             alwaysInclude: alwaysRenderedFreeTexts,
-            forceAll: isMarqueeActive || accessibilityEnabled)
+            forceAll: isMarqueeActive || accessibilityEnabled,
+            displayedSizes: freeTextSizes)
 
         ScrollView([.horizontal, .vertical]) {
             ZStack(alignment: .topLeading) {
                 ForEach(renderedItems) { item in
-                    cardGroup(for: item)
+                    cardGroup(for: item, size: itemSizes[item.id])
                         .cardEmphasis(focus.emphasis(for: item))
                         // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
-                        .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item))
+                        .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSizes[item.id]))
                         .opacity(storing == item.id ? 0 : 1)
                         .offset(offset(for: item))
                         .zIndex(focus.layer(for: item))
@@ -122,7 +128,7 @@ struct BoardCanvasView: View {
                 ForEach(renderedFreeTexts) { freeText in
                     BoardFreeTextView(
                         freeText: freeText,
-                        size: displayedSize(of: freeText),
+                        size: freeTextSizes[freeText.id] ?? displayedSize(of: freeText),
                         onEdit: { onFreeTextEdit?(freeText.id) },
                         onDelete: { onFreeTextDelete?(freeText.id) },
                         onResize: { size in
@@ -142,7 +148,7 @@ struct BoardCanvasView: View {
             .marqueeSelecting(
                 in: Self.space, selection: selection, lineWidth: 1 / zoom.zoom, isActive: $isMarqueeActive
             ) {
-                cardFrames(of: items)
+                cardFrames(of: items, displayedSizes: itemSizes)
             }
             // Os arrastos medem neste espaço, em pontos do mural, sem o zoom.
             .coordinateSpace(.named(Self.space))
@@ -222,8 +228,8 @@ struct BoardCanvasView: View {
     // MARK: Cartões
 
     @ViewBuilder
-    private func cardGroup(for item: BoardItem) -> some View {
-        let size = displayedSize(of: item)
+    private func cardGroup(for item: BoardItem, size cachedSize: BoardSize? = nil) -> some View {
+        let size = cachedSize ?? displayedSize(of: item)
         if item.kind == .folder {
             // O leque da pasta sai pela borda direita: a prévia começa depois dele, com a folga de 14 pt de sempre.
             HStack(alignment: .top, spacing: FolderCard.fanReach + 14) {
@@ -301,6 +307,16 @@ struct BoardCanvasView: View {
         return BoardSize(width: size.width, height: size.height)
     }
 
+    private func displayedSizes(for items: [BoardItem], when viewport: CGRect) -> [UUID: BoardSize] {
+        guard !viewport.isEmpty else { return [:] }
+        return Dictionary(uniqueKeysWithValues: items.map { ($0.id, displayedSize(of: $0)) })
+    }
+
+    private func displayedSizes(for freeTexts: [BoardFreeText], when viewport: CGRect) -> [UUID: BoardSize] {
+        guard !viewport.isEmpty else { return [:] }
+        return Dictionary(uniqueKeysWithValues: freeTexts.map { ($0.id, displayedSize(of: $0)) })
+    }
+
     /// Posição do cartão: a gravada mais o arrasto em andamento.
     private func offset(for item: BoardItem) -> CGSize {
         let moved = drag?.id == item.id ? drag?.translation ?? .zero : .zero
@@ -314,10 +330,10 @@ struct BoardCanvasView: View {
 
     /// Ponto para onde o cartão encolhe ao ser guardado: o centro da pasta de destino, medido no
     /// quadro do próprio cartão (por isso pode cair fora de 0...1).
-    private func storeAnchor(for item: BoardItem) -> UnitPoint {
+    private func storeAnchor(for item: BoardItem, size cachedSize: BoardSize? = nil) -> UnitPoint {
         guard let drag, drag.id == item.id, let target = drag.tracker?.target, let folder = model.item(id: target)
         else { return .center }
-        let size = displayedSize(of: item)
+        let size = cachedSize ?? displayedSize(of: item)
         let folderSize = BoardLayout.cardSize(for: .folder)
         let origin = offset(for: item)
         return UnitPoint(
@@ -562,10 +578,10 @@ struct BoardCanvasView: View {
     }
 
     /// Quadro de cada cartão solto, em pontos do mural, no tamanho mostrado; a pasta conta só o cartão, sem o leque.
-    private func cardFrames(of items: [BoardItem]) -> [UUID: CGRect] {
+    private func cardFrames(of items: [BoardItem], displayedSizes: [UUID: BoardSize] = [:]) -> [UUID: CGRect] {
         Dictionary(
             uniqueKeysWithValues: items.map { item in
-                let size = displayedSize(of: item)
+                let size = displayedSizes[item.id] ?? displayedSize(of: item)
                 return (item.id, CGRect(x: item.position.x, y: item.position.y, width: size.width, height: size.height))
             })
     }

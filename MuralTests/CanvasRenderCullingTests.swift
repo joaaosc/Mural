@@ -31,6 +31,20 @@ struct CanvasRenderCullingTests {
         #expect(result.map(\.id) == [visible.id, dragged.id])
     }
 
+    @Test("Reutiliza os tamanhos exibidos ao selecionar cartões")
+    func visibleItemsUseDisplayedSizes() {
+        let item = BoardItem(
+            id: UUID(), kind: .sticky, title: "Aumentado", position: BoardPoint(x: 140, y: 20), size: BoardSize(width: 80, height: 80))
+
+        let result = CanvasRenderCulling.visibleItems(
+            [item],
+            in: CGRect(x: 0, y: 0, width: 200, height: 50),
+            overscan: 0,
+            displayedSizes: [item.id: BoardSize(width: 80, height: 80)])
+
+        #expect(result.map(\.id) == [item.id])
+    }
+
     @Test("Seleciona textos livres visíveis e preserva o texto em redimensionamento")
     func visibleFreeTextsPreserveIntersectionAndExplicitTexts() {
         let visible = BoardFreeText(
@@ -47,6 +61,20 @@ struct CanvasRenderCullingTests {
             overscan: 0)
 
         #expect(result.map(\.id) == [visible.id, resizing.id])
+    }
+
+    @Test("Reutiliza os tamanhos exibidos ao selecionar textos livres")
+    func visibleFreeTextsUseDisplayedSizes() {
+        let freeText = BoardFreeText(
+            id: UUID(), text: "Aumentado", position: BoardPoint(x: 140, y: 20))
+
+        let result = CanvasRenderCulling.visibleFreeTexts(
+            [freeText],
+            in: CGRect(x: 0, y: 0, width: 200, height: 50),
+            overscan: 0,
+            displayedSizes: [freeText.id: BoardSize(width: 80, height: 80)])
+
+        #expect(result.map(\.id) == [freeText.id])
     }
 
     @Test("O modo completo preserva todos os textos livres")
