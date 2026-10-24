@@ -292,7 +292,10 @@ final class BoardWindowSession {
             generation = loadedGeneration
             manifestName = manifest.name
             let store = BoardStore(directory: packageURL)
-            model = BoardModel(board: board, store: store, persistence: .deferred)
+            let loadedModel = BoardModel(board: board, store: store, persistence: .deferred)
+            // Quem só pode ver o mural recebe as mudanças (`applyMergedBoard`), mas não edita.
+            loadedModel.isReadOnly = manifest.cloud?.isReadOnly ?? false
+            model = loadedModel
             path = Self.destinations(from: loadedWorkspace.path, board: board)
             filter = Self.filter(from: loadedWorkspace.filter, path: path, board: board)
 
@@ -1318,6 +1321,39 @@ final class BoardWindowSession {
         }
         sessionPipeline = task
         await task.value
+    }
+
+    /// Troca o `cloud` do manifesto pela própria sessão de domínio, na mesma fila dos autosaves e das junções, e grava. Gravar o
+    /// manifesto pela biblioteca com a janela aberta não vale: a próxima gravação da sessão devolveria o `cloud` antigo ao disco.
+    /// Liga ou desliga o modo só leitura do modelo conforme a permissão nova.
+    ///
+    /// Se a gravação falhar, lança e o `cloud` novo continua na sessão de domínio, suja: quem chama desfaz com `setCloud` de volta.
+    /// - Throws: `BoardSyncApplyError.unavailable` sem mural carregado, ou o erro da gravação.
+    func setCloud(_ cloud: BoardCloudInfo?) async throws {
+        guard !isClosed, let domainSession, let model else { throw BoardSyncApplyError.unavailable }
+        let previous = sessionPipeline
+        let work = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { throw BoardSyncApplyError.unavailable }
+            do {
+                try await domainSession.setCloud(cloud)
+                let wasDirty = await domainSession.isDirty
+                let persisted = try await domainSession.flush()
+                model.isReadOnly = cloud?.isReadOnly ?? false
+                // Gravação local como qualquer outra: avisa quem envia ao iCloud.
+                if wasDirty {
+                    self.lastPersistedBoard = persisted.board
+                    self.onPersisted?(persisted.board, false)
+                }
+            } catch {
+                self.isDirty = await domainSession.isDirty
+                throw error
+            }
+            self.isDirty = await domainSession.isDirty
+        }
+        // A fila segue depois desta troca, tenha ela dado certo ou não.
+        sessionPipeline = Task { _ = await work.result }
+        try await work.value
     }
 
     private static func normalizedName(_ value: String) -> String {

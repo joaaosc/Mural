@@ -137,6 +137,39 @@ struct SessionRegistryTests {
         await #expect(throws: BoardSessionError.retired) { try await session.rename(to: "Velho de novo") }
         #expect(try await library.open(route)?.manifest.name == "Novo")
     }
+
+    @Test("Trocar o cloud pela sessão grava só o manifesto, e a gravação seguinte não o desfaz")
+    func setCloudThroughSession() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = BoardLibrary(rootDirectory: root)
+        let route = try await library.createNamedBoard("Na nuvem")
+        let registry = BoardSessionRegistry(library: library)
+        let session = try await registry.acquire(route)
+        let before = try #require(try await library.open(route))
+        let info = BoardCloudInfo(database: .private, zoneName: "zona", zoneOwnerName: "dono", permission: .owner)
+
+        try await session.setCloud(info)
+        _ = try await session.flush()
+        let withCloud = try #require(try await library.open(route))
+        #expect(withCloud.manifest.cloud == info)
+        #expect(withCloud.manifest.contentRevision == before.manifest.contentRevision)
+        #expect(withCloud.board == before.board)
+
+        // Uma gravação de conteúdo da mesma sessão leva o `cloud` junto.
+        var edited = before.board
+        edited.add(BoardItem(kind: .sticky, title: "Nota", position: BoardPoint(x: 1, y: 2), text: "Nota", stickyColor: .yellow))
+        try await session.update(board: edited)
+        _ = try await session.flush()
+        #expect(try await library.open(route)?.manifest.cloud == info)
+
+        try await session.setCloud(nil)
+        _ = try await session.flush()
+        #expect(try await library.open(route)?.manifest.cloud == nil)
+
+        await session.retire()
+        await #expect(throws: BoardSessionError.retired) { try await session.setCloud(info) }
+    }
 }
 
 extension BoardRoute {
