@@ -165,11 +165,15 @@ struct CardButton: View {
 
     /// Site do link e cor da tag, separados por vírgula; vazio quando o cartão não tem nenhum dos dois.
     private var accessibilityDetail: String {
-        var parts: [String] = []
-        if let caption = item.caption, !caption.isEmpty { parts.append(caption) }
-        if item.kind == .link, let site = item.link?.displaySiteName, !site.isEmpty { parts.append(site) }
-        if let color = item.colorTag { parts.append("Cor: \(color.displayName)") }
-        return parts.joined(separator: ", ")
+        var detail = ""
+        if let caption = item.caption, !caption.isEmpty { detail = caption }
+        if item.kind == .link, let site = item.link?.displaySiteName, !site.isEmpty {
+            detail += detail.isEmpty ? site : ", \(site)"
+        }
+        if let color = item.colorTag {
+            detail += detail.isEmpty ? "Cor: \(color.displayName)" : ", Cor: \(color.displayName)"
+        }
+        return detail
     }
 
     /// Com o seletor aberto (ou ⌘ segurado no clique), o clique marca o cartão em vez de abrir.
