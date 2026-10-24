@@ -95,6 +95,27 @@ struct BoardTilingTests {
         #expect(BoardTiling.bsp(tiled, aspect: 1.6) == first)
     }
 
+    @Test("Tamanhos escolhidos são preservados e não mudam ao reorganizar de novo")
+    func customSizesAreStable() throws {
+        let large = BoardItem(
+            kind: .sticky, title: "Grande", createdAt: Date(timeIntervalSince1970: 1),
+            position: BoardPoint(x: 900, y: 700), size: BoardSize(width: 220, height: 220))
+        let small = BoardItem(
+            kind: .sticky, title: "Pequeno", createdAt: Date(timeIntervalSince1970: 2),
+            position: BoardPoint(x: 20, y: 30), size: BoardSize(width: 80, height: 80))
+
+        let first = BoardTiling.bsp([small, large], aspect: 1.6)
+        #expect(try #require(first[large.id]) == BoardPoint(x: 80, y: 80))
+        #expect(try #require(first[small.id]) == BoardPoint(x: 80 + 220 + 24, y: 80))
+
+        let tiled = try [large, small].map { item in
+            var copy = item
+            copy.position = try #require(first[item.id])
+            return copy
+        }
+        #expect(BoardTiling.bsp(tiled, aspect: 1.6) == first)
+    }
+
     @Test("Mudar várias posições mantém a ordem da lista e ignora cartões de pasta")
     func setPositionsKeepsOrder() {
         let folder = BoardItem(kind: .folder, title: "Pasta")

@@ -17,15 +17,18 @@ public enum BoardTiling {
     ) -> [UUID: BoardPoint] {
         let ordered = insertionOrder(items)
         guard !ordered.isEmpty else { return [:] }
+        let sized = ordered.map {
+            let size = BoardLayout.size(of: $0)
+            return SizedItem(item: $0, size: BoardSize(width: size.width, height: size.height))
+        }
         let ratio = aspect.isFinite && aspect > 0 ? aspect : defaultAspect
         // Área-alvo: a soma dos cartões com o vão, no formato pedido. Cada corte é feito no lado
         // mais comprido dela, então o mosaico se aproxima do formato da janela.
-        let area = ordered.reduce(0.0) { total, item in
-            let size = BoardLayout.size(of: item)
-            return total + (size.width + gap) * (size.height + gap)
+        let area = sized.reduce(0.0) { total, entry in
+            return total + (entry.size.width + gap) * (entry.size.height + gap)
         }
         let width = (area * ratio).squareRoot()
-        let tree = node(for: ordered[...], region: (width, area / width), gap: gap)
+        let tree = node(for: sized[...], region: (width, area / width), gap: gap)
         var positions: [UUID: BoardPoint] = [:]
         place(tree, at: origin, gap: gap, into: &positions)
         return positions
@@ -41,6 +44,11 @@ public enum BoardTiling {
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+    }
+
+    private struct SizedItem {
+        let item: BoardItem
+        let size: BoardSize
     }
 
     private indirect enum Node {
@@ -62,10 +70,9 @@ public enum BoardTiling {
 
     /// Divide a lista ao meio (a primeira metade leva o cartão a mais) no lado mais comprido da região
     /// e mede o bloco de baixo para cima.
-    private static func node(for items: ArraySlice<BoardItem>, region: (width: Double, height: Double), gap: Double) -> Node {
-        if items.count == 1, let item = items.first {
-            let size = BoardLayout.size(of: item)
-            return .leaf(item.id, width: size.width, height: size.height)
+    private static func node(for items: ArraySlice<SizedItem>, region: (width: Double, height: Double), gap: Double) -> Node {
+        if items.count == 1, let entry = items.first {
+            return .leaf(entry.item.id, width: entry.size.width, height: entry.size.height)
         }
         let middle = items.startIndex + (items.count + 1) / 2
         let sideBySide = region.width >= region.height
