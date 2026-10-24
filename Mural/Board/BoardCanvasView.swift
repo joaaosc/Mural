@@ -335,15 +335,22 @@ struct BoardCanvasView: View {
                     current = existing
                 } else {
                     let accepted = Set(model.folderDestinations(for: item.id).map(\.id))
+                    let acceptedRootItems = model.rootItems.filter { accepted.contains($0.id) }
                     current = CardDrag(
                         id: item.id, translation: .zero,
                         tracker: FolderDropTracker(
-                            startFolder: folderID(at: value.startLocation, excluding: item.id, accepting: accepted)),
-                        acceptedFolders: accepted)
+                            startFolder: folderID(
+                                at: value.startLocation,
+                                among: acceptedRootItems,
+                                excluding: item.id)),
+                        acceptedRootItems: acceptedRootItems)
                 }
                 current.translation = value.translation
                 current.tracker?.update(
-                    folderUnderPointer: folderID(at: value.location, excluding: item.id, accepting: current.acceptedFolders))
+                    folderUnderPointer: folderID(
+                        at: value.location,
+                        among: current.acceptedRootItems,
+                        excluding: item.id))
                 drag = current
             }
             .onEnded { value in
@@ -356,7 +363,10 @@ struct BoardCanvasView: View {
                 // chegado num `onChanged`, e o destino anotado estaria atrasado.
                 final.translation = value.translation
                 final.tracker?.update(
-                    folderUnderPointer: folderID(at: value.location, excluding: item.id, accepting: final.acceptedFolders))
+                    folderUnderPointer: folderID(
+                        at: value.location,
+                        among: final.acceptedRootItems,
+                        excluding: item.id))
                 if let folderID = final.tracker?.target {
                     drag = final
                     store(item, in: folderID)
@@ -512,9 +522,8 @@ struct BoardCanvasView: View {
 
     /// Pasta solta sob um ponto do mural, sem contar o cartão arrastado e só entre as que o
     /// domínio aceita como destino: o soltar nunca é recusado em silêncio.
-    private func folderID(at point: CGPoint, excluding id: UUID, accepting accepted: Set<UUID>) -> UUID? {
-        let candidates = model.rootItems.filter { accepted.contains($0.id) }
-        return BoardLayout.folderID(at: BoardPoint(x: point.x, y: point.y), among: candidates, excluding: id)
+    private func folderID(at point: CGPoint, among candidates: [BoardItem], excluding id: UUID) -> UUID? {
+        BoardLayout.folderID(at: BoardPoint(x: point.x, y: point.y), among: candidates, excluding: id)
     }
 
     /// Atualiza a pasta sob o ponteiro; fora de um arrasto, ela vira o foco na hora.
@@ -534,13 +543,13 @@ struct BoardCanvasView: View {
 }
 
 /// Cartão em arrasto e quanto já andou desde que o gesto começou, em pontos do mural.
-private struct CardDrag: Equatable {
+private struct CardDrag {
     var id: UUID
     var translation: CGSize
     /// Acompanha a pasta que receberia o cartão (pastas também podem ser guardadas).
     var tracker: FolderDropTracker?
-    /// Pastas que o domínio aceita como destino, fixadas no começo do arrasto.
-    var acceptedFolders: Set<UUID>
+    /// Pastas soltas já filtradas para não reconstruir a lista a cada evento de ponteiro.
+    var acceptedRootItems: [BoardItem]
 }
 
 private struct FreeTextDrag: Equatable {

@@ -42,6 +42,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 
 - `85d20c0`: o cache de miniaturas passou a cancelar somente o consumidor que saiu, cancelar o trabalho compartilhado quando não há consumidores e evitar decodificação/cache prematuros de imagens originais.
 - `7691b07`: `BoardCanvasView` reutiliza o array de cartões já calculado no `body`; `CollectionView` calcula uma vez por avaliação os filhos, cartões de coluna e post-its posicionados.
+- `BoardCanvasView`: durante um arraste, a lista de pastas raiz aceitas é filtrada uma vez no início do gesto e reutilizada nos eventos seguintes, sem alterar o cálculo de destino de `BoardLayout`.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
