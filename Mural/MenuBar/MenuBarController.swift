@@ -17,6 +17,9 @@ nonisolated struct MenuBarPresentation: Equatable, Sendable {
 /// target/action no botão: o sistema avisa quando a interface deve abrir e fechar, e o ícone participa da navegação por
 /// teclado e do acompanhamento de menus da barra. O painel é do AppKit, e não de uma `MenuBarExtra`, porque também
 /// precisa abrir por código (o item "Abrir Painel de Murais" do menu).
+///
+/// A pessoa pode arrastar o painel pelo fundo; o lugar fica guardado (`MenuBarPanelPosition`) e vale para as próximas
+/// aberturas, pelo ícone ou não.
 @MainActor
 final class MenuBarController: NSObject {
     static let shared = MenuBarController()
@@ -36,6 +39,8 @@ final class MenuBarController: NSObject {
     private var presentation: MenuBarPresentation?
     private var isFitScheduled = false
     private var makeContent: (@MainActor (MenuBarPresentation) -> NSView)?
+    /// Onde a pessoa deixou o painel da última vez.
+    private let position = MenuBarPanelPosition.shared
 
     private override init() {
         super.init()
@@ -110,9 +115,21 @@ final class MenuBarController: NSObject {
             guard let panel, panel.isVisible, let content = panel.contentView else { return }
             let size = Self.contentSize(of: content)
             guard size != panel.frame.size else { return }
-            panel.setFrame(Self.frame(keepingTopOf: panel.frame, size: size), display: true)
+            var frame = Self.frame(keepingTopOf: panel.frame, size: size)
+            // Arrastado para perto da base da tela, o painel que cresce sobe o necessário para não sair dela.
+            if let visibleFrame = panel.screen?.visibleFrame {
+                frame = MenuBarPanelPlacement.clamped(frame, to: visibleFrame)
+            }
+            panel.setFrame(frame, display: true)
             panel.invalidateShadow()
         }
+    }
+
+    /// Guarda onde a pessoa deixou o painel, para ele abrir ali da próxima vez. Chamado pelo conteúdo quando um arrasto
+    /// do painel termina; só um arrasto da pessoa chega aqui, nunca uma mudança de lugar feita por código.
+    func panelWasMoved() {
+        guard let panel, panel.isVisible else { return }
+        position.save(topLeft: MenuBarPanelPlacement.topLeft(of: panel.frame))
     }
 
     // MARK: Tamanho e posição
@@ -198,10 +215,15 @@ final class MenuBarController: NSObject {
         let content = makeContent(presentation)
         panel.contentView = content
         let size = Self.contentSize(of: content)
+        // Onde a pessoa deixou o painel vale mais que o lugar de sempre, enquanto aquela tela estiver ligada.
+        let remembered = position.topLeftToRestore.flatMap { topLeft in
+            MenuBarPanelPlacement.frame(size: size, topLeft: topLeft, visibleFrames: NSScreen.screens.map(\.visibleFrame))
+        }
         let frame =
-            presentation.isCentered
-            ? Self.centeredFrame(size: size, in: Self.pointerScreenVisibleFrame())
-            : anchoredFrame(size: size)
+            remembered
+            ?? (presentation.isCentered
+                ? Self.centeredFrame(size: size, in: Self.pointerScreenVisibleFrame())
+                : anchoredFrame(size: size))
         panel.setFrame(frame, display: true)
         panel.invalidateShadow()
 

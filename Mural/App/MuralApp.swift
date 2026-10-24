@@ -56,7 +56,8 @@ struct MuralApp: App {
                     tabs: tabs,
                     model: model,
                     close: { MenuBarController.shared.dismiss() },
-                    resize: { MenuBarController.shared.fitToContent() }
+                    resize: { MenuBarController.shared.fitToContent() },
+                    moved: { MenuBarController.shared.panelWasMoved() }
                 )
                 .panelGlassSurface()
             )

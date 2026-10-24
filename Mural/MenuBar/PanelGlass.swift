@@ -27,8 +27,9 @@ enum PanelMetrics {
     static let panelWidth: CGFloat = 600
     /// O piso de altura, que também vale quando o conteúdo não informa tamanho: um painel quase vazio ainda é um painel.
     static let minimumHeight: CGFloat = 120
-    /// O teto de altura; o que passar daqui rola.
-    static let maximumHeight: CGFloat = 560
+    /// O teto de altura. Cabe a vitrine com as sete formatações do texto e o rodapé, e fica abaixo da área visível de
+    /// uma tela de notebook.
+    static let maximumHeight: CGFloat = 680
 
     static var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius)

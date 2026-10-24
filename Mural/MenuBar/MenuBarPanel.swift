@@ -16,7 +16,8 @@ final class MenuBarPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        // A posição vem sempre do ícone (ou do centro da tela): o painel não é arrastado nem lembra onde ficou.
+        // O arrasto pelo fundo é do conteúdo (`WindowDragGesture`), que avisa quando termina para o lugar ser guardado.
+        // Pelo AppKit, qualquer clique no fundo poderia mover o painel sem esse aviso.
         isMovableByWindowBackground = false
         // A barra de menus pertence ao Space em que o usuário está.
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]

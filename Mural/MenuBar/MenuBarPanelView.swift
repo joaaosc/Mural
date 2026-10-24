@@ -22,6 +22,9 @@ struct MenuBarPanelView: View {
     /// não acompanha o conteúdo sozinho. Chamado quando a lista carrega e quando muda algo que altera a altura da seção
     /// de colar: o que há para colar, o número de opções e o estado do colar.
     let resize: @MainActor () -> Void
+    /// Avisa que a pessoa terminou de arrastar o painel, para o lugar novo ser guardado. Injetado pelo mesmo motivo de
+    /// `close`.
+    let moved: @MainActor () -> Void
 
     @FocusState private var isFocused: Bool
     /// O colar em andamento e o fechamento do painel que vem depois dele. Cancelado quando a vista sai, para um colar de
@@ -54,6 +57,7 @@ struct MenuBarPanelView: View {
             footer
         }
         .frame(width: PanelMetrics.panelWidth)
+        .background { PanelDragArea(onEnded: moved) }
         // A pessoa pode ter mudado "Abrir ao Iniciar Sessão" nos Ajustes do Sistema desde a última abertura.
         .onAppear { loginItem.refresh() }
         .task {
