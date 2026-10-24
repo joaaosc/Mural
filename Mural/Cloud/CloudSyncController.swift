@@ -307,11 +307,20 @@ final class CloudSyncController {
     }
 }
 
-enum CloudSyncControllerError: Error, Equatable {
+enum CloudSyncControllerError: LocalizedError, Equatable {
     /// A sincronização está desligada (`CloudSyncMode.off`).
     case disabled
     /// Só mural salvo vai ao iCloud: o rascunho de exemplo ainda não é um mural da pessoa.
     case notASavedBoard
     /// O mural já tem `cloud` no manifesto (já está no iCloud, ou veio de um convite).
     case alreadyInCloud
+
+    /// O texto que o alerta da janela mostra.
+    var errorDescription: String? {
+        switch self {
+        case .disabled: "A sincronização com o iCloud está desligada neste Mac."
+        case .notASavedBoard: "Salve o mural antes de pô-lo no iCloud."
+        case .alreadyInCloud: "Este mural já está no iCloud."
+        }
+    }
 }
