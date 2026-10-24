@@ -16,8 +16,11 @@ public struct ReceivedChanges: Equatable, Sendable {
     public var changes: RemoteBoardChanges
     /// A base antes desta mudança: a referência que o `BoardMerge.apply` pede para saber o que mudou aqui e o que mudou lá.
     public var previousBase: Board
-    /// O nome novo do mural, se o registro do mural veio.
+    /// O nome novo do mural, se o registro do mural veio. Quem junta aplica `mergedName(local:)`, não este valor direto.
     public var name: String?
+    /// O nome do mural na base antes desta mudança (`BoardSyncState.baseName`): é por ele que `mergedName(local:)` sabe se o nome
+    /// daqui mudou desde então.
+    public var previousBaseName: String?
     /// Os arquivos de mídia que chegaram: o nome em `Items/` e o arquivo temporário em que o iCloud o deixou, que quem chama copia.
     public var files: [String: URL]
     /// Os registros ilegíveis que foram ignorados, para quem chama registrar. Um deles não derruba os outros da leva.
@@ -29,14 +32,25 @@ public struct ReceivedChanges: Equatable, Sendable {
             && changes.deletedFreeTextIDs.isEmpty && name == nil && files.isEmpty
     }
 
+    /// O nome que o mural fica tendo depois da junção, pela regra dos campos simples do cartão: o que chegou vale se o nome daqui
+    /// ainda é o da base anterior (ou se não havia base); se a pessoa renomeou aqui desde então, o nome dela fica, continua
+    /// pendente e vale a última mudança a chegar ao iCloud.
+    public func mergedName(local: String) -> String {
+        guard let name else { return local }
+        guard let previousBaseName, local != previousBaseName else { return name }
+        return local
+    }
+
     public init(
         changes: RemoteBoardChanges = RemoteBoardChanges(),
         previousBase: Board = Board(),
         name: String? = nil,
+        previousBaseName: String? = nil,
         files: [String: URL] = [:],
         skippedRecordNames: [String] = []
     ) {
         self.changes = changes
+        self.previousBaseName = previousBaseName
         self.previousBase = previousBase
         self.name = name
         self.files = files
@@ -189,7 +203,7 @@ public enum SyncCore {
         saved: [CloudRecord], deleted: [CloudRecordID], into state: inout BoardSyncState
     ) throws -> ReceivedChanges {
         var updated = state
-        var received = ReceivedChanges(previousBase: state.base)
+        var received = ReceivedChanges(previousBase: state.base, previousBaseName: state.baseName)
 
         for record in saved {
             switch try readable(record, into: &updated) {

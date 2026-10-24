@@ -243,7 +243,7 @@ struct TwoMacsTests {
         #expect(order == (await macs.guest.board.items.map(\.id)))
     }
 
-    @Test("Renomear o mural: o nome novo chega ao outro Mac, e dois nomes ao mesmo tempo terminam num só nome")
+    @Test("Renomear o mural: o nome novo chega ao outro Mac, e de dois nomes ao mesmo tempo vale o último a chegar ao iCloud")
     func renameTheBoard() async throws {
         let macs = try await TwoMacs.make(board: board(note()), name: "Casa")
         defer { macs.cleanUp() }
@@ -258,7 +258,8 @@ struct TwoMacsTests {
         try await macs.guest.rename("Nome da convidada")
         try await macs.settle()
         await macs.expectConverged()
-        #expect(["Nome do dono", "Nome da convidada"].contains(await macs.owner.name))
+        // A rodada envia o dono antes da convidada: o nome dela chega por último, depois do conflito com o do dono.
+        #expect(await macs.owner.name == "Nome da convidada")
     }
 
     @Test("Os dois redimensionam o mesmo post-it: vale a mudança que chegou por último ao iCloud no Mac que junta, e os dois ficam iguais")

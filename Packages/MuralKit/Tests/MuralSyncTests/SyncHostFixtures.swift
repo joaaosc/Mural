@@ -92,7 +92,7 @@ actor SyncTestHost: BoardSyncHost {
         received.append(changes)
         guard var entry = entries[id] else { return }
         entry.board = BoardMerge.apply(changes.changes, to: entry.board, base: changes.previousBase).board
-        if let name = changes.name { entry.name = name }
+        entry.name = changes.mergedName(local: entry.name)
         for (file, source) in changes.files {
             let destination = entry.itemsDirectory.appendingPathComponent(file, isDirectory: false)
             try? FileManager.default.removeItem(at: destination)

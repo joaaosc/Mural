@@ -11,7 +11,8 @@ public protocol BoardSyncHost: Sendable {
     /// O mural como está agora, ou `nil` se o app não o tem.
     func localBoard(_ id: BoardID) async -> LocalBoardSnapshot?
 
-    /// Junta o que chegou (`BoardMerge.apply(changes, to: local, base:)`), grava e põe os arquivos em `Items/`. Não chama
+    /// Junta o que chegou (`BoardMerge.apply(changes, to: local, base:)` e o nome por `ReceivedChanges.mergedName(local:)`), grava e
+    /// põe os arquivos em `Items/`. Não chama
     /// `pendingChanges(for:)`: quem calcula as pendências depois de uma junção é o coordenador, com o estado novo já gravado
     /// (senão o que acabou de chegar pareceria mudança deste Mac e voltaria ao iCloud). O coordenador espera esta chamada terminar
     /// antes de tratar o próximo evento, então ela também não chama `handleSent`, `handleFetched`, `handleZoneDeleted`,

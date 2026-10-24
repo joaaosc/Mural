@@ -706,6 +706,15 @@ struct SyncCoreTests {
         #expect(!changes.contains(.delete(recordID(freeText.id.uuidString))))
     }
 
+    @Test("O nome que chegou vale se o daqui ainda é o da base; renomeado aqui, fica o daqui; sem base, vale o que chegou")
+    func mergedNameFollowsTheSimpleFieldRule() {
+        let arrived = ReceivedChanges(name: "Nome de lá", previousBaseName: "Casa")
+        #expect(arrived.mergedName(local: "Casa") == "Nome de lá")
+        #expect(arrived.mergedName(local: "Nome daqui") == "Nome daqui")
+        #expect(ReceivedChanges(name: "Nome de lá").mergedName(local: "Qualquer") == "Nome de lá")
+        #expect(ReceivedChanges(previousBaseName: "Casa").mergedName(local: "Nome daqui") == "Nome daqui", "sem nome novo, nada muda")
+    }
+
     // MARK: O que chegou
 
     @Test("Cartões gravados e apagados por outra pessoa entram na base, e juntados ao mural não voltam ao iCloud")
