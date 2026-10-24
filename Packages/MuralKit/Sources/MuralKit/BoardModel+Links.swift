@@ -45,12 +45,14 @@ extension BoardModel {
     /// É o que `LinkPreviewFiles.sweep(keeping:minimumAge:now:)` precisa para apagar o resto.
     public var referencedLinkPreviewFiles: Set<String> {
         var names = Set<String>()
-        for link in board.items.compactMap(\.link) {
-            if let image = link.previewImageFile { names.insert(image) }
-            if let icon = link.iconFile { names.insert(icon) }
-        }
-        for music in board.items.compactMap(\.music) {
-            if let artwork = music.artworkFile { names.insert(artwork) }
+        for item in board.items {
+            if let link = item.link {
+                if let image = link.previewImageFile { names.insert(image) }
+                if let icon = link.iconFile { names.insert(icon) }
+            }
+            if let artwork = item.music?.artworkFile {
+                names.insert(artwork)
+            }
         }
         return names
     }

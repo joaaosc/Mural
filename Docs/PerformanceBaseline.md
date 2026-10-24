@@ -53,6 +53,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `BoardModel.insertBatch` também monta um snapshot atualizado e o atribui uma única vez, evitando invalidar caches derivados e notificar o SwiftUI repetidamente durante um lote.
 - `BoardModel.importLinks` e `BoardModel.importMusic`: lotes de links e músicas agora passam pelo mesmo posicionamento em lote, preservando deduplicação, ordem e âncora sem repetir a varredura do mural a cada cartão.
 - `BoardModel.addReminders`: lotes de lembretes também usam o posicionamento e a mutação única de `insertBatch`, mantendo a ordem temporal e a persistência única.
+- `BoardModel.referencedLinkPreviewFiles`: a coleta de imagens, ícones e capas de música passou a percorrer os itens uma vez, em vez de executar duas passagens separadas.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
