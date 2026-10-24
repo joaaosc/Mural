@@ -359,7 +359,9 @@ public final class BoardModel {
     @discardableResult
     public func importFiles(_ urls: [URL], into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
         var imported: [BoardItem] = []
+        imported.reserveCapacity(urls.count)
         var failures: [String] = []
+        failures.reserveCapacity(urls.count)
         for url in urls {
             do {
                 let item = try importer.importFile(at: url, parentID: parentID)
