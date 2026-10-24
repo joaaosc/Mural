@@ -289,12 +289,18 @@ public enum BoardLayout {
         kinds: [ItemKind], anchor: BoardPoint?, avoiding items: [BoardItem], gap: Double = 24
     ) -> [BoardPoint] {
         guard let anchor else {
-            var occupied = items
-            return kinds.map { kind in
-                let position = freePosition(for: kind, avoiding: occupied, gap: gap)
-                occupied.append(BoardItem(kind: kind, title: "", position: position))
-                return position
+            var occupied: [(BoardPoint, (width: Double, height: Double))] = items.map {
+                ($0.position, size(of: $0))
             }
+            var result: [BoardPoint] = []
+            result.reserveCapacity(kinds.count)
+            for kind in kinds {
+                let newSize = cardSize(for: kind)
+                let position = freePosition(size: newSize, avoiding: occupied, origin: BoardPoint(x: 80, y: 80), gap: gap)
+                result.append(position)
+                occupied.append((position, newSize))
+            }
+            return result
         }
         var occupied: [(BoardPoint, (width: Double, height: Double))] = items.map { ($0.position, size(of: $0)) }
         var result: [BoardPoint] = []
