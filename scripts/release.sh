@@ -8,7 +8,7 @@
 #
 # Opções:
 #   --stable    a tag termina em -stable (sempre vira build de release)
-#   --check     só confere e mostra o resumo, sem mudar nada
+#   --check     só confere e mostra o resumo (no máximo volta para a main, se o HEAD estiver solto)
 #   --no-push   cria o commit e a tag, mas não envia
 #   --yes       envia sem perguntar (para o script do Xcode, que não tem terminal)
 #   --verify    roda scripts/verify.sh antes (formatação, projeto e testes)
@@ -17,12 +17,14 @@
 # e não depois de a build falhar. O número da build fica com o Xcode Cloud.
 set -euo pipefail
 
-root="${0:A:h:h}"
+script="${0:A}"
+root="${script:h:h}"
 cd "$root"
 source ci_scripts/release_rules.sh
 
+# Dentro de uma função o zsh troca o $0 pelo nome dela: o caminho do script vem de $script.
 usage() {
-    sed -n '2,17s/^# \{0,1\}//p' "$0"
+    sed -n '2,17s/^# \{0,1\}//p' "$script"
 }
 
 die() {
@@ -66,9 +68,17 @@ $stable && tag="$tag-stable"
 remote="${RELEASE_REMOTE:-$(git config branch.main.remote || echo origin)}"
 
 # Conferências, antes de mudar qualquer coisa.
-branch="$(git symbolic-ref --quiet --short HEAD || true)"
-[[ "$branch" == main ]] || die "o release sai da main (agora: ${branch:-HEAD solto})"
 git diff --quiet && git diff --cached --quiet || die "há mudanças sem commit em arquivos versionados; faça o commit antes"
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+if [[ -z "$branch" ]] && git merge-base --is-ancestor HEAD main; then
+    # HEAD solto num commit que já está na main (depois de abrir uma tag, por exemplo): volta para a main, de onde o
+    # release sai. Nada se perde: o commit está na main e não há mudanças sem commit.
+    echo "O HEAD estava solto em $(git rev-parse --short HEAD); voltando para a main."
+    git switch --quiet main
+    branch=main
+    current="$(mural_project_version "$root")"
+fi
+[[ "$branch" == main ]] || die "o release sai da main (agora: ${branch:-HEAD solto}); volte com: git switch main"
 git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null && die "a tag $tag já existe"
 mural_release_tag_version "$tag" "$root" >/dev/null || exit 1
 git fetch --quiet "$remote" main || die "não deu para ler a main de $remote"
