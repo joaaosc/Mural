@@ -26,6 +26,7 @@ public final class BoardModel {
             rootExtentCache = nil
             itemIndexCache = nil
             freeTextIndexCache = nil
+            folderChildrenByParentCache = nil
             childrenCache.removeAll(keepingCapacity: true)
             childrenCacheOrder.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
@@ -52,6 +53,7 @@ public final class BoardModel {
     @ObservationIgnored private var rootExtentCache: BoardSize?
     @ObservationIgnored private var itemIndexCache: [UUID: Int]?
     @ObservationIgnored private var freeTextIndexCache: [UUID: Int]?
+    @ObservationIgnored private var folderChildrenByParentCache: [UUID: [BoardItem]]?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
     @ObservationIgnored private var childrenCacheOrder: [UUID] = []
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
@@ -159,7 +161,10 @@ public final class BoardModel {
     public func folderDestinations(for id: UUID) -> [FolderDestination] {
         let currentBoard = board
         if let cached = folderDestinationsCache[id] { return cached }
-        let destinations = currentBoard.folderDestinations(for: id)
+        let destinations = currentBoard.folderDestinations(
+            for: id,
+            byParent: folderChildrenByParent(for: currentBoard),
+            rootItems: rootItems)
         if folderDestinationsCache.count >= Self.derivedCacheEntryLimit, let evicted = folderDestinationsCacheOrder.first {
             folderDestinationsCache.removeValue(forKey: evicted)
             folderDestinationsCacheOrder.removeFirst()
@@ -167,6 +172,23 @@ public final class BoardModel {
         folderDestinationsCache[id] = destinations
         folderDestinationsCacheOrder.append(id)
         return destinations
+    }
+
+    /// Índice da hierarquia compartilhado pelos menus de todos os cartões da mesma revisão do board.
+    /// A ordenação é a mesma de `Board.children(of:)`; o cache é descartado em qualquer mutação.
+    private func folderChildrenByParent(for currentBoard: Board) -> [UUID: [BoardItem]] {
+        if let folderChildrenByParentCache { return folderChildrenByParentCache }
+        var grouped: [UUID: [BoardItem]] = [:]
+        for item in currentBoard.items {
+            if let parentID = item.parentID {
+                grouped[parentID, default: []].append(item)
+            }
+        }
+        for parentID in grouped.keys {
+            grouped[parentID]?.sort { $0.createdAt < $1.createdAt }
+        }
+        folderChildrenByParentCache = grouped
+        return grouped
     }
     /// Lookup de texto livre por UUID usando um índice lazy da revisão atual do board.
     /// A primeira ocorrência vence, como em `Board.freeText(id:)` mesmo em dados corrompidos.
@@ -783,7 +805,11 @@ public final class BoardModel {
 
     /// Quantos cartões há dentro da pasta, em qualquer nível. As subpastas contam como cartões.
     public func descendantCount(of folderID: UUID) -> Int {
-        board.descendants(of: folderID).count
+        let currentBoard = board
+        guard item(id: folderID)?.kind == .folder else { return 0 }
+        return currentBoard.descendantCount(
+            of: folderID,
+            byParent: folderChildrenByParent(for: currentBoard))
     }
 
     /// Apaga o cartão (e, se for pasta, tudo que há dentro dela, em qualquer nível) junto com os arquivos guardados.

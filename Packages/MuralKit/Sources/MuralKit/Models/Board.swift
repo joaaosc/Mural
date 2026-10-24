@@ -125,6 +125,11 @@ public struct Board: Codable, Equatable, Sendable {
         descendants(of: folderID, byParent: childrenByParent())
     }
 
+    /// Variante interna que reutiliza um índice de hierarquia preparado pelo `BoardModel`.
+    func descendantCount(of folderID: UUID, byParent: [UUID: [BoardItem]]) -> Int {
+        descendants(of: folderID, byParent: byParent).count
+    }
+
     /// Quantas pastas há acima do cartão (0 = solto no mural). O nível de uma pasta é a profundidade dela mais 1.
     public func depth(of id: UUID) -> Int {
         ancestors(of: id).count
@@ -133,8 +138,17 @@ public struct Board: Codable, Equatable, Sendable {
     /// As pastas para onde o cartão pode ir agora, ordenadas pelo caminho. Ficam de fora o próprio cartão, o que há dentro dele
     /// (se for pasta), a pasta onde ele já está e as que fariam a pasta movida passar de `maximumFolderDepth` níveis.
     public func folderDestinations(for id: UUID) -> [FolderDestination] {
+        folderDestinations(for: id, byParent: childrenByParent(), rootItems: rootItems)
+    }
+
+    /// Variante interna que reutiliza um índice de hierarquia preparado pelo `BoardModel`.
+    /// Mantém a variante pública pura para snapshots independentes.
+    func folderDestinations(
+        for id: UUID,
+        byParent: [UUID: [BoardItem]],
+        rootItems: [BoardItem]
+    ) -> [FolderDestination] {
         guard let moving = item(id: id) else { return [] }
-        let byParent = childrenByParent()
         // Níveis que a pasta movida ocupa com tudo que tem dentro; cartão que não é pasta não conta nível.
         let height = moving.kind == .folder ? folderHeight(of: id, byParent: byParent) : 0
         var destinations: [FolderDestination] = []

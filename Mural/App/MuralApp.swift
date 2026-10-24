@@ -8,6 +8,7 @@ struct MuralApp: App {
     @State private var tabs: MuralTabs
 
     init() {
+        LaunchConfiguration.preparePerformanceFixtureIfRequested()
         // Nos testes de interface, o mural excluído é apagado em vez de ir para o Lixo de quem roda os testes.
         let discard: @Sendable (URL) throws -> Void
         if LaunchConfiguration.isUITesting {

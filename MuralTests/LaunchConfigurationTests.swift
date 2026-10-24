@@ -63,4 +63,17 @@ struct LaunchConfigurationTests {
         #expect(LaunchConfiguration.linkPreviewFetcher(arguments: arguments) is SystemLinkPreviewFetcher)
         #expect(LaunchConfiguration.loadsLivePages(arguments: arguments))
     }
+
+    @Test("A fixture de performance usa uma raiz dedicada e exige o modo manual")
+    func performanceFixtureUsesDedicatedRoot() {
+        let arguments = ["-manualTesting", "-performanceFixture"]
+        let performance = LaunchConfiguration.libraryRoot(arguments: arguments)
+        let manual = LaunchConfiguration.libraryRoot(arguments: ["-manualTesting"])
+
+        #expect(LaunchConfiguration.usesPerformanceFixture(arguments: arguments))
+        #expect(!LaunchConfiguration.usesPerformanceFixture(arguments: ["-performanceFixture"]))
+        #expect(performance.lastPathComponent == "MuralPerformanceTests")
+        #expect(performance.path != manual.path)
+        #expect(performance.deletingLastPathComponent().path == manual.deletingLastPathComponent().path)
+    }
 }
