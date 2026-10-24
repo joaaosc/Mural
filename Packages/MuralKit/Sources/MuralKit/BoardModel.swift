@@ -972,7 +972,10 @@ public final class BoardModel {
         var candidate = board
         let removed = candidate.remove(id: itemID)
         guard !removed.isEmpty else { return }
-        let names = removed.flatMap(\.assetFileNames)
+        var names = Set<String>()
+        for item in removed {
+            names.formUnion(item.assetFileNames)
+        }
         if persistence == .deferred {
             board = candidate
             deferredDeletions.formUnion(names)
