@@ -271,7 +271,7 @@ public final class BoardModel {
     /// se ela sumiu durante a cópia, o conteúdo vai para o mural em vez de ficar órfão.
     @discardableResult
     public func commit(_ prepared: PreparedImport, into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
-        let folderExists = parentID.map { board.item(id: $0)?.kind == .folder } ?? true
+        let folderExists = parentID.map { item(id: $0)?.kind == .folder } ?? true
         var items = prepared.items
         if !folderExists {
             for index in items.indices {
@@ -402,7 +402,7 @@ public final class BoardModel {
             _ = board.placeInFolder(id: placed.id, at: position)
         }
         persist()
-        return board.item(id: placed.id) ?? placed
+        return item(id: placed.id) ?? placed
     }
 
     // MARK: Lembretes
@@ -439,7 +439,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem gravar, se o cartão não é um lembrete ou nada mudou.
     @discardableResult
     public func updateReminder(_ itemID: UUID, with snapshot: ReminderSnapshot) -> Bool {
-        guard var item = board.item(id: itemID), item.kind == .reminder,
+        guard var item = item(id: itemID), item.kind == .reminder,
             item.reminder != snapshot || (item.reminder?.title != snapshot.title && item.title == item.reminder?.title)
         else { return false }
         let previousTitle = item.reminder?.title
@@ -452,7 +452,7 @@ public final class BoardModel {
 
     /// Marca o lembrete como apagado no Lembretes, mantendo o último estado conhecido.
     public func markReminderMissing(_ itemID: UUID) {
-        guard var item = board.item(id: itemID), item.kind == .reminder, var snapshot = item.reminder,
+        guard var item = item(id: itemID), item.kind == .reminder, var snapshot = item.reminder,
             !snapshot.isMissing
         else { return }
         snapshot.isMissing = true
@@ -485,7 +485,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem mudar nada, se o item não é pasta, o nome fica vazio ou é igual ao atual.
     @discardableResult
     public func renameFolder(_ itemID: UUID, to name: String) -> Bool {
-        guard var item = board.item(id: itemID), item.kind == .folder else { return false }
+        guard var item = item(id: itemID), item.kind == .folder else { return false }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean != item.title else { return false }
         item.title = clean
@@ -498,7 +498,7 @@ public final class BoardModel {
     /// - Returns: `false` se o cartão não existe, o nome fica vazio ou não mudou.
     @discardableResult
     public func renameItem(_ itemID: UUID, to name: String) -> Bool {
-        guard var item = board.item(id: itemID) else { return false }
+        guard var item = item(id: itemID) else { return false }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean != item.title else { return false }
         item.title = clean
@@ -511,7 +511,7 @@ public final class BoardModel {
     /// não passar do último nível (`Board.maximumFolderDepth`).
     public func canCreateFolder(in parentID: UUID?) -> Bool {
         guard let parentID else { return true }
-        guard board.item(id: parentID)?.kind == .folder else { return false }
+        guard item(id: parentID)?.kind == .folder else { return false }
         // A pasta nova ficaria um nível abaixo do pai, que já está um nível abaixo das pastas que o cercam.
         return board.depth(of: parentID) + 2 <= Board.maximumFolderDepth
     }
@@ -519,7 +519,7 @@ public final class BoardModel {
     /// Grava título e corpo (Markdown) de uma nota. Sem título, usa a primeira linha do corpo.
     /// Corpo novo descarta as frases curtas escolhidas para o anterior.
     public func updateNote(_ itemID: UUID, title: String, text: String) {
-        guard var item = board.item(id: itemID), item.kind == .text else { return }
+        guard var item = item(id: itemID), item.kind == .text else { return }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = cleanTitle.isEmpty ? (body.map { ContentClassifier.title(forText: $0) } ?? "") : cleanTitle
@@ -537,7 +537,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem alterar nada, se o cartão não é uma nota, o texto não é mais `source` ou o bloco não é tarefa.
     @discardableResult
     public func toggleNoteTask(_ itemID: UUID, segment: Int, in source: String) -> Bool {
-        guard var item = board.item(id: itemID), item.kind == .text, item.text == source,
+        guard var item = item(id: itemID), item.kind == .text, item.text == source,
             let toggled = TextSegmenter.segment(source).togglingTask(inSegment: segment)
         else { return false }
         if let record = item.keySentences, record.matches(source) {
@@ -554,7 +554,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem alterar nada, se o cartão não existe ou não é uma nota.
     @discardableResult
     public func addNoteAttachment(_ attachment: NoteAttachment, to itemID: UUID) -> Bool {
-        guard var item = board.item(id: itemID), item.kind == .text else { return false }
+        guard var item = item(id: itemID), item.kind == .text else { return false }
         var attachments = item.attachments ?? []
         guard !attachments.contains(where: { $0.fileName == attachment.fileName }) else { return true }
         attachments.append(attachment)
@@ -572,7 +572,7 @@ public final class BoardModel {
 
     /// Grava texto e cor de um post-it. O título acompanha a primeira linha.
     public func updateSticky(_ itemID: UUID, text: String, color: StickyColor) {
-        guard var item = board.item(id: itemID), item.kind == .sticky else { return }
+        guard var item = item(id: itemID), item.kind == .sticky else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = trimmed.isEmpty ? nil : trimmed
         guard item.text != body || item.stickyColor != color else { return }
@@ -587,7 +587,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem alterar nada, se o cartão não existe ou já tem essa cor.
     @discardableResult
     public func setColorTag(_ color: TagColor?, for itemID: UUID) -> Bool {
-        guard var item = board.item(id: itemID), item.colorTag != color else { return false }
+        guard var item = item(id: itemID), item.colorTag != color else { return false }
         item.colorTag = color
         board.update(item)
         persist()
@@ -598,7 +598,7 @@ public final class BoardModel {
     /// (ele pode ter mudado enquanto o modelo escolhia).
     @discardableResult
     public func setKeySentences(_ record: KeySentenceRecord, for itemID: UUID) -> Bool {
-        guard var item = board.item(id: itemID), let source = NoteFolding.source(of: item), record.matches(source) else {
+        guard var item = item(id: itemID), let source = NoteFolding.source(of: item), record.matches(source) else {
             return false
         }
         guard item.keySentences != record else { return true }
@@ -679,14 +679,14 @@ public final class BoardModel {
     }
 
     public func toggleChecklistEntry(_ entryID: UUID, in itemID: UUID) {
-        guard var item = board.item(id: itemID), item.checklist != nil else { return }
+        guard var item = item(id: itemID), item.checklist != nil else { return }
         item.checklist?.toggle(entryID: entryID)
         board.update(item)
         persist()
     }
 
     public func setCaption(_ text: String, for itemID: UUID) {
-        guard var item = board.item(id: itemID) else { return }
+        guard var item = item(id: itemID) else { return }
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let caption = clean.isEmpty ? nil : clean
         guard item.caption != caption else { return }
@@ -739,7 +739,7 @@ public final class BoardModel {
 
     /// Tira o cartão de dentro da pasta e o solta no mural, numa posição livre (a mesma regra de colar).
     public func moveToBoard(_ itemID: UUID) {
-        guard let item = board.item(id: itemID), item.parentID != nil else { return }
+        guard let item = item(id: itemID), item.parentID != nil else { return }
         // A vaga é do tamanho que o cartão tem: um post-it redimensionado guarda o tamanho dentro da pasta.
         let position = BoardLayout.freePosition(for: item, avoiding: board.rootItems)
         guard board.moveToBoard(id: itemID, at: position) else { return }
@@ -749,8 +749,8 @@ public final class BoardModel {
     /// Sobe o cartão um nível: da pasta para a pasta que a guarda ou, se a pasta está solta, para o mural.
     /// Um cartão que já está solto fica como está.
     public func moveUp(_ itemID: UUID) {
-        guard let parentID = board.item(id: itemID)?.parentID else { return }
-        if let grandparentID = board.item(id: parentID)?.parentID {
+        guard let parentID = item(id: itemID)?.parentID else { return }
+        if let grandparentID = item(id: parentID)?.parentID {
             moveIntoFolder(itemID, folderID: grandparentID)
         } else {
             moveToBoard(itemID)

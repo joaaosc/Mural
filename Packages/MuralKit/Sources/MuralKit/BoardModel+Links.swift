@@ -71,7 +71,7 @@ extension BoardModel {
         var seen = Set<UUID>()
         var requests: [LinkPreviewRequest] = []
         for id in itemIDs where seen.insert(id).inserted {
-            guard let item = board.item(id: id), item.kind == .link, let link = item.link, WebLink.isWeb(link.url),
+            guard let item = item(id: id), item.kind == .link, let link = item.link, WebLink.isWeb(link.url),
                 force || LinkPreviewPolicy.shouldFetch(link.preview, now: now) || Self.hasMissingFile(link, fileExists: fileExists)
             else { continue }
             var attempts = 0

@@ -35,7 +35,7 @@ extension BoardModel {
     /// - Returns: `false`, sem gravar, se o cartão não é de música ou nada mudou.
     @discardableResult
     public func updateMusic(_ itemID: UUID, with snapshot: MusicSnapshot) -> Bool {
-        guard var item = board.item(id: itemID), item.kind == .music,
+        guard var item = item(id: itemID), item.kind == .music,
             item.music != snapshot || (item.music?.title != snapshot.title && item.title == item.music?.title)
         else { return false }
         let previousTitle = item.music?.title
