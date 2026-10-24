@@ -22,8 +22,14 @@ Os pontos de baixo risco já instrumentados incluem cópia de arquivos, cópia t
 
 ## Próximos spikes
 
-- MetricKit: validar compilação no macOS 27, disponibilidade dos payloads em execução, retenção local e adequação de `StateReporting` antes de prometer dados de produção.
+- MetricKit: o `MuralMetricKitProbe` valida, no macOS 27, a compilação e o cancelamento de duas observações independentes (`metricReports` e `diagnosticReports`). Ele não é criado pelo app, não lê nem persiste payloads e não envia dados; a entrega real de relatórios continua pendente de uma validação explícita em execução.
 - Culling/virtualização: só depois de medir custo do `ZStack`/coleção; preservar seleção, arraste, z-order, VoiceOver, foco, Reduce Motion e restauração.
 - Thumbnails: medir hit rate, decode, bytes residentes e primeiro desenho antes de trocar ImageIO/AVAssetImageGenerator por outro componente.
 
-Referências Apple: [Improving your app’s performance](https://sosumi.ai/documentation/xcode/improving-your-app-s-performance), [Writing and running performance tests](https://sosumi.ai/documentation/xcode/writing-and-running-performance-tests), [Monitoring app performance with MetricKit](https://sosumi.ai/documentation/metrickit/monitoring-app-performance-with-metrickit) e [Applying Liquid Glass to custom views](https://sosumi.ai/documentation/swiftui/applying-liquid-glass-to-custom-views).
+### Spike MetricKit
+
+`Mural/App/MuralMetricKitProbe.swift` mantém um único `MetricManager` e, quando `start()` é chamado explicitamente por uma futura validação, cria uma `Task` para cada sequência de relatórios. `start()` é idempotente; `stop()` cancela ambas as tarefas e também é idempotente. O tipo não está ligado a `MuralApp`, ao delegate, ao lançamento normal, à UI ou ao modelo de dados.
+
+O spike registra somente eventos agregados de chegada (`Metric report observed` e `Diagnostic report observed`). Não acessa títulos, URLs, caminhos, IDs ou qualquer outro campo dos relatórios, e não tem armazenamento local nem transporte de rede. A compilação confirma apenas a integração da API e a forma do ciclo de vida cancelável; não confirma a entrega de payloads reais, a frequência diária dos relatórios ou comportamento de produção.
+
+Referências Apple: [Improving your app’s performance](https://sosumi.ai/documentation/xcode/improving-your-app-s-performance), [Writing and running performance tests](https://sosumi.ai/documentation/xcode/writing-and-running-performance-tests), [MetricManager](https://sosumi.ai/documentation/metrickit/metricmanager), [metricReports](https://sosumi.ai/documentation/metrickit/metricmanager/metricreports), [diagnosticReports](https://sosumi.ai/documentation/metrickit/metricmanager/diagnosticreports), [Monitoring app performance with MetricKit](https://sosumi.ai/documentation/metrickit/monitoring-app-performance-with-metrickit) e [Applying Liquid Glass to custom views](https://sosumi.ai/documentation/swiftui/applying-liquid-glass-to-custom-views).
