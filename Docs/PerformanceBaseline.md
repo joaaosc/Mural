@@ -4,7 +4,9 @@ Performance é validada por cenário e por evidência, não por uma afirmação 
 
 ## Cenários da primeira medição
 
-As fixtures devem conter 100, 500 e 2.000 cards, com 10%, 50% e 90% de mídia, HEIC/JPEG/PNG, vídeos, PDFs, pastas aninhadas, notas com anexos, links com e sem prévia, lembretes e músicas. Cada cenário usa a mesma distribuição determinística de posições.
+As fixtures devem conter 100, 500 e 2.000 cards, com 10%, 50% e 90% de mídia, HEIC/JPEG/PNG, vídeos, PDFs, pastas aninhadas, notas com anexos, links com e sem prévia, lembretes e músicas. `PerformanceBoardFixture` em `Packages/MuralKit/Sources/MuralKit/Fixtures/PerformanceBoardFixture.swift` gera esses perfis com IDs, datas, metadados e posições determinísticos.
+
+Essa primeira fixture é apenas um corpus estrutural: nomes de mídia, previews e artwork não correspondem a assets reais e nenhum arquivo binário é criado. Ela serve para medir contagem, hierarquia, layout e metadados. Decode, thumbnail, I/O e custos de mídia real exigem um corpus separado de arquivos representativos, a ser adicionado antes das medições correspondentes.
 
 Medir cold launch, warm launch/resume, primeira tela interativa, mural e pasta grandes, scroll, zoom, marquee, arraste para pasta, importação de lote, thumbnails, prévias, autosave, fechar/reabrir e save/reopen do pacote.
 
