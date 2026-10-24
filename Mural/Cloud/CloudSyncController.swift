@@ -54,8 +54,21 @@ final class CloudSyncController {
     /// Os avisos de murais que saíram do iCloud, do mais antigo ao mais novo, até a pessoa dispensá-los.
     private(set) var notices: [CloudSyncNotice] = []
 
+    /// O controlador do app, para quem não tem como recebê-lo pelo construtor (o delegado do app). `nil` com a sincronização
+    /// desligada; só `MuralApp` o define.
+    static var current: CloudSyncController?
+
+    /// Quanto se espera, depois da última gravação de um mural, para enviar: gravações em sequência (digitação) viram um envio só.
+    static let defaultSendDelay: Duration = .seconds(1)
+
+    private let registry: BoardSessionRegistry
+    private let delivery: BoardDelivery
+    private let openSessions: OpenBoardSessions
+    private let sendDelay: Duration
     @ObservationIgnored private var channels: [CloudDatabaseScope: Channel] = [:]
     @ObservationIgnored private var isStarted = false
+    /// O envio agendado de cada mural; uma nova gravação o cancela e agenda outro (a espera recomeça).
+    @ObservationIgnored private var sendTasks: [BoardID: Task<Void, Never>] = [:]
 
     /// Há motores: a sincronização está ligada.
     var isEnabled: Bool { !channels.isEmpty }
@@ -65,6 +78,7 @@ final class CloudSyncController {
     ///   - directory: onde ficam o estado de cada mural e o dos motores. O mesmo `SyncMetadataStore` serve aos dois bancos.
     ///   - cloud: o iCloud falso, que um teste divide com o "segundo Mac"; só vale com `.inMemory`.
     ///   - user: o nome do usuário no iCloud falso.
+    ///   - sendDelay: a espera entre a última gravação de um mural e o envio; os testes a encurtam.
     init(
         mode: CloudSyncMode,
         registry: BoardSessionRegistry,
@@ -72,10 +86,15 @@ final class CloudSyncController {
         directory: URL = LaunchConfiguration.libraryRoot().appendingPathComponent("Sync", isDirectory: true),
         cloud: InMemoryCloud = InMemoryCloud(),
         user: String = CloudSyncController.testUser,
-        openSessions: OpenBoardSessions = .shared
+        openSessions: OpenBoardSessions = .shared,
+        sendDelay: Duration = CloudSyncController.defaultSendDelay
     ) {
         let effective: CloudSyncMode = mode == .cloudKit && !CloudAvailability.hasCloudKitEntitlement ? .off : mode
         self.mode = effective
+        self.registry = registry
+        self.delivery = delivery
+        self.openSessions = openSessions
+        self.sendDelay = sendDelay
         guard effective != .off else { return }
 
         let store = SyncMetadataStore(directory: directory)
@@ -94,12 +113,22 @@ final class CloudSyncController {
             }
             channels[scope] = Channel(coordinator: coordinator, engine: engine)
         }
+
+        // Toda sessão de janela, a que já existe e as que vierem, avisa o controlador de cada gravação local. A sessão não conhece
+        // o controlador: só entrega o aviso a este fecho.
+        openSessions.onRegister = { [weak self] session in self?.attach(session) }
+        for session in openSessions.live { attach(session) }
     }
 
     // MARK: Ligar
 
     /// Liga os motores e entrega a cada um o que há por enviar dos murais já acompanhados (`pendingChanges(for:)`): o app pode ter
     /// sido fechado com gravações ainda não enviadas. Chamar de novo não faz nada. Uma falha de um banco não impede o outro.
+    ///
+    /// Com o iCloud falso (`.inMemory`), antes disso recria no iCloud falso a zona de cada mural privado acompanhado
+    /// (`startZone` é idempotente). Com `-uiTestingKeep` o pacote e o estado de sincronização sobrevivem entre execuções, mas o
+    /// iCloud falso nasce vazio a cada uma: sem a zona, a primeira busca a tomaria por apagada (`.zoneDeleted`), e o pacote do
+    /// mural seria removido. O iCloud de verdade guarda as zonas, então não passa por aqui.
     func start() async {
         guard isEnabled, !isStarted else { return }
         isStarted = true
@@ -107,7 +136,11 @@ final class CloudSyncController {
             guard let channel = channels[scope] else { continue }
             do {
                 try await channel.engine.start()
-                for id in try await channel.coordinator.boardIDs() {
+                let ids = try await channel.coordinator.boardIDs()
+                if mode == .inMemory, scope == .private {
+                    for id in ids { try await channel.engine.startZone(for: id) }
+                }
+                for id in ids {
                     try await channel.engine.add(try await channel.coordinator.pendingChanges(for: id))
                 }
             } catch {
@@ -126,6 +159,43 @@ final class CloudSyncController {
         try await channel.engine.add(try await channel.coordinator.startTracking(id, cloud: cloud))
         try await channel.engine.send()
         await refreshIssues()
+    }
+
+    /// Põe um mural local no iCloud, do banco privado, como dono: cópia de segurança do pacote em `Backups/`, `cloud` no manifesto
+    /// (pela sessão de janela, que o grava) e então `track`, que cria a zona e envia tudo.
+    ///
+    /// A cópia vem antes de qualquer mudança: é a rede de segurança para um primeiro envio que dê errado. Se o manifesto não
+    /// grava, ou o mural não chega a ser acompanhado, o `cloud` volta a `nil`: mural com `cloud` e sem acompanhamento nunca
+    /// sincronizaria, sem dizer nada.
+    /// - Throws: `CloudSyncControllerError` para sincronização desligada, rascunho de exemplo ou mural que já tem `cloud`; ou o
+    ///   que a biblioteca, a sessão ou o motor lançarem.
+    func putInCloud(_ route: BoardRoute) async throws {
+        guard isEnabled else { throw CloudSyncControllerError.disabled }
+        guard case .saved(let id) = route else { throw CloudSyncControllerError.notASavedBoard }
+        let library = registry.library
+        guard let snapshot = try await library.open(route) else { throw BoardLibraryError.unavailableRoute(route) }
+        guard snapshot.manifest.cloud == nil else { throw CloudSyncControllerError.alreadyInCloud }
+
+        _ = try await library.backupPackage(route, to: library.rootDirectory.appendingPathComponent("Backups", isDirectory: true))
+        let cloud = BoardCloudInfo(
+            database: .private, zoneName: CloudSchema.zoneName(for: id), zoneOwnerName: CloudZoneID.defaultOwnerName, permission: .owner)
+        do {
+            try await delivery.withSession(for: route) { session, _ in try await session.setCloud(cloud) }
+        } catch {
+            try? await delivery.withSession(for: route) { session, _ in try await session.setCloud(nil) }
+            throw error
+        }
+        do {
+            try await track(id, cloud: cloud)
+        } catch {
+            // Um `send` que falha depois de o mural ser acompanhado deixa tudo certo para a próxima tentativa; só o que nem chegou a
+            // ser acompanhado volta a ser local.
+            let scope = CloudDatabaseScope.private
+            if let ids = try? await channels[scope]?.coordinator.boardIDs(), !ids.contains(id) {
+                try? await delivery.withSession(for: route) { session, _ in try await session.setCloud(nil) }
+            }
+            throw error
+        }
     }
 
     // MARK: Buscar e enviar
@@ -152,6 +222,50 @@ final class CloudSyncController {
                 try await channel.engine.send()
             } catch {
                 Self.log.error("Envio no banco \(scope.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
+        await refreshIssues()
+    }
+
+    // MARK: Envio depois de gravar
+
+    /// Passa a ouvir as gravações da sessão. Só gravações locais viram envio: uma junção (`fromRemote`) nunca o faz, porque quem
+    /// calcula as pendências dela é o coordenador, com o estado novo já gravado (regra 3).
+    ///
+    /// O aviso roda dentro da gravação da sessão, às vezes dentro de `applyRemote`, de que o coordenador está esperando a volta.
+    /// Por isso aqui só se agenda uma tarefa: nada espera o coordenador.
+    private func attach(_ session: BoardWindowSession) {
+        let id = session.boardID
+        session.onPersisted = { [weak self] _, fromRemote in
+            guard !fromRemote else { return }
+            self?.scheduleSend(for: id)
+        }
+    }
+
+    /// Agenda o envio do mural para daqui a `sendDelay`; uma gravação nova antes disso cancela este e agenda outro.
+    private func scheduleSend(for id: BoardID) {
+        sendTasks[id]?.cancel()
+        let delay = sendDelay
+        sendTasks[id] = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.sendPending(for: id)
+        }
+    }
+
+    /// Pede ao coordenador o que falta enviar do mural (lê o que está gravado, não a janela), entrega ao motor e envia. Mural que
+    /// nenhum banco acompanha não tem pendência e não faz nada.
+    private func sendPending(for id: BoardID) async {
+        for scope in Self.scopes {
+            guard let channel = channels[scope] else { continue }
+            do {
+                let changes = try await channel.coordinator.pendingChanges(for: id)
+                guard !changes.isEmpty else { continue }
+                try await channel.engine.add(changes)
+                try await channel.engine.send()
+            } catch {
+                Self.log.error(
+                    "Envio do mural no banco \(scope.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
         await refreshIssues()
@@ -196,4 +310,8 @@ final class CloudSyncController {
 enum CloudSyncControllerError: Error, Equatable {
     /// A sincronização está desligada (`CloudSyncMode.off`).
     case disabled
+    /// Só mural salvo vai ao iCloud: o rascunho de exemplo ainda não é um mural da pessoa.
+    case notASavedBoard
+    /// O mural já tem `cloud` no manifesto (já está no iCloud, ou veio de um convite).
+    case alreadyInCloud
 }

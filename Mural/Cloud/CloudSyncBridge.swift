@@ -122,14 +122,16 @@ final class CloudSyncBridge: BoardSyncHost {
 
     // MARK: Mural removido
 
-    /// O mural deixou de existir no iCloud para este Mac. Na fila serial das entregas, para não correr junto com uma junção ou
-    /// uma colagem no mesmo mural.
+    /// O mural deixou de existir no iCloud para este Mac. Cada mudança no mural passa pela fila serial das entregas (o pacote que
+    /// sai, em `serially`; o `cloud` que sai, em `withSession`), para não correr junto com uma junção ou uma colagem no mesmo
+    /// mural. A leitura do manifesto, que só decide o que fazer, fica fora dela: `withSession` já usa a fila, e entrar nela de
+    /// dentro dela travaria.
     ///
-    /// O coordenador já parou de acompanhar o mural e apagou o estado dele antes de chamar (`remove`), e chama dentro do seu trava
+    /// O coordenador já parou de acompanhar o mural e apagou o estado dele antes de chamar (`remove`), e chama dentro da sua trava
     /// de eventos: pedir `stopTracking` daqui esperaria essa trava e travaria os dois. Por isso não há `stopTracking` aqui.
     @MainActor
     func boardRemoved(_ id: BoardID, reason: BoardRemovalReason) async {
-        await delivery.serially { [self] in await handleRemoval(of: id, reason: reason) }
+        await handleRemoval(of: id, reason: reason)
     }
 
     /// O banco vem do manifesto; sem ele (mural ilegível ou já sem `cloud`), vale o banco do coordenador que avisou.
@@ -146,7 +148,7 @@ final class CloudSyncBridge: BoardSyncHost {
         if database == .private, reason != .zoneDeleted {
             await keepLocally(id, name: name)
         } else {
-            await removePackage(id, name: name, database: database)
+            await delivery.serially { [self] in await removePackage(id, name: name, database: database) }
         }
     }
 
@@ -177,34 +179,46 @@ final class CloudSyncBridge: BoardSyncHost {
         notify(CloudSyncNotice(boardID: id, message: message))
     }
 
-    /// Tira o `cloud` do manifesto pela biblioteca. Se uma gravação de outra janela passar na frente (revisão velha), lê de novo e
-    /// tenta uma vez mais.
-    ///
-    /// Limite conhecido: com a aba do mural aberta, a sessão de domínio ainda guarda o manifesto com `cloud` e a próxima gravação
-    /// dela o devolve ao disco. `BoardSession` só sabe trocar o nome do manifesto; trocar o `cloud` pela sessão é da 5b2.
+    /// Tira o `cloud` do manifesto e avisa a pessoa. Com uma janela do mural aberta (aba, aba fechando ou sessão avulsa), pela
+    /// própria sessão (`setCloud`, que também desliga o modo só leitura): gravar pela biblioteca por baixo dela faria a próxima
+    /// gravação da sessão devolver o `cloud` ao disco. Sem janela, pela biblioteca.
     private func keepLocally(_ id: BoardID, name: String) async {
+        let route = BoardRoute.saved(id)
+        do {
+            if openSessions.live.contains(where: { $0.boardID == id && !$0.isClosed }) {
+                try await delivery.withSession(for: route) { session, _ in try await session.setCloud(nil) }
+            } else {
+                guard try await clearCloudOnDisk(id) else { return }
+            }
+            notify(
+                CloudSyncNotice(
+                    boardID: id,
+                    message: "O mural “\(name)” voltou a ser só deste Mac: a cópia dele no iCloud não está mais disponível."))
+        } catch {
+            Self.log.error("Mural não voltou a ser local: \(String(describing: error), privacy: .public)")
+            notify(
+                CloudSyncNotice(
+                    boardID: id, message: "O mural “\(name)” perdeu a cópia no iCloud, mas continua marcado como sincronizado."))
+        }
+    }
+
+    /// Tira o `cloud` do manifesto pela biblioteca, para o mural sem janela. Se uma gravação de outra janela passar na frente
+    /// (revisão velha), lê de novo e tenta uma vez mais.
+    /// - Returns: `false` se o mural já não existe.
+    private func clearCloudOnDisk(_ id: BoardID) async throws -> Bool {
         let route = BoardRoute.saved(id)
         for attempt in 1...2 {
             do {
-                guard var snapshot = try await registry.library.open(route) else { return }
+                guard var snapshot = try await registry.library.open(route) else { return false }
                 if snapshot.manifest.cloud != nil {
                     snapshot.manifest.cloud = nil
                     try await registry.library.repository(for: route).save(snapshot)
                 }
-                notify(
-                    CloudSyncNotice(
-                        boardID: id,
-                        message: "O mural “\(name)” voltou a ser só deste Mac: a cópia dele no iCloud não está mais disponível."))
-                return
+                return true
             } catch BoardRepositoryError.staleRevision where attempt == 1 {
                 continue
-            } catch {
-                Self.log.error("Mural não voltou a ser local: \(String(describing: error), privacy: .public)")
-                notify(
-                    CloudSyncNotice(
-                        boardID: id, message: "O mural “\(name)” perdeu a cópia no iCloud, mas continua marcado como sincronizado."))
-                return
             }
         }
+        return false
     }
 }

@@ -209,6 +209,146 @@ struct CloudSyncControllerTests {
         await env.finish()
     }
 
+    // MARK: Envio depois de gravar
+
+    @Test("Edição gravada numa aba: em pouco tempo o motor envia e o segundo Mac recebe")
+    func localEditIsSentAfterTheSave() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(items: [Self.note("um")])
+        let remote = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let model = try #require(tab.session.model)
+        let added = try #require(model.importText("escrito aqui", as: .text))
+
+        tab.session.captureBoardIfNeeded()
+        await tab.session.flushAndPrepareToLeave()
+
+        await waitUntil("o segundo Mac receber a edição") {
+            _ = try? await remote.engine.fetchChanges()
+            return await remote.host.board.item(id: added.id) != nil
+        }
+        await env.finish()
+    }
+
+    @Test("Junção pura: o que chegou do iCloud não volta como envio")
+    func pureMergeSendsNothing() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(items: [card])
+        let remote = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let zone = CloudZoneID(name: CloudSchema.zoneName(for: id))
+        try await remote.edit { Self.setText(Self.editedText, of: card.id, in: &$0) }
+        let before = try await env.cloud.fetchChanges(zone: zone, since: 0, as: CloudSyncController.testUser).token
+
+        await env.controller.fetch()
+        // Espera mais que a espera do envio: se a junção agendasse um, ele já teria saído.
+        try await Task.sleep(for: SyncEnvironment.sendDelay * 4)
+        await env.controller.send()
+
+        #expect(tab.session.model?.board.item(id: card.id)?.text == Self.editedText, "a junção aconteceu")
+        let after = try await env.cloud.fetchChanges(zone: zone, since: 0, as: CloudSyncController.testUser).token
+        #expect(after == before, "nada subiu ao iCloud")
+        await env.finish()
+    }
+
+    @Test("Mural só leitura: abre sem edição e ainda recebe o que a dona muda")
+    func readOnlyBoardOpensReadOnlyAndStillReceives() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(name: "Só ver", items: [Self.note("um")], database: .shared, permission: .readOnly)
+        let info = try #require(try await env.diskManifest(id).cloud)
+        try await env.joinZone(of: info)
+        await env.controller.start()
+        try await env.controller.track(id, cloud: info)
+        let owner = try await RemoteMac.join(
+            boardID: id, name: "Só ver", cloud: env.cloud, root: env.directory.appendingPathComponent("Dona"), user: "ana")
+        let tab = try #require(env.tabs.open(.saved(id), title: "Só ver"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let model = try #require(tab.session.model)
+        #expect(model.isReadOnly)
+        #expect(model.importText("não deve entrar", as: .text) == nil)
+
+        let arrived = Self.note("da dona")
+        try await owner.edit { $0.add(arrived) }
+        await env.controller.fetch()
+
+        #expect(model.board.item(id: arrived.id) != nil, "quem só vê recebe as mudanças")
+        #expect(model.isReadOnly)
+        await env.finish()
+    }
+
+    @Test("Conta trocada com a aba aberta: o disco fica sem cloud, mesmo depois de a aba gravar de novo")
+    func accountChangedWithOpenTabKeepsCloudCleared() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(name: "Aberto", items: [Self.note("um")], database: .private)
+        let info = try #require(try await env.diskManifest(id).cloud)
+        await env.controller.start()
+        try await env.controller.track(id, cloud: info)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let coordinator = try #require(env.controller.coordinator(for: .private))
+
+        try await coordinator.handleZoneDeleted(
+            CloudZoneID(name: info.zoneName, ownerName: info.zoneOwnerName), reason: .accountChanged)
+
+        #expect(try await env.diskManifest(id).cloud == nil)
+        let model = try #require(tab.session.model)
+        #expect(!model.isReadOnly)
+        _ = try #require(model.importText("depois da troca", as: .text))
+        tab.session.captureBoardIfNeeded()
+        await tab.session.flushAndPrepareToLeave()
+
+        #expect(try await env.diskManifest(id).cloud == nil, "a gravação da aba não devolve o cloud ao disco")
+        #expect(try await env.diskBoard(id).items.count == 2)
+        #expect(env.controller.notices.count == 1)
+        await env.finish()
+    }
+
+    // MARK: Pôr no iCloud
+
+    @Test("Pôr no iCloud: cópia em Backups/, cloud no manifesto pela aba aberta, e o segundo Mac recebe o mural")
+    func putBoardInCloud() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(name: "Para a nuvem", items: [card])
+        await env.controller.start()
+        let tab = try #require(env.tabs.open(.saved(id), title: "Para a nuvem"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+
+        try await env.controller.putInCloud(.saved(id))
+
+        let backups = await env.library.rootDirectory.appendingPathComponent("Backups", isDirectory: true)
+        let copies = try FileManager.default.contentsOfDirectory(atPath: backups.path)
+        #expect(copies.count == 1)
+        #expect(copies.first?.hasPrefix(id.rawValue.uuidString) == true)
+        #expect(copies.first?.hasSuffix(".mural") == true)
+        #expect(try await env.diskManifest(id).cloud == SyncEnvironment.cloudInfo(database: .private, for: id))
+        #expect(try await env.controller.coordinator(for: .private)?.boardIDs() == [id])
+        let remote = try await RemoteMac.join(
+            boardID: id, name: "Para a nuvem", cloud: env.cloud, root: env.directory.appendingPathComponent("OutroMac"))
+        #expect(await remote.host.board.item(id: card.id)?.text == "um")
+
+        // A aba continua dona do manifesto: gravar de novo não tira o cloud.
+        let model = try #require(tab.session.model)
+        _ = try #require(model.importText("depois", as: .text))
+        tab.session.captureBoardIfNeeded()
+        await tab.session.flushAndPrepareToLeave()
+        #expect(try await env.diskManifest(id).cloud != nil)
+
+        await #expect(throws: CloudSyncControllerError.alreadyInCloud) { try await env.controller.putInCloud(.saved(id)) }
+        await #expect(throws: CloudSyncControllerError.notASavedBoard) {
+            try await env.controller.putInCloud(.welcomeDraft(BoardID()))
+        }
+        await env.finish()
+    }
+
     // MARK: Mural removido
 
     struct RemovalCase: Sendable, CustomTestStringConvertible {
@@ -236,8 +376,8 @@ struct CloudSyncControllerTests {
         try await env.joinZone(of: info)
         await env.controller.start()
         try await env.controller.track(id, cloud: info)
-        // Só o pacote que será apagado tem aba: com a aba aberta, o `cloud` do manifesto não muda (limite documentado na ponte).
-        let tab = removal.removesPackage ? env.tabs.open(.saved(id), title: "Saindo") : nil
+        // Com a aba aberta: o `cloud` sai pela sessão dela, não por baixo.
+        let tab = env.tabs.open(.saved(id), title: "Saindo")
         if let tab { await waitUntil("a aba carregar") { tab.session.model != nil } }
         let scope = try #require(CloudDatabaseScope(rawValue: removal.database.rawValue))
         let coordinator = try #require(env.controller.coordinator(for: scope))
@@ -368,6 +508,37 @@ struct CloudSyncControllerTests {
         #expect(await remote.host.board.item(id: card.id)?.text == "gravado e não enviado")
     }
 
+    @Test("start() com o iCloud falso vazio não apaga o pacote de um mural privado já acompanhado")
+    func startRecreatesTheZoneOfTrackedBoardsInMemory() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(items: [card])
+        _ = try await env.putInCloud(id)
+        let package = try await env.packageURL(of: id)
+        // Uma edição gravada e não enviada: o envio da nova execução vai à zona, que sem a recriação não existiria (`.zoneMissing`,
+        // que o coordenador trata como zona apagada e remove o pacote).
+        var edited = card
+        edited.text = "gravado e não enviado"
+        try await env.seedLibrary.repository(for: .saved(id)).save(try await env.editedSnapshot(id) { $0.board.update(edited) })
+
+        // Outra execução do app (`-uiTestingKeep`): o pacote e o estado de sincronização ficaram, o iCloud falso nasceu vazio.
+        let emptyCloud = InMemoryCloud()
+        let restarted = CloudSyncController(
+            mode: .inMemory, registry: env.registry, delivery: env.delivery, directory: env.directory.appendingPathComponent("Sync"),
+            cloud: emptyCloud)
+        await restarted.start()
+        await restarted.send()
+        await restarted.fetch()
+
+        #expect(FileManager.default.fileExists(atPath: package.path), "a zona recriada não conta como apagada")
+        #expect(restarted.notices.isEmpty)
+        #expect(try await env.diskManifest(id).cloud != nil)
+        let zone = CloudZoneID(name: CloudSchema.zoneName(for: id))
+        let sent = try await emptyCloud.fetchChanges(zone: zone, since: 0, as: CloudSyncController.testUser)
+        #expect(!sent.saved.isEmpty, "o envio chegou à zona recriada")
+    }
+
     @Test("O controlador sai da memória: a ponte não o segura")
     func controllerIsReleased() async throws {
         let env = try SyncEnvironment()
@@ -421,6 +592,9 @@ private final class PersistRecorder {
 /// Biblioteca temporária, abas, entrega e controlador, ligados como no app, com o iCloud falso.
 @MainActor
 private final class SyncEnvironment {
+    /// A espera entre gravar e enviar nos testes, bem menor que a de uso (1 s).
+    static let sendDelay: Duration = .milliseconds(100)
+
     let directory: URL
     /// A biblioteca com que o teste monta o mural (sem falhas); `library` é a do app, que pode ter a falha injetada.
     let seedLibrary: BoardLibrary
@@ -460,7 +634,7 @@ private final class SyncEnvironment {
         self.tabs = tabs
         self.controller = CloudSyncController(
             mode: .inMemory, registry: registry, delivery: delivery, directory: directory.appendingPathComponent("Sync"),
-            cloud: cloud)
+            cloud: cloud, sendDelay: Self.sendDelay)
     }
 
     func bridge() -> CloudSyncBridge {
@@ -471,14 +645,15 @@ private final class SyncEnvironment {
 
     /// Cria um mural salvo com os cartões dados, já gravado, e com o `cloud` do banco pedido no manifesto.
     func seed(
-        name: String = "Compartilhado", items: [BoardItem], database: BoardCloudInfo.Database? = nil
+        name: String = "Compartilhado", items: [BoardItem], database: BoardCloudInfo.Database? = nil,
+        permission: BoardCloudInfo.Permission? = nil
     ) async throws -> BoardID {
         let route = try await seedLibrary.createNamedBoard(name)
         var snapshot = try #require(try await seedLibrary.open(route))
         let id = snapshot.manifest.id
         for item in items { snapshot.board.add(item) }
         if !items.isEmpty { snapshot.manifest.contentRevision += 1 }
-        snapshot.manifest.cloud = database.map { Self.cloudInfo(database: $0, for: id) }
+        snapshot.manifest.cloud = database.map { Self.cloudInfo(database: $0, for: id, permission: permission) }
         try await seedLibrary.repository(for: route).save(snapshot)
         return id
     }
@@ -491,7 +666,9 @@ private final class SyncEnvironment {
         return snapshot
     }
 
-    nonisolated static func cloudInfo(database: BoardCloudInfo.Database, for id: BoardID) -> BoardCloudInfo {
+    nonisolated static func cloudInfo(
+        database: BoardCloudInfo.Database, for id: BoardID, permission: BoardCloudInfo.Permission? = nil
+    ) -> BoardCloudInfo {
         switch database {
         case .private:
             BoardCloudInfo(
@@ -500,7 +677,7 @@ private final class SyncEnvironment {
         case .shared:
             BoardCloudInfo(
                 database: .shared, zoneName: CloudSchema.zoneName(for: id), zoneOwnerName: "ana", ownerDisplayName: "Ana",
-                permission: .readWrite)
+                permission: permission ?? .readWrite)
         }
     }
 
@@ -508,7 +685,9 @@ private final class SyncEnvironment {
     func joinZone(of info: BoardCloudInfo) async throws {
         guard info.database == .shared else { return }
         await cloud.createZone(info.zoneName, owner: info.zoneOwnerName)
-        try await cloud.share(zone: info.zoneName, owner: info.zoneOwnerName, with: CloudSyncController.testUser, permission: .readWrite)
+        try await cloud.share(
+            zone: info.zoneName, owner: info.zoneOwnerName, with: CloudSyncController.testUser,
+            permission: info.permission == .readOnly ? .readOnly : .readWrite)
     }
 
     /// Acompanha o mural no banco privado, manda tudo ao iCloud e põe o segundo Mac para acompanhá-lo também.
@@ -595,13 +774,15 @@ private struct RemoteMac {
     let items: URL
 
     /// Passa a acompanhar o mural na zona do usuário e busca o que o primeiro Mac já enviou. Não envia nada: só recebe.
-    static func join(boardID: BoardID, name: String, cloud: InMemoryCloud, root: URL) async throws -> RemoteMac {
+    static func join(
+        boardID: BoardID, name: String, cloud: InMemoryCloud, root: URL, user: String = CloudSyncController.testUser
+    ) async throws -> RemoteMac {
         let items = root.appendingPathComponent("Items", isDirectory: true)
         try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
         let host = RemoteMacHost(name: name, itemsDirectory: items)
         let store = SyncMetadataStore(directory: root.appendingPathComponent("Sync", isDirectory: true))
         let coordinator = BoardSyncCoordinator(scope: .private, store: store, host: host)
-        let engine = InMemorySyncEngine(user: CloudSyncController.testUser, scope: .private, cloud: cloud, coordinator: coordinator)
+        let engine = InMemorySyncEngine(user: user, scope: .private, cloud: cloud, coordinator: coordinator)
         _ = try await coordinator.startTracking(boardID, cloud: SyncEnvironment.cloudInfo(database: .private, for: boardID))
         try await engine.fetchChanges()
         return RemoteMac(host: host, coordinator: coordinator, engine: engine, boardID: boardID, items: items)

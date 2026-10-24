@@ -45,6 +45,15 @@ struct MuralApp: App {
         delivery.tabs = tabs
         _tabs = State(initialValue: tabs)
 
+        // A sincronização com o iCloud. Sem o entitlement de CloudKit e fora dos testes de interface ela fica desligada: nenhum
+        // controlador, nenhum motor, e o app se comporta como sempre. O delegado do app (buscar ao ativar) o encontra em `current`.
+        let cloudMode = LaunchConfiguration.cloudSync()
+        if cloudMode != .off {
+            let sync = CloudSyncController(mode: cloudMode, registry: registry, delivery: delivery)
+            CloudSyncController.current = sync
+            Task { await sync.start() }
+        }
+
         // O painel de vidro que o ícone da barra de menus abre. O conteúdo é montado a cada apresentação, com um modelo
         // novo: a lista e o mural do centro nascem do instante em que o painel abre.
         MenuBarController.shared.install { _ in
