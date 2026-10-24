@@ -48,10 +48,7 @@ struct CollectionView: View {
         // nem fazemos uma segunda filtragem independente para descobrir os dois grupos.
         let (columnItems, placedStickies) = splitChildren(children)
         let childIDs = children.map(\.id)
-        let isDraggingFromColumns =
-            stickyDrag.map { drag in
-                columnItems.contains { $0.id == drag.id }
-            } ?? false
+        let isDraggingFromColumns = stickyDrag?.isFromColumns == true
         let currentSelection = selection
 
         ScrollView {
@@ -241,7 +238,9 @@ struct CollectionView: View {
         } else {
             let accepted = acceptedSubfolders(for: item, among: columnItems)
             current = StickyDrag(
-                id: item.id, translation: .zero,
+                id: item.id,
+                isFromColumns: columnItems.contains { $0.id == item.id },
+                translation: .zero,
                 tracker: FolderDropTracker(startFolder: subfolder(at: value.startLocation, among: accepted)),
                 acceptedFolders: accepted)
         }
@@ -382,6 +381,8 @@ extension ReadingPosition {
 /// Post-it em arrasto e quanto já andou desde que o gesto começou, em pontos do conteúdo.
 private struct StickyDrag: Equatable {
     var id: UUID
+    /// Fixa a camada de origem no início do gesto, evitando procurar o ID na galeria em cada recomposição.
+    var isFromColumns: Bool
     var translation: CGSize
     /// Acompanha a subpasta que guardaria o post-it se ele fosse solto agora.
     var tracker: FolderDropTracker
