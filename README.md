@@ -223,7 +223,21 @@ swift test --package-path Packages/MuralKit
 MURAL_RUNTIME_TESTS=1 swift test --package-path Packages/MuralKit --filter KeySentenceRuntimeTests  # modelo real
 xcodebuild -project Mural.xcodeproj -scheme Mural -destination 'platform=macOS' build
 swift format -i -r Mural MuralTests MuralUITests Packages/MuralKit/Sources Packages/MuralKit/Tests
+scripts/release.sh 1.1.0             # release: versão, tag e envio da main com a tag (pergunta antes de enviar)
+scripts/release.sh 1.0.6 --stable    # tag terminada em -stable; --check só confere, --no-push não envia
 ```
+
+## Release
+
+- **Um comando**: `scripts/release.sh <versão>` sobe `CLOUD_MARKETING_VERSION` em `Config/Project.xcconfig`, faz o
+  commit, cria a tag e envia a `main` e a tag juntas (`git push --atomic`); o Xcode Cloud faz a build de release ao
+  receber a tag, com o número de build dele.
+- **Qual tag vira release** (a mesma regra no script e no Xcode Cloud, em `ci_scripts/release_rules.sh`): `vX.Y.Z` que
+  sobe o major ou o minor, que tem o patch 5 ou que termina em `-stable`. O script recusa as outras antes de enviar.
+- **Pelo Xcode**: Xcode › Ajustes › Comportamentos › **+**, dê um nome (e um atalho, se quiser) e marque "Executar" com
+  `scripts/xcode-release.sh`. Ele pergunta a versão numa janela, mostra quantos commits vão subir, pede a confirmação e
+  avisa o resultado numa notificação; o registro fica em `$TMPDIR/mural-release.log`.
+- Sem tag, a build por commit do Xcode Cloud usa a versão de `Config/Project.xcconfig`.
 
 ## Convenções
 

@@ -12,6 +12,8 @@ build/
 buildServer.json
 /Makefile
 xcodemake_*.log
+# Versão que o Xcode Cloud escreve no clone da build (ci_scripts/ci_pre_xcodebuild.sh)
+/Config/CloudVersion.xcconfig
 
 # Material de teste nunca versionado (o app recebe conteúdo por colar/arrastar)
 /Assets/
