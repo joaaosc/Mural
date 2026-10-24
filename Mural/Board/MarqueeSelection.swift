@@ -26,7 +26,11 @@ nonisolated struct MarqueeSelection: Equatable, Sendable {
     func hits(in frames: [UUID: CGRect]) -> Set<UUID> {
         let rect = rect
         guard rect.width > 0, rect.height > 0 else { return [] }
-        return Set(frames.filter { $0.value.intersects(rect) }.keys)
+        var result: Set<UUID> = []
+        for (id, frame) in frames where frame.intersects(rect) {
+            result.insert(id)
+        }
+        return result
     }
 
     /// O que fica marcado: a base mais os cartões cruzados.
