@@ -57,6 +57,8 @@ struct BoardCanvasView: View {
     /// fora do controlador observável impede um ciclo AttributeGraph → setter →
     /// nova avaliação durante restaurações programáticas.
     @State private var scrollPosition = ScrollPosition()
+    /// Retângulo lógico com margem de pré-carregamento usado para não construir cartões fora da viewport.
+    @State private var renderViewport = CGRect.zero
     /// Volta sozinho a falso, inclusive quando o gesto é cancelado sem `onEnded`.
     @GestureState private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -86,10 +88,14 @@ struct BoardCanvasView: View {
             height: max(extent.height + Self.margin, slack.height) + slack.height
         )
         let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
+        let alwaysRendered = Set(
+            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 })
+        let renderedItems = CanvasRenderCulling.visibleItems(
+            items, in: renderViewport, alwaysInclude: alwaysRendered, forceAll: isMarqueeActive)
 
         ScrollView([.horizontal, .vertical]) {
             ZStack(alignment: .topLeading) {
-                ForEach(items) { item in
+                ForEach(renderedItems) { item in
                     cardGroup(for: item)
                         .cardEmphasis(focus.emphasis(for: item))
                         // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
@@ -137,6 +143,10 @@ struct BoardCanvasView: View {
             CanvasScrollMetrics(geometry)
         } action: { _, metrics in
             zoom.apply(metrics)
+            let nextViewport = CanvasRenderCulling.logicalVisibleRect(metrics.visibleRect, zoom: zoom.zoom)
+            if CanvasRenderCulling.shouldUpdateViewport(current: renderViewport, next: nextViewport) {
+                renderViewport = nextViewport
+            }
             onCanvasGeometryReady(boardID, generation, metrics)
         }
         .onScrollPhaseChange { _, phase in
@@ -152,6 +162,10 @@ struct BoardCanvasView: View {
             withTransaction(transaction) {
                 scrollPosition.scrollTo(point: request.point)
             }
+        }
+        .onChange(of: zoom.zoom) { _, _ in
+            // Durante um novo nível de zoom, espera a geometria real do ScrollView antes de recortar de novo.
+            renderViewport = .zero
         }
         // Gesto cancelado sem `onEnded`: desfaz o arrasto. Fica para a volta seguinte do laço
         // principal, para não atropelar o `onEnded` quando ele vier.
