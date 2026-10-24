@@ -55,6 +55,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `BoardModel.reminderItems`: a filtragem de lembretes também é memoizada por versão do `board`, preservando a ordem original e a invalidação junto dos demais derivados.
 - `BoardModel.insertBatch`: importações de arquivos preparados e de lotes agora calculam as posições livres uma vez contra o snapshot dos cartões raiz, em vez de refiltrar o mural a cada item.
 - `BoardLayout.importPositions`: o caminho sem âncora mantém um snapshot das posições e dimensões ocupadas durante todo o lote, sem reconstruir esse array a cada cartão.
+- `BoardLayout.importPositions`: o caminho ancorado reserva a capacidade do lote antes de procurar posições, evitando realocações progressivas do resultado sem alterar a ordem ou a geometria.
 - `BoardLayout.freePosition` e `BoardLayout.importPositions`: a procura de vagas percorre ocupados e candidatos com loops diretos, preservando a ordem e o fallback sem closures temporárias.
 - `BoardLayout.freeTextPosition`: a ocupação combinada é materializada uma vez e cada candidato usa uma varredura direta com saída antecipada, evitando dois `map`s, concatenação e `allSatisfy`.
 - `BoardLayout.freeTextID`, `folderID`, `freePosition` e `importPositions`: hit-tests reversos e snapshots de ocupação usam loops diretos e capacidade reservada, preservando a prioridade visual e a ordem de importação.
