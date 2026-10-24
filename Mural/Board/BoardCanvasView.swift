@@ -59,6 +59,8 @@ struct BoardCanvasView: View {
     @State private var scrollPosition = ScrollPosition()
     /// Retângulo lógico com margem de pré-carregamento usado para não construir cartões fora da viewport.
     @State private var renderViewport = CGRect.zero
+    /// Cache local que evita repetir o culling enquanto seus determinantes não mudam.
+    @State private var cullingCache = CanvasRenderCulling.Cache()
     /// Volta sozinho a falso, inclusive quando o gesto é cancelado sem `onEnded`.
     @GestureState private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -102,18 +104,33 @@ struct BoardCanvasView: View {
                 hoveredResizable?.freeTextID,
                 resizing?.target.freeTextID,
             ].compactMap { $0 })
-        let renderedItems = CanvasRenderCulling.visibleItems(
-            items,
-            in: renderViewport,
-            alwaysInclude: alwaysRendered,
-            forceAll: isMarqueeActive || accessibilityEnabled,
-            displayedSizes: itemSizes)
-        let renderedFreeTexts = CanvasRenderCulling.visibleFreeTexts(
-            freeTexts,
-            in: renderViewport,
-            alwaysInclude: alwaysRenderedFreeTexts,
-            forceAll: isMarqueeActive || accessibilityEnabled,
-            displayedSizes: freeTextSizes)
+        let forceAll = isMarqueeActive || accessibilityEnabled
+        let cullingKey = CanvasRenderCulling.Key(
+            boardID: boardID,
+            generation: generation,
+            boardRevision: model.boardRevision,
+            renderViewport: renderViewport,
+            alwaysRendered: alwaysRendered,
+            alwaysRenderedFreeTexts: alwaysRenderedFreeTexts,
+            forceAll: forceAll,
+            resizingItemID: resizing.flatMap { target in
+                guard case .item(let id) = target.target else { return nil }
+                return id
+            },
+            resizingFreeTextID: resizing?.target.freeTextID,
+            resizingSize: resizing?.size)
+        let rendered = cullingCache.content(
+            for: cullingKey,
+            items: items,
+            freeTexts: freeTexts,
+            viewport: renderViewport,
+            alwaysRendered: alwaysRendered,
+            alwaysRenderedFreeTexts: alwaysRenderedFreeTexts,
+            forceAll: forceAll,
+            itemSizes: itemSizes,
+            freeTextSizes: freeTextSizes)
+        let renderedItems = rendered.items
+        let renderedFreeTexts = rendered.freeTexts
 
         ScrollView([.horizontal, .vertical]) {
             ZStack(alignment: .topLeading) {

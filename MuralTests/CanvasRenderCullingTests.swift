@@ -124,4 +124,70 @@ struct CanvasRenderCullingTests {
         #expect(!CanvasRenderCulling.shouldUpdateViewport(current: current, next: CGRect(x: 20, y: 20, width: 200, height: 200)))
         #expect(CanvasRenderCulling.shouldUpdateViewport(current: current, next: CGRect(x: 60, y: 0, width: 200, height: 200)))
     }
+
+    @Test("O cache invalida o culling quando a revisão do mural muda")
+    func cacheInvalidatesForBoardRevision() {
+        let cache = CanvasRenderCulling.Cache()
+        let item = BoardItem(id: UUID(), kind: .text, title: "Primeiro", position: BoardPoint(x: 20, y: 20))
+        let replacement = BoardItem(id: item.id, kind: .text, title: "Atualizado", position: item.position)
+        let viewport = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let key = CanvasRenderCulling.Key(
+            boardID: BoardID(),
+            generation: 1,
+            boardRevision: 1,
+            renderViewport: viewport,
+            alwaysRendered: [],
+            alwaysRenderedFreeTexts: [],
+            forceAll: false,
+            resizingItemID: nil,
+            resizingFreeTextID: nil,
+            resizingSize: nil)
+
+        let first = cache.content(
+            for: key,
+            items: [item],
+            freeTexts: [],
+            viewport: viewport,
+            alwaysRendered: [],
+            alwaysRenderedFreeTexts: [],
+            forceAll: false,
+            itemSizes: [:],
+            freeTextSizes: [:])
+        let reused = cache.content(
+            for: key,
+            items: [replacement],
+            freeTexts: [],
+            viewport: viewport,
+            alwaysRendered: [],
+            alwaysRenderedFreeTexts: [],
+            forceAll: false,
+            itemSizes: [:],
+            freeTextSizes: [:])
+
+        #expect(first.items == reused.items)
+
+        let nextKey = CanvasRenderCulling.Key(
+            boardID: key.boardID,
+            generation: key.generation,
+            boardRevision: 2,
+            renderViewport: key.renderViewport,
+            alwaysRendered: key.alwaysRendered,
+            alwaysRenderedFreeTexts: key.alwaysRenderedFreeTexts,
+            forceAll: key.forceAll,
+            resizingItemID: key.resizingItemID,
+            resizingFreeTextID: key.resizingFreeTextID,
+            resizingSize: key.resizingSize)
+        let refreshed = cache.content(
+            for: nextKey,
+            items: [replacement],
+            freeTexts: [],
+            viewport: viewport,
+            alwaysRendered: [],
+            alwaysRenderedFreeTexts: [],
+            forceAll: false,
+            itemSizes: [:],
+            freeTextSizes: [:])
+
+        #expect(refreshed.items == [replacement])
+    }
 }

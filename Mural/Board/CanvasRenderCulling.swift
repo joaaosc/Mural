@@ -6,6 +6,67 @@ import MuralKit
 /// O frame do `ScrollView` continua cobrindo o mural inteiro; só os elementos fora da
 /// janela (com uma margem de pré-carregamento) deixam de construir subviews SwiftUI.
 enum CanvasRenderCulling {
+    struct Key: Equatable {
+        let boardID: BoardID
+        let generation: UInt64
+        let boardRevision: UInt64
+        let renderViewport: CGRect
+        let alwaysRendered: Set<UUID>
+        let alwaysRenderedFreeTexts: Set<UUID>
+        let forceAll: Bool
+        let resizingItemID: UUID?
+        let resizingFreeTextID: UUID?
+        let resizingSize: BoardSize?
+    }
+
+    struct Snapshot {
+        let key: Key
+        let items: [BoardItem]
+        let freeTexts: [BoardFreeText]
+    }
+
+    final class Cache {
+        private var snapshot: Snapshot?
+
+        func content(
+            for key: Key,
+            items: [BoardItem],
+            freeTexts: [BoardFreeText],
+            viewport: CGRect,
+            alwaysRendered: Set<UUID>,
+            alwaysRenderedFreeTexts: Set<UUID>,
+            forceAll: Bool,
+            itemSizes: [UUID: BoardSize],
+            freeTextSizes: [UUID: BoardSize]
+        ) -> (items: [BoardItem], freeTexts: [BoardFreeText]) {
+            if let snapshot, snapshot.key == key {
+                return (snapshot.items, snapshot.freeTexts)
+            }
+            let content: (items: [BoardItem], freeTexts: [BoardFreeText])
+            if viewport.isEmpty {
+                content = (items, freeTexts)
+            } else {
+                content = (
+                    visibleItems(
+                        items,
+                        in: viewport,
+                        alwaysInclude: alwaysRendered,
+                        forceAll: forceAll,
+                        displayedSizes: itemSizes),
+                    visibleFreeTexts(
+                        freeTexts,
+                        in: viewport,
+                        alwaysInclude: alwaysRenderedFreeTexts,
+                        forceAll: forceAll,
+                        displayedSizes: freeTextSizes
+                    )
+                )
+            }
+            snapshot = Snapshot(key: key, items: content.items, freeTexts: content.freeTexts)
+            return content
+        }
+    }
+
     static func logicalVisibleRect(_ visibleRect: CGRect, zoom: CGFloat) -> CGRect {
         guard zoom.isFinite, zoom > 0,
             visibleRect.minX.isFinite, visibleRect.minY.isFinite,
