@@ -162,11 +162,11 @@ struct BoardModelTests {
     }
 
     @Test("A revisão do board avança sem comparação estrutural")
-    func boardRevisionAdvancesOnMutation() throws {
+    func boardRevisionAdvancesOnMutation() {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)
         let initial = model.boardRevision
 
-        _ = try model.importText("Cartão")
+        _ = model.importText("Cartão")
         #expect(model.boardRevision == initial + 1)
 
         _ = model.createFreeText("Texto", at: BoardPoint(x: 100, y: 100))
