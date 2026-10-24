@@ -187,8 +187,9 @@ public struct Board: Codable, Equatable, Sendable {
             if folder.id != moving.parentID, height == 0 || path.count + height <= Self.maximumFolderDepth {
                 destinations.append(FolderDestination(id: folder.id, path: path))
             }
-            let subfolders = (byParent[folder.id] ?? []).filter { $0.kind == .folder }
-            pending.append(contentsOf: subfolders.reversed().map { (folder: $0, parentPath: path) })
+            for child in (byParent[folder.id] ?? []).reversed() where child.kind == .folder {
+                pending.append((folder: child, parentPath: path))
+            }
         }
         // Títulos iguais ficam na ordem em que foram encontrados.
         return destinations.enumerated()
