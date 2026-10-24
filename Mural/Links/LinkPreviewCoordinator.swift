@@ -87,6 +87,8 @@ final class LinkPreviewCoordinator {
     }
 
     private func deliver(_ updates: [LinkPreviewUpdate]) {
+        let signpost = MuralSignposts.previews.beginInterval("Aplicar prévias de links")
+        defer { MuralSignposts.previews.endInterval("Aplicar prévias de links", signpost) }
         model.applyLinkPreviews(updates)
         scheduleSweep(after: sweepDelay)
     }

@@ -107,6 +107,8 @@ final class MusicArtworkCoordinator {
 
     @concurrent
     private nonisolated static func save(_ data: Data, for itemID: UUID, in files: LinkPreviewFiles) async throws -> String {
+        let signpost = MuralSignposts.previews.beginInterval("Gravar capa de música")
+        defer { MuralSignposts.previews.endInterval("Gravar capa de música", signpost) }
         guard let name = try files.store(imageData: data, iconData: nil, for: itemID).image else {
             throw URLError(.cannotDecodeContentData)
         }

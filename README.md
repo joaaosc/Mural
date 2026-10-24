@@ -137,6 +137,12 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   duas com o mesmo nome.
 - Murais com música usam a versão 8 do formato.
 
+## Fotos e integrações nativas
+
+- **Fotos…**, na barra de criação, abre o seletor do sistema para imagens e vídeos. A seleção é múltipla, preserva a âncora e a pasta capturadas antes do seletor e não pede acesso global à biblioteca. O Mural recebe arquivos por staging cancelável dentro do sandbox, preserva HEIC/HEIF quando a representação fornece esse tipo e mostra falhas parciais sem desfazer os itens concluídos.
+- Arquivos, Lembretes e Apple Music seguem os caminhos públicos já implementados. Calendário e Contatos continuam como snapshots planejados, sem sincronização viva. Notas, Mail, Mensagens e outros apps sem API pública de leitura geral só entram por copiar/colar, compartilhar, arrastar ou arquivos fornecidos pelo usuário.
+- O inventário completo de permissões, limites do sandbox e alternativas está em [`Docs/NativeIntegrations.md`](Docs/NativeIntegrations.md). O protocolo de baseline e os signposts de performance estão em [`Docs/PerformanceBaseline.md`](Docs/PerformanceBaseline.md).
+
 ## Barra de menus
 
 - **Ícone do Mural na barra de menus**, enquanto o app está aberto (mesmo sem janela): abre um painel

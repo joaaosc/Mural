@@ -7,6 +7,8 @@ import PDFKit
 enum ThumbnailLoader {
     @concurrent
     nonisolated static func cgImage(for url: URL, kind: ItemKind, maxPixelSize: Int) async -> CGImage? {
+        let signpost = MuralSignposts.media.beginInterval("Decodificar miniatura")
+        defer { MuralSignposts.media.endInterval("Decodificar miniatura", signpost) }
         switch kind {
         case .image:
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
