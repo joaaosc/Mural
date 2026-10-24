@@ -89,6 +89,7 @@ struct BoardCanvasView: View {
             height: max(extent.height + Self.margin, slack.height) + slack.height
         )
         let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
+        let currentFocus = focus
         let alwaysRendered = Set(
             [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 })
         let alwaysRenderedFreeTexts = Set(
@@ -117,14 +118,14 @@ struct BoardCanvasView: View {
         ScrollView([.horizontal, .vertical]) {
             ZStack(alignment: .topLeading) {
                 ForEach(renderedItems) { item in
-                    let itemEmphasis = focus.emphasis(for: item)
-                    cardGroup(for: item, size: itemSizes[item.id])
+                    let itemEmphasis = currentFocus.emphasis(for: item)
+                    cardGroup(for: item, size: itemSizes[item.id], focus: currentFocus)
                         .cardEmphasis(itemEmphasis)
                         // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
                         .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSizes[item.id]))
                         .opacity(storing == item.id ? 0 : 1)
                         .offset(offset(for: item))
-                        .zIndex(focus.layer(for: item, emphasis: itemEmphasis))
+                        .zIndex(currentFocus.layer(for: item, emphasis: itemEmphasis))
                 }
                 ForEach(renderedFreeTexts) { freeText in
                     BoardFreeTextView(
@@ -229,7 +230,9 @@ struct BoardCanvasView: View {
     // MARK: Cartões
 
     @ViewBuilder
-    private func cardGroup(for item: BoardItem, size cachedSize: BoardSize? = nil) -> some View {
+    private func cardGroup(
+        for item: BoardItem, size cachedSize: BoardSize? = nil, focus: BoardFocus
+    ) -> some View {
         let size = cachedSize ?? displayedSize(of: item)
         if item.kind == .folder {
             // O leque da pasta sai pela borda direita: a prévia começa depois dele, com a folga de 14 pt de sempre.
