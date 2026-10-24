@@ -334,7 +334,7 @@ struct BoardCanvasView: View {
                 if let existing = drag, existing.id == item.id {
                     current = existing
                 } else {
-                    let accepted = Set(model.board.folderDestinations(for: item.id).map(\.id))
+                    let accepted = Set(model.folderDestinations(for: item.id).map(\.id))
                     current = CardDrag(
                         id: item.id, translation: .zero,
                         tracker: FolderDropTracker(

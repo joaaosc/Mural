@@ -38,6 +38,18 @@ struct BoardModelTests {
         #expect(model.children(of: folder.id).count == before + 1)
     }
 
+    @Test("Destinos memoizados são invalidados quando o mural muda")
+    func folderDestinationsCacheInvalidatesAfterBoardChange() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let card = try #require(model.importText("Cartão"))
+        let first = model.createFolder(named: "Primeira")
+
+        #expect(model.folderDestinations(for: card.id).map(\.id) == [first.id])
+
+        let second = model.createFolder(named: "Segunda")
+        #expect(model.folderDestinations(for: card.id).map(\.id) == [first.id, second.id])
+    }
+
     @Test("Marcar item da lista é gravado")
     func toggleChecklistPersists() throws {
         let store = makeStore()

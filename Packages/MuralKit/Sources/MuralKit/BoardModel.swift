@@ -14,7 +14,11 @@ public final class BoardModel {
         case deferred
     }
 
-    public internal(set) var board: Board
+    public internal(set) var board: Board {
+        didSet {
+            folderDestinationsCache.removeAll(keepingCapacity: true)
+        }
+    }
     /// Última falha a mostrar ao usuário (importação, gravação, arquivo corrompido).
     public var lastError: String?
     /// Verdadeiro quando o mural salvo não pôde ser lido nem guardado à parte: nada é
@@ -25,6 +29,7 @@ public final class BoardModel {
     @ObservationIgnored let importer: ItemImporter
     @ObservationIgnored let persistence: Persistence
     @ObservationIgnored private var deferredDeletions: Set<String> = []
+    @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
     public init(store: BoardStore, seedIfEmpty: Bool = true, persistence: Persistence = .immediate) {
@@ -71,6 +76,14 @@ public final class BoardModel {
     public var freeTexts: [BoardFreeText] { board.freeTexts }
     public func children(of folderID: UUID) -> [BoardItem] { board.children(of: folderID) }
     public func item(id: UUID) -> BoardItem? { board.item(id: id) }
+    /// Destinos memoizados enquanto o board não muda. Menus e gestos podem pedir os destinos de vários cartões
+    /// durante a mesma avaliação; o cálculo puro de `Board` continua disponível para snapshots independentes.
+    public func folderDestinations(for id: UUID) -> [FolderDestination] {
+        if let cached = folderDestinationsCache[id] { return cached }
+        let destinations = board.folderDestinations(for: id)
+        folderDestinationsCache[id] = destinations
+        return destinations
+    }
     public func freeText(id: UUID) -> BoardFreeText? { board.freeText(id: id) }
     public func fileURL(for item: BoardItem) -> URL? { importer.fileURL(for: item) }
 

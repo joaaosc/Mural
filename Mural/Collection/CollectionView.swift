@@ -233,7 +233,7 @@ struct CollectionView: View {
 
     /// As subpastas desta pasta (as das colunas) que o domínio aceita como destino do post-it.
     private func acceptedSubfolders(for item: BoardItem, among columnItems: [BoardItem]) -> [UUID] {
-        let accepted = Set(model.board.folderDestinations(for: item.id).map(\.id))
+        let accepted = Set(model.folderDestinations(for: item.id).map(\.id))
         return columnItems.filter { $0.kind == .folder && accepted.contains($0.id) }.map(\.id)
     }
 

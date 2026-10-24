@@ -210,7 +210,7 @@ struct CardButton: View {
                 }
             }
         }
-        let destinations = model.board.folderDestinations(for: item.id)
+        let destinations = model.folderDestinations(for: item.id)
         if !destinations.isEmpty {
             Menu("Mover para a pasta") {
                 ForEach(destinations, id: \.id) { destination in
