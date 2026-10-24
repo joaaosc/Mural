@@ -86,6 +86,19 @@ final class MenuBarController: NSObject {
         show(.centered)
     }
 
+    /// O atalho global (`PanelHotKeyCenter`): fecha o painel aberto; fechado, abre como o clique no ícone, ou no meio da
+    /// tela quando esta cópia não mostra o ícone. Um lugar onde a pessoa deixou o painel vale nos dois casos.
+    ///
+    /// Aberto pelo atalho, o painel não tem uma sessão do ícone: o sistema só a começa num clique. Um clique no ícone com
+    /// ele aberto assim o fecha (ver `statusItem(_:didBegin:)`).
+    func toggleFromShortcut() {
+        if isPresented {
+            dismiss()
+        } else {
+            show(statusItem == nil ? .centered : .anchored)
+        }
+    }
+
     /// Fecha o painel. Pode ser chamado a qualquer hora, quantas vezes for.
     ///
     /// Ancorado, a sessão do ícone é encerrada junto, para o ícone e o painel não discordarem sobre estar aberto. O
@@ -264,6 +277,13 @@ final class MenuBarController: NSObject {
 
 extension MenuBarController: @MainActor NSStatusItemExpandedInterfaceDelegate {
     func statusItem(_ statusItem: NSStatusItem, didBegin session: NSStatusItemExpandedInterfaceSession) {
+        // Aberto pelo atalho, o painel já está na tela sem sessão: o clique no ícone é para fechá-lo, como fecharia um
+        // painel aberto pelo próprio ícone.
+        if isPresented, presentation == .anchored {
+            session.cancel()
+            hide()
+            return
+        }
         show(.anchored)
     }
 

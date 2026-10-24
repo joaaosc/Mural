@@ -62,8 +62,11 @@ struct MuralApp: App {
                 .panelGlassSurface()
             )
         }
-        // Com duas cópias abertas (a instalada e uma de desenvolvimento ou de teste), só uma mostra o ícone; a outra assume
-        // quando ela fecha.
+        // O atalho global abre e fecha o mesmo painel. Fica pronto antes de o coordenador do ícone decidir a dona, que é
+        // quem o registra.
+        PanelHotKeyCenter.shared.start { MenuBarController.shared.toggleFromShortcut() }
+        // Com duas cópias abertas (a instalada e uma de desenvolvimento ou de teste), só uma mostra o ícone (e responde ao
+        // atalho); a outra assume quando ela fecha.
         MenuBarIconCoordinator.shared.start()
     }
 

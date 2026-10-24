@@ -61,13 +61,17 @@ final class MenuBarIconCoordinator {
     ///   - processID: o processo desta cópia.
     ///   - notificationCenter: de onde vêm os avisos de aplicativo aberto e fechado.
     ///   - runningMurals: as cópias abertas agora; por padrão, o que o sistema diz (`systemMurals(bundleIdentifier:)`).
-    ///   - setIconVisible: mostra ou esconde o ícone desta cópia.
+    ///   - setIconVisible: mostra ou esconde o ícone desta cópia; por padrão, também dá ou tira dela o atalho global, que
+    ///     só a dona do ícone registra.
     init(
         bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.joaocosta.Mural",
         processID: pid_t = getpid(),
         notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         runningMurals: (@MainActor () -> [RunningMural])? = nil,
-        setIconVisible: @escaping @MainActor (Bool) -> Void = { MenuBarController.shared.setStatusItemVisible($0) }
+        setIconVisible: @escaping @MainActor (Bool) -> Void = { visible in
+            MenuBarController.shared.setStatusItemVisible(visible)
+            PanelHotKeyCenter.shared.setOwner(visible)
+        }
     ) {
         self.bundleIdentifier = bundleIdentifier
         self.processID = processID
