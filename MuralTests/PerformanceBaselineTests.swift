@@ -1,6 +1,9 @@
+import CoreGraphics
 import Foundation
 import MuralKit
 import XCTest
+
+@testable import Mural
 
 @MainActor
 final class PerformanceBaselineTests: XCTestCase {
@@ -34,6 +37,60 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(descendantCount, childCount)
         XCTAssertGreaterThan(destinationCount, 0)
         XCTAssertGreaterThan(encodedByteCount, 0)
+    }
+
+    func testCanvasCullingWithDisplayedSizesPerformance() {
+        let items = (0..<2_000).map { index in
+            let kind: ItemKind = index.isMultiple(of: 3) ? .sticky : .image
+            let position = BoardPoint(
+                x: Double((index % 100) * 180),
+                y: Double((index / 100) * 220))
+            let size: BoardSize? = index.isMultiple(of: 3) ? BoardSize(width: 160, height: 160) : nil
+            return BoardItem(
+                kind: kind,
+                title: "Culling item \(index)",
+                position: position,
+                size: size)
+        }
+        let freeTexts = (0..<2_000).map { index in
+            let position = BoardPoint(
+                x: Double((index % 100) * 180),
+                y: Double((index / 100) * 220 + 40))
+            let size: BoardSize? = index.isMultiple(of: 4) ? BoardSize(width: 260, height: 120) : nil
+            return BoardFreeText(
+                text: "Culling text \(index)",
+                position: position,
+                size: size)
+        }
+        let itemSizes: [UUID: BoardSize] = Dictionary(
+            uniqueKeysWithValues: items.map { item in
+                let size = BoardLayout.size(of: item)
+                return (item.id, BoardSize(width: size.width, height: size.height))
+            })
+        let freeTextSizes: [UUID: BoardSize] = Dictionary(
+            uniqueKeysWithValues: freeTexts.map { freeText in
+                let size = BoardLayout.size(of: freeText)
+                return (freeText.id, BoardSize(width: size.width, height: size.height))
+            })
+        let viewport = CGRect(x: 1_800, y: 1_800, width: 1_200, height: 900)
+        var visibleCount = 0
+
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let visibleItems = CanvasRenderCulling.visibleItems(
+                items,
+                in: viewport,
+                overscan: 1,
+                displayedSizes: itemSizes)
+            let visibleFreeTexts = CanvasRenderCulling.visibleFreeTexts(
+                freeTexts,
+                in: viewport,
+                overscan: 1,
+                displayedSizes: freeTextSizes)
+            visibleCount = visibleItems.count + visibleFreeTexts.count
+        }
+
+        XCTAssertGreaterThan(visibleCount, 0)
+        XCTAssertLessThan(visibleCount, items.count + freeTexts.count)
     }
 
     func testCachedFolderDestinationLookupPerformance() throws {
