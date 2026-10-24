@@ -50,7 +50,7 @@ struct BoardFreeTextView: View {
                 if let onResize {
                     BoardSizeMenu(
                         sides: BoardLayout.freeTextPresetSides,
-                        isStandard: BoardLayout.size(of: freeText) == BoardLayout.freeTextSize,
+                        isStandard: size.width == BoardLayout.freeTextSize.width && size.height == BoardLayout.freeTextSize.height,
                         systemImage: "arrow.up.left.and.arrow.down.right",
                         onSelect: onResize)
                 }
