@@ -574,6 +574,13 @@ struct CloudSyncControllerTests {
         #expect(
             LaunchConfiguration.cloudSync(arguments: [], environment: unitTests, hasCloudKitEntitlement: true) == .off,
             "o app que hospeda os testes unitários não toca a conta iCloud real")
+        #expect(
+            LaunchConfiguration.cloudSync(
+                arguments: ["-manualTesting", "-performanceFixture"], environment: plain, hasCloudKitEntitlement: true) == .off,
+            "o perfil de desempenho mede o app sem o iCloud")
+        #expect(
+            LaunchConfiguration.cloudSync(arguments: ["-manualTesting"], environment: plain, hasCloudKitEntitlement: true)
+                == .cloudKit)
     }
 
     @Test("O entitlement vale só se a lista de serviços do iCloud traz CloudKit")

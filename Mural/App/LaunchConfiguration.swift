@@ -98,7 +98,8 @@ enum LaunchConfiguration {
     /// De onde vem o iCloud: nos testes de interface, o iCloud falso, em memória; com o entitlement de CloudKit, o de verdade; no
     /// resto, nenhum. Sem o entitlement o app nem cria `CKContainer` (criá-lo encerra o app). O app aberto só para hospedar os
     /// testes unitários (`XCTestConfigurationFilePath`) fica sem sincronização: com o entitlement, ele tocaria a conta iCloud real
-    /// de quem roda os testes. Os testes do controlador o criam por conta própria, com o iCloud falso.
+    /// de quem roda os testes. Os testes do controlador o criam por conta própria, com o iCloud falso. O perfil de desempenho
+    /// (`-performanceFixture`) também fica sem: as medições não incluem o iCloud, e o mural de exemplo não vai para a conta.
     static func cloudSync(
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -106,6 +107,7 @@ enum LaunchConfiguration {
     ) -> CloudSyncMode {
         if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return .inMemory }
         guard environment["XCTestConfigurationFilePath"] == nil else { return .off }
+        guard !usesPerformanceFixture(arguments: arguments) else { return .off }
         return hasCloudKitEntitlement ? .cloudKit : .off
     }
 
