@@ -390,6 +390,30 @@ struct MergeItemTests {
         #expect(copy.keySentences == nil)
     }
 
+    @Test("A cópia pública leva o conteúdo na forma compartilhada, com id novo, a data dada e o título marcado")
+    func publicConflictCopyOfANote() {
+        var item = note(1, text: noteText)
+        item.keySentences = record(for: noteText)
+
+        let copy = BoardMerge.conflictCopy(of: item, now: now)
+        #expect(copy.id != item.id)
+        #expect(copy.createdAt == now)
+        #expect(copy.text == noteText)
+        #expect(copy.title == "Nota 1 (cópia de conflito)")
+        #expect(copy.keySentences == nil)
+        #expect(copy.position == BoardPoint(x: 124, y: 124))
+    }
+
+    @Test("A cópia pública de um post-it mantém o título e a pasta, e desloca o lugar na pasta")
+    func publicConflictCopyOfASticky() {
+        let item = sticky(1, text: "Comprar pão", in: 9, folderPosition: BoardPoint(x: 20, y: 30))
+
+        let copy = BoardMerge.conflictCopy(of: item, now: now)
+        #expect(copy.title == item.title)
+        #expect(copy.parentID == id(9))
+        #expect(copy.folderPosition == BoardPoint(x: 44, y: 54))
+    }
+
     // MARK: Lista
 
     @Test("Lista de compras: as marcações de itens diferentes entram juntas, sem cópia")

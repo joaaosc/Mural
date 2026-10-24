@@ -27,7 +27,7 @@ public final class BoardModel {
     /// (`nil`, `false`, lista vazia). Nas ações da pessoa, `lastError` explica o motivo; nas automáticas (lembretes, prévias de
     /// link, música) não há aviso. Continuam valendo o que é de cada Mac e o que só limpa arquivos: as frases curtas
     /// (`setKeySentences`), as partes locais das prévias e da capa da música (`SharedFieldPolicy`), `discard`,
-    /// `discardNoteImage` e `finalizeDeferredDeletions`.
+    /// `discardNoteImage`, `finalizeDeferredDeletions` e `applyMergedBoard` (o que as outras pessoas mudaram chega mesmo a quem só vê).
     ///
     /// Os métodos que devolvem o cartão criado sem opcional (`createNote`, `createSticky`, `createFolder(named:)` e
     /// `createFreeText`) mantêm a assinatura: devolvem o valor sem pô-lo no mural, porque as telas não os chamam em só leitura.
@@ -794,6 +794,39 @@ public final class BoardModel {
             }
         }
         deferredDeletions = pending
+    }
+
+    /// Troca o mural pelo resultado de uma junção com o que chegou do iCloud (`BoardMerge.apply`).
+    ///
+    /// Vale também num mural só para ver (`isReadOnly`): é assim que quem só vê recebe o que as outras pessoas mudaram, e a junção
+    /// não é uma ação da pessoa. Os arquivos que o mural deixou de citar entram na mesma fila de remoção adiada de `delete`: nada é
+    /// apagado antes de a versão nova estar gravada (`finalizeDeferredDeletions(persistedBoard:)`). Quem chama avisa a gravação
+    /// como depois de um `delete`; no modo imediato o mural é gravado antes de a troca valer e só então os arquivos saem.
+    /// - Returns: `false`, sem trocar nada, se a persistência está suspensa ou a gravação imediata falha (`lastError` explica).
+    @discardableResult
+    public func applyMergedBoard(_ merged: Board) -> Bool {
+        guard merged != board else { return true }
+        guard !isPersistenceSuspended else {
+            lastError = "Não foi possível aplicar o que chegou do iCloud: a persistência está suspensa. Nenhum arquivo foi removido."
+            return false
+        }
+
+        let released = citedFileNames(in: board).subtracting(citedFileNames(in: merged))
+        if persistence == .deferred {
+            board = merged
+            deferredDeletions.formUnion(released)
+            return true
+        }
+        do {
+            // Como em `delete`: o mural novo precisa estar gravado antes de valer em memória ou de apagar arquivos.
+            try store.save(merged)
+        } catch {
+            lastError = "Não foi possível aplicar o que chegou do iCloud: \(error.localizedDescription). Nenhum arquivo foi removido."
+            return false
+        }
+        board = merged
+        for name in released { importer.removeFile(named: name) }
+        return true
     }
 
     // MARK: Interno

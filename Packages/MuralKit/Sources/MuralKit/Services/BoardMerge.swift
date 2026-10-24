@@ -236,9 +236,12 @@ public enum BoardMerge {
         return body.isEmpty ? "" : ContentClassifier.title(forText: body)
     }
 
-    /// Uma cópia do conteúdo do cartão (a forma `shared`), com id novo, criada agora, na mesma pasta e um pouco deslocada para não
+    /// Uma cópia do conteúdo do cartão (a forma `shared`), com id novo, criada `now`, na mesma pasta e um pouco deslocada para não
     /// ficar escondida embaixo do original. O título de um post-it segue o texto, então fica como está.
-    private static func conflictCopy(of item: BoardItem, now: Date) -> BoardItem {
+    ///
+    /// É a cópia que a junção faz quando duas versões colidem. Fica pública para a sessão de janela, que guarda o que a pessoa
+    /// estava digitando (ou a versão que chegou) do mesmo jeito. Quem a põe no mural cuida da estrutura (`Board.repairStructure`).
+    public static func conflictCopy(of item: BoardItem, now: Date) -> BoardItem {
         var copy = SharedFieldPolicy.shared(item)
         copy.id = UUID()
         copy.createdAt = now
