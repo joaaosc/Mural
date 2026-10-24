@@ -50,6 +50,23 @@ struct BoardModelTests {
         #expect(model.folderDestinations(for: card.id).map(\.id) == [first.id, second.id])
     }
 
+    @Test("Leituras derivadas memoizadas são invalidadas quando o mural muda")
+    func derivedReadCachesInvalidateAfterBoardChange() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let folder = model.createFolder(named: "Pasta")
+
+        #expect(model.rootItems.count == 1)
+        #expect(model.children(of: folder.id).isEmpty)
+        #expect(model.freeTexts.isEmpty)
+
+        let card = try #require(model.importText("Cartão", into: folder.id))
+        let freeText = model.createFreeText("Texto")
+
+        #expect(model.rootItems.map(\.id) == [folder.id])
+        #expect(model.children(of: folder.id).map(\.id) == [card.id])
+        #expect(model.freeTexts.map(\.id) == [freeText.id])
+    }
+
     @Test("Marcar item da lista é gravado")
     func toggleChecklistPersists() throws {
         let store = makeStore()

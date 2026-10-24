@@ -60,4 +60,33 @@ final class PerformanceBaselineTests: XCTestCase {
 
         XCTAssertGreaterThan(destinationCount, 0)
     }
+
+    func testCachedBoardDerivedReadsPerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardDerivedReads-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let model = BoardModel(
+            board: board,
+            store: BoardStore(directory: directory),
+            persistence: .deferred)
+        let folderIDs = board.items.filter { $0.kind == .folder }.map(\.id)
+        _ = model.rootItems
+        _ = model.freeTexts
+        for id in folderIDs {
+            _ = model.children(of: id)
+        }
+
+        var derivedCount = 0
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            derivedCount += model.rootItems.count
+            derivedCount += model.freeTexts.count
+            for id in folderIDs {
+                derivedCount += model.children(of: id).count
+            }
+        }
+
+        XCTAssertGreaterThan(derivedCount, 0)
+    }
 }

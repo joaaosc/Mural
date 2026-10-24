@@ -16,6 +16,9 @@ public final class BoardModel {
 
     public internal(set) var board: Board {
         didSet {
+            rootItemsCache = nil
+            freeTextsCache = nil
+            childrenCache.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
         }
     }
@@ -29,6 +32,9 @@ public final class BoardModel {
     @ObservationIgnored let importer: ItemImporter
     @ObservationIgnored let persistence: Persistence
     @ObservationIgnored private var deferredDeletions: Set<String> = []
+    @ObservationIgnored private var rootItemsCache: [BoardItem]?
+    @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
+    @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
@@ -72,15 +78,36 @@ public final class BoardModel {
 
     // MARK: Leitura
 
-    public var rootItems: [BoardItem] { board.rootItems }
-    public var freeTexts: [BoardFreeText] { board.freeTexts }
-    public func children(of folderID: UUID) -> [BoardItem] { board.children(of: folderID) }
+    public var rootItems: [BoardItem] {
+        let currentBoard = board
+        if let rootItemsCache { return rootItemsCache }
+        let rootItems = currentBoard.rootItems
+        rootItemsCache = rootItems
+        return rootItems
+    }
+
+    public var freeTexts: [BoardFreeText] {
+        let currentBoard = board
+        if let freeTextsCache { return freeTextsCache }
+        let freeTexts = currentBoard.freeTexts
+        freeTextsCache = freeTexts
+        return freeTexts
+    }
+
+    public func children(of folderID: UUID) -> [BoardItem] {
+        let currentBoard = board
+        if let cached = childrenCache[folderID] { return cached }
+        let children = currentBoard.children(of: folderID)
+        childrenCache[folderID] = children
+        return children
+    }
     public func item(id: UUID) -> BoardItem? { board.item(id: id) }
     /// Destinos memoizados enquanto o board não muda. Menus e gestos podem pedir os destinos de vários cartões
     /// durante a mesma avaliação; o cálculo puro de `Board` continua disponível para snapshots independentes.
     public func folderDestinations(for id: UUID) -> [FolderDestination] {
+        let currentBoard = board
         if let cached = folderDestinationsCache[id] { return cached }
-        let destinations = board.folderDestinations(for: id)
+        let destinations = currentBoard.folderDestinations(for: id)
         folderDestinationsCache[id] = destinations
         return destinations
     }
