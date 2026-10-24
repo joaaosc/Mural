@@ -48,6 +48,9 @@ struct CardButton: View {
     /// Cada cartão continua anexando o diálogo no instante em que `isConfirmingDelete` muda para `true`.
     @ViewBuilder
     private var cardSurface: some View {
+        let selected = isSelected
+        let selectionActive = selection?.isActive == true
+        let detail = accessibilityDetail
         let card = Button(action: activate) {
             ZStack(alignment: .bottomLeading) {
                 CardView(item: item, model: model)
@@ -57,10 +60,10 @@ struct CardButton: View {
         .buttonStyle(.plain)
         // Só no botão do cartão: aplicado depois das sobreposições, o rótulo cobriria também o da bolinha.
         .accessibilityLabel(item.title)
-        .accessibilityValue(accessibilityDetail, isEnabled: !accessibilityDetail.isEmpty)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(detail, isEnabled: !detail.isEmpty)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .overlay {
-            if isSelected {
+            if selected {
                 RoundedRectangle(cornerRadius: Theme.cardCorner)
                     .strokeBorder(.tint, lineWidth: 3)
                     .allowsHitTesting(false)
@@ -68,8 +71,8 @@ struct CardButton: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if selection?.isActive == true {
-                SelectionBadge(isSelected: isSelected)
+            if selectionActive {
+                SelectionBadge(isSelected: selected)
                     .offset(x: -SelectionBadge.outset, y: -SelectionBadge.outset)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
