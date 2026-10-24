@@ -46,6 +46,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
 - `397f9aa` e `c6f347d`: `ReminderPickerSheet` passou a filtrar e particionar lembretes numa única passagem por avaliação, e o resumo de conteúdo passou de uma varredura por tipo para uma contagem acumulada; a ordem e os textos foram preservados por testes.
+- `afabf76`: `BoardModel` passou a memoizar destinos de pasta para os menus e gestos que consultam vários cartões durante a mesma versão do mural; o cache é invalidado a cada mudança do board e os consumidores da UI passaram a usar esse caminho.
 
 Evidências verificadas após as mudanças:
 
@@ -56,6 +57,7 @@ Evidências verificadas após as mudanças:
 - `PerformanceBaselineTests`: 1/1 passou em Debug e 1/1 em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário Release mediu tempo monotônico médio de 0,005102 s e pico físico de memória médio de 30.226,235 kB nas cinco iterações.
 - `ThumbnailPerformanceTests`: 1/1 passou em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário mediu tempo monotônico médio de 0,011 s e pico físico de memória médio de 35.914,784 kB nas cinco iterações.
 - `ReminderPickerTests` e `MuralTests`: 9/9 passaram após as reduções de recomputação.
+- `BoardModelTests`: 18/18 passaram, incluindo invalidação do cache depois de criar uma nova pasta.
 - formatter do projeto e `scripts/check-xcproj.sh`: sem diferenças ou erros.
 
 A suíte macOS completa ultrapassou o link depois da correção de produto, mas foi interrompida após 22 casos com três falhas de runtime do ambiente; não é considerada verde. A primeira gravação de 10 segundos com `xctrace` atingiu o limite de coleta, mas o empacotador do Instruments falhou ao salvar o trace por não conseguir obter `~/Library/Application Support/Instruments/Packages/lock`. Depois de liberar artefatos gerados, uma gravação Debug foi salva em `/tmp/Mural-performance-launch.trace`; `xctrace show` mediu CPU média agregada de 5,9%, mínimo de 0%, máximo de 140% e desvio de 19%. O mesmo cenário em Release foi compilado com sucesso e salvo em `/tmp/Mural-performance-launch-release.trace`, com CPU média de 7,0%, mínimo de 0%, máximo de 150% e desvio de 21,3%. Esses números são apenas baselines de lançamento desta execução e não representam uma redução percentual nem medem interação com um mural grande. O próximo gate é repetir o cenário Release antes/depois com uma fixture carregada e comparar Time Profiler/SwiftUI, Allocations, File Activity e Energy Log.
