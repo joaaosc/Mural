@@ -141,6 +141,10 @@
           "package": "MuralKit",
           "product-name": "MuralKit",
           "build-phase": { "build-phase": "frameworks" },
+        }, {
+          "package": "StretchText",
+          "product-name": "StretchText",
+          "build-phase": { "build-phase": "frameworks" },
         },
       ],
       "build-settings": {
