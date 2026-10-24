@@ -25,10 +25,15 @@ extension ItemKind {
     /// Resumo do conteúdo de uma pasta, na ordem dos tipos ("2 imagens, 1 nota").
     static func summary(of items: [BoardItem]) -> String {
         guard !items.isEmpty else { return "Vazia" }
+        var quantities: [ItemKind: Int] = [:]
+        quantities.reserveCapacity(allCases.count)
+        for item in items {
+            quantities[item.kind, default: 0] += 1
+        }
         return
             allCases
             .compactMap { kind in
-                let quantity = items.count { $0.kind == kind }
+                let quantity = quantities[kind, default: 0]
                 return quantity > 0 ? kind.count(quantity) : nil
             }
             .joined(separator: ", ")

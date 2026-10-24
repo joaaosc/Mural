@@ -11,7 +11,18 @@ enum ReminderPickerFilter {
         let matches = snapshots.filter { snapshot in
             (showCompleted || !snapshot.isCompleted) && (term.isEmpty || snapshot.title.localizedStandardContains(term))
         }
-        return matches.filter { !$0.isCompleted } + matches.filter(\.isCompleted)
+        var pending: [ReminderSnapshot] = []
+        var completed: [ReminderSnapshot] = []
+        pending.reserveCapacity(matches.count)
+        completed.reserveCapacity(matches.count)
+        for snapshot in matches {
+            if snapshot.isCompleted {
+                completed.append(snapshot)
+            } else {
+                pending.append(snapshot)
+            }
+        }
+        return pending + completed
     }
 }
 
@@ -90,7 +101,8 @@ struct ReminderPickerSheet: View {
     // MARK: Escolha
 
     private var picker: some View {
-        HStack(spacing: 0) {
+        let visibleReminders = visible
+        return HStack(spacing: 0) {
             List(lists, selection: $selectedListID) { list in
                 Label {
                     Text(list.title)
@@ -107,10 +119,10 @@ struct ReminderPickerSheet: View {
                     Toggle("Mostrar concluídos", isOn: $showCompleted).toggleStyle(.checkbox)
                 }
                 .padding(10)
-                if visible.isEmpty {
+                if visibleReminders.isEmpty {
                     ContentUnavailableView("Nenhum lembrete", systemImage: "checklist")
                 } else {
-                    List(visible, id: \.identifier) { snapshot in
+                    List(visibleReminders, id: \.identifier) { snapshot in
                         Toggle(isOn: binding(for: snapshot)) {
                             Text(snapshot.title).strikethrough(snapshot.isCompleted)
                         }

@@ -46,4 +46,16 @@ struct MuralTests {
             #expect(matches.count <= 1, "\(kind) aparece em mais de um filtro")
         }
     }
+
+    @Test("Resumo de pasta preserva a ordem dos tipos e as quantidades")
+    func itemKindSummary() {
+        let items = [
+            BoardItem(kind: .folder, title: "Pasta"),
+            BoardItem(kind: .image, title: "Imagem 1"),
+            BoardItem(kind: .image, title: "Imagem 2"),
+            BoardItem(kind: .video, title: "Vídeo"),
+        ]
+
+        #expect(ItemKind.summary(of: items) == "2 imagens, 1 vídeo, 1 pasta")
+    }
 }
