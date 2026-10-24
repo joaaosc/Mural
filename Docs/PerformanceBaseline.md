@@ -43,6 +43,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `85d20c0`: o cache de miniaturas passou a cancelar somente o consumidor que saiu, cancelar o trabalho compartilhado quando não há consumidores e evitar decodificação/cache prematuros de imagens originais.
 - `7691b07`: `BoardCanvasView` reutiliza o array de cartões já calculado no `body`; `CollectionView` calcula uma vez por avaliação os filhos, cartões de coluna e post-its posicionados.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
+- `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 
 Evidências verificadas após as mudanças:
 
@@ -50,6 +51,9 @@ Evidências verificadas após as mudanças:
 - `swift test --package-path Packages/MuralKit`: passou;
 - `ThumbnailCacheTests`: 7/7 passaram;
 - `PhotoImportDiagnosticsTests`: 7/7 passaram;
+- `PerformanceBaselineTests`: 1/1 passou em Debug;
 - formatter do projeto e `scripts/check-xcproj.sh`: sem diferenças ou erros.
 
 A suíte macOS completa ultrapassou o link depois da correção de produto, mas foi interrompida após 22 casos com três falhas de runtime do ambiente; não é considerada verde. A primeira gravação de 10 segundos com `xctrace` atingiu o limite de coleta, mas o empacotador do Instruments falhou ao salvar o trace por não conseguir obter `~/Library/Application Support/Instruments/Packages/lock`. Depois de liberar artefatos gerados, uma gravação Debug foi salva em `/tmp/Mural-performance-launch.trace`; `xctrace show` mediu CPU média agregada de 5,9%, mínimo de 0%, máximo de 140% e desvio de 19%. O mesmo cenário em Release foi compilado com sucesso e salvo em `/tmp/Mural-performance-launch-release.trace`, com CPU média de 7,0%, mínimo de 0%, máximo de 150% e desvio de 21,3%. Esses números são apenas baselines de lançamento desta execução e não representam uma redução percentual nem medem interação com um mural grande. O próximo gate é repetir o cenário Release antes/depois com uma fixture carregada e comparar Time Profiler/SwiftUI, Allocations, File Activity e Energy Log.
+
+A tentativa de executar `PerformanceBaselineTests` em Release parou antes da compilação dos testes porque o alvo de aplicação foi produzido sem `-enable-testing` (`Mural.swiftmodule` incompatível com `MuralTests`). Não foi alterada a configuração Release global para contornar esse problema: a medição Release continua pendente de uma configuração de teste dedicada que preserve a assinatura e as configurações de distribuição do app.
