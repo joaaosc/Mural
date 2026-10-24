@@ -45,6 +45,21 @@ struct CanvasRenderCullingTests {
         #expect(result.map(\.id) == [item.id])
     }
 
+    @Test("Aplica o tamanho transitório de um cartão sem copiar o mapa base")
+    func visibleItemsUseTransientSizeOverride() {
+        let item = BoardItem(
+            id: UUID(), kind: .sticky, title: "Redimensionando", position: BoardPoint(x: 299, y: 20))
+
+        let result = CanvasRenderCulling.visibleItems(
+            [item],
+            in: CGRect(x: 100, y: 0, width: 200, height: 50),
+            overscan: 0,
+            displayedSizes: [item.id: BoardSize(width: 0, height: 0)],
+            sizeOverride: CanvasRenderCulling.SizeOverride(id: item.id, size: BoardSize(width: 80, height: 80)))
+
+        #expect(result.map(\.id) == [item.id])
+    }
+
     @Test("Seleciona textos livres visíveis e preserva o texto em redimensionamento")
     func visibleFreeTextsPreserveIntersectionAndExplicitTexts() {
         let visible = BoardFreeText(
@@ -73,6 +88,21 @@ struct CanvasRenderCullingTests {
             in: CGRect(x: 0, y: 0, width: 200, height: 50),
             overscan: 0,
             displayedSizes: [freeText.id: BoardSize(width: 80, height: 80)])
+
+        #expect(result.map(\.id) == [freeText.id])
+    }
+
+    @Test("Aplica o tamanho transitório de um texto livre sem copiar o mapa base")
+    func visibleFreeTextsUseTransientSizeOverride() {
+        let freeText = BoardFreeText(
+            id: UUID(), text: "Redimensionando", position: BoardPoint(x: 299, y: 20))
+
+        let result = CanvasRenderCulling.visibleFreeTexts(
+            [freeText],
+            in: CGRect(x: 100, y: 0, width: 200, height: 50),
+            overscan: 0,
+            displayedSizes: [freeText.id: BoardSize(width: 0, height: 0)],
+            sizeOverride: CanvasRenderCulling.SizeOverride(id: freeText.id, size: BoardSize(width: 80, height: 80)))
 
         #expect(result.map(\.id) == [freeText.id])
     }

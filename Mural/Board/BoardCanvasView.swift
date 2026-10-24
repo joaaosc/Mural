@@ -85,6 +85,8 @@ struct BoardCanvasView: View {
         // já foi medida. Isso também deixa `rootExtent` aproveitar os mapas sem materializá-los duas vezes.
         let itemSizes = displayedSizes(for: items, when: renderViewport)
         let freeTextSizes = displayedSizes(for: freeTexts, when: renderViewport)
+        let itemSizeOverride = displayedSizeOverride(for: .item, when: renderViewport)
+        let freeTextSizeOverride = displayedSizeOverride(for: .freeText, when: renderViewport)
         let extent = model.rootExtent
         let viewport = zoom.viewport
         // Como num quadro branco: sempre uma tela de folga à direita e embaixo, para o
@@ -128,7 +130,9 @@ struct BoardCanvasView: View {
             alwaysRenderedFreeTexts: alwaysRenderedFreeTexts,
             forceAll: forceAll,
             itemSizes: itemSizes,
-            freeTextSizes: freeTextSizes)
+            freeTextSizes: freeTextSizes,
+            itemSizeOverride: itemSizeOverride,
+            freeTextSizeOverride: freeTextSizeOverride)
         let renderedItems = rendered.items
         let renderedFreeTexts = rendered.freeTexts
 
@@ -136,18 +140,20 @@ struct BoardCanvasView: View {
             ZStack(alignment: .topLeading) {
                 ForEach(renderedItems) { item in
                     let itemEmphasis = currentFocus.emphasis(for: item)
-                    cardGroup(for: item, size: itemSizes[item.id], focus: currentFocus)
+                    let itemSize = displayedSize(for: item, cachedSizes: itemSizes, override: itemSizeOverride)
+                    cardGroup(for: item, size: itemSize, focus: currentFocus)
                         .cardEmphasis(itemEmphasis)
                         // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
-                        .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSizes[item.id]))
+                        .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSize))
                         .opacity(storing == item.id ? 0 : 1)
                         .offset(offset(for: item))
                         .zIndex(currentFocus.layer(for: item, emphasis: itemEmphasis))
                 }
                 ForEach(renderedFreeTexts) { freeText in
+                    let freeTextSize = displayedSize(for: freeText, cachedSizes: freeTextSizes, override: freeTextSizeOverride)
                     BoardFreeTextView(
                         freeText: freeText,
-                        size: freeTextSizes[freeText.id] ?? displayedSize(of: freeText),
+                        size: freeTextSize,
                         onEdit: { onFreeTextEdit?(freeText.id) },
                         onDelete: { onFreeTextDelete?(freeText.id) },
                         onResize: { size in
@@ -167,7 +173,7 @@ struct BoardCanvasView: View {
             .marqueeSelecting(
                 in: Self.space, selection: selection, lineWidth: 1 / zoom.zoom, isActive: $isMarqueeActive
             ) {
-                cardFrames(of: items, displayedSizes: itemSizes)
+                cardFrames(of: items, displayedSizes: itemSizes, sizeOverride: itemSizeOverride)
             }
             // Os arrastos medem neste espaço, em pontos do mural, sem o zoom.
             .coordinateSpace(.named(Self.space))
@@ -338,20 +344,43 @@ struct BoardCanvasView: View {
 
     private func displayedSizes(for items: [BoardItem], when viewport: CGRect) -> [UUID: BoardSize] {
         guard !viewport.isEmpty else { return [:] }
-        var sizes = model.rootItemSizes
-        if let resizing, case .item(let id) = resizing.target {
-            sizes[id] = resizing.size
-        }
-        return sizes
+        return model.rootItemSizes
     }
 
     private func displayedSizes(for freeTexts: [BoardFreeText], when viewport: CGRect) -> [UUID: BoardSize] {
         guard !viewport.isEmpty else { return [:] }
-        var sizes = model.freeTextSizes
-        if let resizing, case .freeText(let id) = resizing.target {
-            sizes[id] = resizing.size
+        return model.freeTextSizes
+    }
+
+    private enum DisplayedSizeKind {
+        case item
+        case freeText
+    }
+
+    private func displayedSizeOverride(
+        for kind: DisplayedSizeKind, when viewport: CGRect
+    ) -> CanvasRenderCulling.SizeOverride? {
+        guard !viewport.isEmpty, let resizing else { return nil }
+        switch (kind, resizing.target) {
+        case (.item, .item(let id)), (.freeText, .freeText(let id)):
+            return CanvasRenderCulling.SizeOverride(id: id, size: resizing.size)
+        default:
+            return nil
         }
-        return sizes
+    }
+
+    private func displayedSize(
+        for item: BoardItem, cachedSizes: [UUID: BoardSize], override: CanvasRenderCulling.SizeOverride?
+    ) -> BoardSize {
+        if override?.id == item.id, let size = override?.size { return size }
+        return cachedSizes[item.id] ?? displayedSize(of: item)
+    }
+
+    private func displayedSize(
+        for freeText: BoardFreeText, cachedSizes: [UUID: BoardSize], override: CanvasRenderCulling.SizeOverride?
+    ) -> BoardSize {
+        if override?.id == freeText.id, let size = override?.size { return size }
+        return cachedSizes[freeText.id] ?? displayedSize(of: freeText)
     }
 
     /// Posição do cartão: a gravada mais o arrasto em andamento.
@@ -615,11 +644,13 @@ struct BoardCanvasView: View {
     }
 
     /// Quadro de cada cartão solto, em pontos do mural, no tamanho mostrado; a pasta conta só o cartão, sem o leque.
-    private func cardFrames(of items: [BoardItem], displayedSizes: [UUID: BoardSize] = [:]) -> [UUID: CGRect] {
+    private func cardFrames(
+        of items: [BoardItem], displayedSizes: [UUID: BoardSize] = [:], sizeOverride: CanvasRenderCulling.SizeOverride? = nil
+    ) -> [UUID: CGRect] {
         var frames: [UUID: CGRect] = [:]
         frames.reserveCapacity(items.count)
         for item in items {
-            let size = displayedSizes[item.id] ?? displayedSize(of: item)
+            let size = displayedSize(for: item, cachedSizes: displayedSizes, override: sizeOverride)
             frames[item.id] = CGRect(x: item.position.x, y: item.position.y, width: size.width, height: size.height)
         }
         return frames

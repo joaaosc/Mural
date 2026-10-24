@@ -6,6 +6,11 @@ import MuralKit
 /// O frame do `ScrollView` continua cobrindo o mural inteiro; só os elementos fora da
 /// janela (com uma margem de pré-carregamento) deixam de construir subviews SwiftUI.
 enum CanvasRenderCulling {
+    struct SizeOverride: Equatable {
+        let id: UUID
+        let size: BoardSize
+    }
+
     struct Key: Equatable {
         let boardID: BoardID
         let generation: UInt64
@@ -37,7 +42,9 @@ enum CanvasRenderCulling {
             alwaysRenderedFreeTexts: Set<UUID>,
             forceAll: Bool,
             itemSizes: [UUID: BoardSize],
-            freeTextSizes: [UUID: BoardSize]
+            freeTextSizes: [UUID: BoardSize],
+            itemSizeOverride: SizeOverride? = nil,
+            freeTextSizeOverride: SizeOverride? = nil
         ) -> (items: [BoardItem], freeTexts: [BoardFreeText]) {
             if let snapshot, snapshot.key == key {
                 return (snapshot.items, snapshot.freeTexts)
@@ -52,13 +59,15 @@ enum CanvasRenderCulling {
                         in: viewport,
                         alwaysInclude: alwaysRendered,
                         forceAll: forceAll,
-                        displayedSizes: itemSizes),
+                        displayedSizes: itemSizes,
+                        sizeOverride: itemSizeOverride),
                     visibleFreeTexts(
                         freeTexts,
                         in: viewport,
                         alwaysInclude: alwaysRenderedFreeTexts,
                         forceAll: forceAll,
-                        displayedSizes: freeTextSizes
+                        displayedSizes: freeTextSizes,
+                        sizeOverride: freeTextSizeOverride
                     )
                 )
             }
@@ -99,7 +108,8 @@ enum CanvasRenderCulling {
         alwaysInclude: Set<UUID> = [],
         overscan: CGFloat = 1,
         forceAll: Bool = false,
-        displayedSizes: [UUID: BoardSize] = [:]
+        displayedSizes: [UUID: BoardSize] = [:],
+        sizeOverride: SizeOverride? = nil
     ) -> [BoardItem] {
         guard !forceAll, !logicalViewport.isEmpty,
             logicalViewport.minX.isFinite, logicalViewport.minY.isFinite,
@@ -113,7 +123,9 @@ enum CanvasRenderCulling {
         var visible: [BoardItem] = []
         visible.reserveCapacity(min(items.count, 128))
         for item in items {
-            if alwaysInclude.contains(item.id) || frame(of: item, displayedSize: displayedSizes[item.id]).intersects(renderRect) {
+            if alwaysInclude.contains(item.id)
+                || frame(of: item, displayedSize: displayedSizes[item.id], sizeOverride: sizeOverride).intersects(renderRect)
+            {
                 visible.append(item)
             }
         }
@@ -126,7 +138,8 @@ enum CanvasRenderCulling {
         alwaysInclude: Set<UUID> = [],
         overscan: CGFloat = 1,
         forceAll: Bool = false,
-        displayedSizes: [UUID: BoardSize] = [:]
+        displayedSizes: [UUID: BoardSize] = [:],
+        sizeOverride: SizeOverride? = nil
     ) -> [BoardFreeText] {
         guard !forceAll, !logicalViewport.isEmpty,
             logicalViewport.minX.isFinite, logicalViewport.minY.isFinite,
@@ -141,7 +154,7 @@ enum CanvasRenderCulling {
         visible.reserveCapacity(min(freeTexts.count, 128))
         for freeText in freeTexts {
             if alwaysInclude.contains(freeText.id)
-                || frame(of: freeText, displayedSize: displayedSizes[freeText.id]).intersects(renderRect)
+                || frame(of: freeText, displayedSize: displayedSizes[freeText.id], sizeOverride: sizeOverride).intersects(renderRect)
             {
                 visible.append(freeText)
             }
@@ -149,8 +162,15 @@ enum CanvasRenderCulling {
         return visible
     }
 
-    private static func frame(of item: BoardItem, displayedSize: BoardSize? = nil) -> CGRect {
-        let size = displayedSize ?? boardSize(of: item)
+    private static func frame(
+        of item: BoardItem, displayedSize: BoardSize? = nil, sizeOverride: SizeOverride? = nil
+    ) -> CGRect {
+        let size: BoardSize
+        if let sizeOverride, sizeOverride.id == item.id {
+            size = sizeOverride.size
+        } else {
+            size = displayedSize ?? boardSize(of: item)
+        }
         return CGRect(
             x: item.position.x,
             y: item.position.y,
@@ -158,8 +178,15 @@ enum CanvasRenderCulling {
             height: size.height)
     }
 
-    private static func frame(of freeText: BoardFreeText, displayedSize: BoardSize? = nil) -> CGRect {
-        let size = displayedSize ?? boardSize(of: freeText)
+    private static func frame(
+        of freeText: BoardFreeText, displayedSize: BoardSize? = nil, sizeOverride: SizeOverride? = nil
+    ) -> CGRect {
+        let size: BoardSize
+        if let sizeOverride, sizeOverride.id == freeText.id {
+            size = sizeOverride.size
+        } else {
+            size = displayedSize ?? boardSize(of: freeText)
+        }
         return CGRect(
             x: freeText.position.x,
             y: freeText.position.y,
