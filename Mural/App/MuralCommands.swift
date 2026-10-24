@@ -22,6 +22,16 @@ struct MuralCommands: Commands {
         }
     }
 
+    #if DEBUG
+    /// Só um mural salvo, já carregado e ainda sem `cloud` pode ir ao iCloud. `CloudSyncController.current` é `nil` no app sem o
+    /// entitlement de CloudKit (o item fica desabilitado); com `-uiTesting` o controlador existe e usa o iCloud falso.
+    private var canPutSelectedInCloud: Bool {
+        guard CloudSyncController.current != nil, let session = tabs.selected?.session else { return false }
+        guard case .saved = session.route else { return false }
+        return session.model != nil && session.cloud == nil
+    }
+    #endif
+
     var body: some Commands {
         // Os comandos existem mesmo sem janelas: daqui as abas e o delegate conseguem abrir a janela.
         let _ = tabs.registerWindowOpener { [openWindow] in openWindow(id: MuralWindowView.sceneID) }
@@ -81,6 +91,10 @@ struct MuralCommands: Commands {
                 .disabled(tabs.selected == nil)
             Button("Retomar Rascunho de Exemplo") { Task { await tabs.resumeDraft() } }
                 .disabled(!tabs.resumeDraftAvailable)
+            #if DEBUG
+            Button("Pôr Este Mural no iCloud") { tabs.requestPutSelectedInCloud() }
+                .disabled(!canPutSelectedInCloud)
+            #endif
         }
         CommandGroup(replacing: .sidebar) {
             Button(tabs.isSidebarVisible ? "Ocultar Barra Lateral" : "Mostrar Barra Lateral") {

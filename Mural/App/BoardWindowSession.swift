@@ -250,6 +250,9 @@ final class BoardWindowSession {
 
     private(set) var manifestName = "Mural"
 
+    /// O `cloud` do manifesto: `nil` num mural só deste Mac. Muda com o carregamento e com `setCloud`.
+    private(set) var cloud: BoardCloudInfo?
+
     /// Carrega o mural uma vez só. Um pedido que chega com outro em andamento espera o mesmo carregamento: começar
     /// outro abriria mais uma referência da sessão de domínio e trocaria o modelo no meio. Acontece quando o painel da
     /// barra de menus cola num mural de uma aba de fundo no instante em que a aba é escolhida.
@@ -291,6 +294,7 @@ final class BoardWindowSession {
             readingPositions = loadedWorkspace.readingPositions
             generation = loadedGeneration
             manifestName = manifest.name
+            cloud = manifest.cloud
             let store = BoardStore(directory: packageURL)
             let loadedModel = BoardModel(board: board, store: store, persistence: .deferred)
             // Quem só pode ver o mural recebe as mudanças (`applyMergedBoard`), mas não edita.
@@ -1340,6 +1344,7 @@ final class BoardWindowSession {
                 let wasDirty = await domainSession.isDirty
                 let persisted = try await domainSession.flush()
                 model.isReadOnly = cloud?.isReadOnly ?? false
+                self.cloud = cloud
                 // Gravação local como qualquer outra: avisa quem envia ao iCloud.
                 if wasDirty {
                     self.lastPersistedBoard = persisted.board

@@ -23,6 +23,10 @@ struct BoardTab: Identifiable {
 enum MuralWindowRequest: Equatable, Sendable {
     case newBoard
     case openPackage
+    #if DEBUG
+    /// Depuração: pôr o mural no iCloud. A janela faz o pedido ao controlador e mostra o erro, se houver.
+    case putInCloud(BoardRoute)
+    #endif
 }
 
 /// Pedido de excluir um mural, à espera da confirmação na janela.
@@ -270,6 +274,15 @@ final class MuralTabs {
         request = .openPackage
         showWindow()
     }
+
+    #if DEBUG
+    /// Arquivo › Pôr Este Mural no iCloud (só em Debug): o mural da aba ativa.
+    func requestPutSelectedInCloud() {
+        guard let selected else { return }
+        request = .putInCloud(selected.route)
+        showWindow()
+    }
+    #endif
 
     // MARK: Biblioteca
 
