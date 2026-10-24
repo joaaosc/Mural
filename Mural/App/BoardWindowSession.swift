@@ -699,13 +699,16 @@ final class BoardWindowSession {
         }
 
         var receivedFiles: [URL] = []
+        receivedFiles.reserveCapacity(items.count)
         defer {
             PhotoImportCleanup.unregister(receivedFiles)
             for url in receivedFiles { try? FileManager.default.removeItem(at: url) }
         }
         var stagedFiles: [BoardModel.TypedFile] = []
+        stagedFiles.reserveCapacity(items.count)
         var alreadyReservedBytes: Int64 = 0
         var failures: [String] = []
+        failures.reserveCapacity(items.count)
         for (index, pickerItem) in items.enumerated() {
             do {
                 try Task.checkCancellation()

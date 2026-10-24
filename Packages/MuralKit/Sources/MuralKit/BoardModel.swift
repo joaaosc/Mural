@@ -502,7 +502,9 @@ public final class BoardModel {
         let signpost = MuralSignposts.importing.beginInterval("Copiar arquivos")
         defer { MuralSignposts.importing.endInterval("Copiar arquivos", signpost) }
         var items: [BoardItem] = []
+        items.reserveCapacity(urls.count)
         var failures: [String] = []
+        failures.reserveCapacity(urls.count)
         for url in urls {
             do {
                 items.append(try importer.importFile(at: url, parentID: parentID))
@@ -520,7 +522,9 @@ public final class BoardModel {
         let signpost = MuralSignposts.importing.beginInterval("Copiar arquivos tipados")
         defer { MuralSignposts.importing.endInterval("Copiar arquivos tipados", signpost) }
         var items: [BoardItem] = []
+        items.reserveCapacity(files.count)
         var failures: [String] = []
+        failures.reserveCapacity(files.count)
         for file in files {
             guard !Task.isCancelled else { break }
             do {
@@ -1055,7 +1059,11 @@ public final class BoardModel {
 
     /// Nomes de arquivo citados por algum cartão do mural.
     private func citedFileNames(in board: Board) -> Set<String> {
-        Set(board.items.flatMap(\.assetFileNames))
+        var names = Set<String>()
+        for item in board.items {
+            names.formUnion(item.assetFileNames)
+        }
+        return names
     }
 
     /// Ajusta os anexos da nota ao texto: fica quem o texto cita, e um nome citado cujo arquivo existe entra
