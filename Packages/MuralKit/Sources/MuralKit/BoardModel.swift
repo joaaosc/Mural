@@ -438,17 +438,17 @@ public final class BoardModel {
     @discardableResult
     public func addReminders(_ snapshots: [ReminderSnapshot], into parentID: UUID? = nil) -> [BoardItem] {
         let now = Date.now
-        var created: [BoardItem] = []
+        var pending: [BoardItem] = []
         for (index, snapshot) in snapshots.enumerated() {
-            let item = BoardItem(
-                kind: .reminder,
-                title: snapshot.title,
-                createdAt: now.addingTimeInterval(Double(index) * 0.001),
-                parentID: parentID,
-                reminder: snapshot
-            )
-            created.append(insert(item))
+            pending.append(
+                BoardItem(
+                    kind: .reminder,
+                    title: snapshot.title,
+                    createdAt: now.addingTimeInterval(Double(index) * 0.001),
+                    parentID: parentID,
+                    reminder: snapshot))
         }
+        let created = insertBatch(pending)
         if !created.isEmpty { persist() }
         return created
     }
