@@ -51,6 +51,7 @@ struct CollectionView: View {
             stickyDrag.map { drag in
                 columnItems.contains { $0.id == drag.id }
             } ?? false
+        let currentSelection = selection
 
         ScrollView {
             Group {
@@ -60,7 +61,7 @@ struct CollectionView: View {
                     ZStack(alignment: .topLeading) {
                         GalleryLayout {
                             ForEach(columnItems) { item in
-                                measuredCard(for: item, columnItems: columnItems)
+                                measuredCard(for: item, columnItems: columnItems, selection: currentSelection)
                                     .galleryLane(item.kind.storesFile || item.kind == .link ? .media : .notes)
                                     .zIndex(stickyDrag?.id == item.id ? 1 : 0)
                             }
@@ -69,7 +70,7 @@ struct CollectionView: View {
                         StickyPlacementLayout {
                             ForEach(placedStickies) { item in
                                 let place = item.folderPosition ?? .zero
-                                measuredCard(for: item, columnItems: columnItems)
+                                measuredCard(for: item, columnItems: columnItems, selection: currentSelection)
                                     .stickyPlacement(CGPoint(x: place.x, y: place.y))
                                     .zIndex(stickyDrag?.id == item.id ? 1 : 0)
                             }
@@ -87,7 +88,7 @@ struct CollectionView: View {
             .padding(.top, 70)
             .padding(.bottom, 90)
             // Shift + arrastar no vazio marca os cartões cruzados, medidos no mesmo espaço do conteúdo.
-            .marqueeSelecting(in: Self.space, selection: selection) { itemFrames }
+            .marqueeSelecting(in: Self.space, selection: currentSelection) { itemFrames }
             // O espaço de coordenadas pertence ao conteúdo, não ao viewport.
             .coordinateSpace(name: Self.space)
             .scrollTargetLayout()
@@ -142,7 +143,7 @@ struct CollectionView: View {
         return (columnItems, placedStickies)
     }
 
-    private func card(for item: BoardItem, columnItems: [BoardItem]) -> some View {
+    private func card(for item: BoardItem, columnItems: [BoardItem], selection: CardSelection?) -> some View {
         CardButton(
             item: item,
             model: model,
@@ -169,8 +170,10 @@ struct CollectionView: View {
 
     /// O cartão com o id de rolagem e a medição do quadro dele no espaço do conteúdo. O arrasto (`.offset`) vem antes
     /// da medição, então `itemFrames` guarda o quadro sem ele.
-    private func measuredCard(for item: BoardItem, columnItems: [BoardItem]) -> some View {
-        card(for: item, columnItems: columnItems)
+    private func measuredCard(
+        for item: BoardItem, columnItems: [BoardItem], selection: CardSelection?
+    ) -> some View {
+        card(for: item, columnItems: columnItems, selection: selection)
             .id(item.id)
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(Self.space))
