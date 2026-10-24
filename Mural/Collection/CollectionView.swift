@@ -46,8 +46,10 @@ struct CollectionView: View {
         // Os cartões das colunas: tudo, menos os post-its largados num lugar livre da pasta.
         // Os post-its soltos são derivados da mesma lista já memoizada: não percorremos o board inteiro
         // nem fazemos uma segunda filtragem independente para descobrir os dois grupos.
-        let (columnItems, placedStickies) = splitChildren(children)
-        let childIDs = children.map(\.id)
+        let split = splitChildren(children)
+        let columnItems = split.columnItems
+        let placedStickies = split.placedStickies
+        let childIDs = split.childIDs
         let isDraggingFromColumns = stickyDrag?.isFromColumns == true
         let currentSelection = selection
 
@@ -126,19 +128,24 @@ struct CollectionView: View {
         .accessibilityHidden(restoring)
     }
 
-    private func splitChildren(_ children: [BoardItem]) -> (columnItems: [BoardItem], placedStickies: [BoardItem]) {
+    private func splitChildren(
+        _ children: [BoardItem]
+    ) -> (columnItems: [BoardItem], placedStickies: [BoardItem], childIDs: [UUID]) {
         var columnItems: [BoardItem] = []
         var placedStickies: [BoardItem] = []
+        var childIDs: [UUID] = []
         columnItems.reserveCapacity(children.count)
         placedStickies.reserveCapacity(children.count)
+        childIDs.reserveCapacity(children.count)
         for child in children {
+            childIDs.append(child.id)
             if child.isPlacedInFolder {
                 placedStickies.append(child)
             } else {
                 columnItems.append(child)
             }
         }
-        return (columnItems, placedStickies)
+        return (columnItems, placedStickies, childIDs)
     }
 
     private func card(for item: BoardItem, columnItems: [BoardItem], selection: CardSelection?) -> some View {
