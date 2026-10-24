@@ -31,6 +31,8 @@ public final class BoardModel {
             childrenCacheOrder.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
             folderDestinationsCacheOrder.removeAll(keepingCapacity: true)
+            nonFolderFolderDestinationsCache.removeAll(keepingCapacity: true)
+            nonFolderFolderDestinationsCacheOrder.removeAll(keepingCapacity: true)
         }
     }
     /// Revisão monotônica do valor do board, para consumidores que precisam reagir a qualquer mutação
@@ -58,6 +60,10 @@ public final class BoardModel {
     @ObservationIgnored private var childrenCacheOrder: [UUID] = []
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
     @ObservationIgnored private var folderDestinationsCacheOrder: [UUID] = []
+    /// Cartões que não são pastas só diferem no destino pela pasta pai; agrupa esses resultados sem
+    /// multiplicar uma lista de destinos grande por cartão.
+    @ObservationIgnored private var nonFolderFolderDestinationsCache: [UUID?: [FolderDestination]] = [:]
+    @ObservationIgnored private var nonFolderFolderDestinationsCacheOrder: [UUID?] = []
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
     public init(store: BoardStore, seedIfEmpty: Bool = true, persistence: Persistence = .immediate) {
@@ -161,10 +167,26 @@ public final class BoardModel {
     public func folderDestinations(for id: UUID) -> [FolderDestination] {
         let currentBoard = board
         if let cached = folderDestinationsCache[id] { return cached }
+        guard let moving = item(id: id) else { return [] }
+        if moving.kind != .folder, let cached = nonFolderFolderDestinationsCache[moving.parentID] {
+            return cached
+        }
         let destinations = currentBoard.folderDestinations(
             for: id,
             byParent: folderChildrenByParent(for: currentBoard),
             rootItems: rootItems)
+        if moving.kind != .folder {
+            let parentID = moving.parentID
+            if nonFolderFolderDestinationsCache.count >= Self.derivedCacheEntryLimit,
+                let evicted = nonFolderFolderDestinationsCacheOrder.first
+            {
+                nonFolderFolderDestinationsCache.removeValue(forKey: evicted)
+                nonFolderFolderDestinationsCacheOrder.removeFirst()
+            }
+            nonFolderFolderDestinationsCache[parentID] = destinations
+            nonFolderFolderDestinationsCacheOrder.append(parentID)
+            return destinations
+        }
         if folderDestinationsCache.count >= Self.derivedCacheEntryLimit, let evicted = folderDestinationsCacheOrder.first {
             folderDestinationsCache.removeValue(forKey: evicted)
             folderDestinationsCacheOrder.removeFirst()

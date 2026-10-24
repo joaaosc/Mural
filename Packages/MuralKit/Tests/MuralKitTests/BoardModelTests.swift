@@ -50,6 +50,18 @@ struct BoardModelTests {
         #expect(model.folderDestinations(for: card.id).map(\.id) == [first.id, second.id])
     }
 
+    @Test("Cartões comuns no mesmo pai reutilizam destinos")
+    func nonFolderFolderDestinationsShareParentResult() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let parent = model.createFolder(named: "Pai")
+        let first = try #require(model.importText("Primeiro", into: parent.id))
+        let second = try #require(model.importText("Segundo", into: parent.id))
+        let destination = model.createFolder(named: "Destino")
+
+        #expect(model.folderDestinations(for: first.id).map(\.id) == [destination.id])
+        #expect(model.folderDestinations(for: second.id).map(\.id) == [destination.id])
+    }
+
     @Test("Leituras derivadas memoizadas são invalidadas quando o mural muda")
     func derivedReadCachesInvalidateAfterBoardChange() throws {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)
