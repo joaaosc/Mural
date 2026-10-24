@@ -52,6 +52,8 @@ final class PanelHotKeyCenter {
     @ObservationIgnored private var registrar: (any HotKeyRegistrar)?
     /// Esta cópia do Mural é a que mostra o ícone e responde ao atalho.
     @ObservationIgnored private var isOwner = false
+    /// Os Ajustes estão gravando uma combinação nova: o atalho fica solto, para apertá-lo gravar em vez de abrir o painel.
+    @ObservationIgnored private var isRecording = false
 
     /// - Parameters:
     ///   - preferences: onde o atalho fica guardado.
@@ -87,6 +89,13 @@ final class PanelHotKeyCenter {
         apply()
     }
 
+    /// Solta o atalho enquanto os Ajustes gravam uma combinação nova (`true`) e o registra de novo no fim (`false`).
+    func setRecording(_ recording: Bool) {
+        guard recording != isRecording else { return }
+        isRecording = recording
+        apply()
+    }
+
     /// Guarda a combinação nova e a registra no lugar da anterior.
     func update(to hotKey: PanelHotKey) {
         self.hotKey = hotKey
@@ -109,12 +118,12 @@ final class PanelHotKeyCenter {
     }
 
     /// Deixa o registro no sistema de acordo com o estado: registrado só com atalho, com permissão do ambiente, com o
-    /// registro pronto e sendo a dona do ícone.
+    /// registro pronto, sendo a dona do ícone e fora de uma gravação.
     private func apply() {
         registrar?.unregister()
         isActive = false
         failure = nil
-        guard isEnabled, isOwner, let hotKey, let registrar else { return }
+        guard isEnabled, isOwner, !isRecording, let hotKey, let registrar else { return }
         let status = registrar.register(hotKey)
         switch status {
         case noErr:

@@ -54,8 +54,12 @@ final class LoginItemModel {
     /// Por que a última mudança falhou; `nil` enquanto nenhuma falhou e depois de uma que deu certo.
     private(set) var errorMessage: String?
 
-    /// Ligada: registrada, com ou sem a permissão da pessoa nos Ajustes do Sistema.
-    var isOn: Bool { status == .enabled || status == .requiresApproval }
+    /// Ligada: registrada, com ou sem a permissão da pessoa nos Ajustes do Sistema. Mudar pede ao sistema por
+    /// ``setOn(_:)``, e o que se lê depois é o que ele decidiu: um pedido recusado volta sozinho.
+    var isOn: Bool {
+        get { status == .enabled || status == .requiresApproval }
+        set { setOn(newValue) }
+    }
     /// Registrada, mas a pessoa ainda precisa permitir nos Ajustes do Sistema.
     var needsApproval: Bool { status == .requiresApproval }
 

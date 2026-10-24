@@ -11,6 +11,7 @@ struct MuralCommands: Commands {
     @FocusedValue(FocusedBoardActions.self) private var actions
     @FocusedValue(\.markdownFormatting) private var formatting
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     /// ⌘W fecha a aba, como no Safari; fora da janela do Mural (um painel, por exemplo), fecha o que está na frente.
     private func closeTab() {
@@ -25,8 +26,10 @@ struct MuralCommands: Commands {
         // Os comandos existem mesmo sem janelas: daqui as abas e o delegate conseguem abrir a janela.
         let _ = tabs.registerWindowOpener { [openWindow] in openWindow(id: MuralWindowView.sceneID) }
         let _ = MainWindowOpener.shared.register { [tabs] in tabs.showWindow() }
+        // A engrenagem do painel da barra de menus é do AppKit e abre os Ajustes por aqui.
+        let _ = SettingsOpener.shared.register { [openSettings] in openSettings() }
         CommandGroup(after: .appInfo) {
-            // Começa desligada; o mesmo estado do menu "Mais opções" do painel da barra de menus. O estado é lido aqui, e
+            // Começa desligada; o mesmo estado da aba Geral dos Ajustes. O estado é lido aqui, e
             // não dentro do `Binding`, para o menu acompanhar a mudança.
             let loginItem = LoginItemModel.shared
             let isOn = loginItem.isOn

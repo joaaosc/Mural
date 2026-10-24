@@ -88,5 +88,10 @@ struct MuralApp: App {
         .commands {
             MuralCommands(tabs: tabs)
         }
+
+        // Mural › Ajustes… (⌘,) e a engrenagem do painel da barra de menus abrem esta janela.
+        Settings {
+            MuralSettingsView()
+        }
     }
 }

@@ -124,6 +124,22 @@ struct PanelHotKeyTests {
         #expect(center.isActive)
     }
 
+    @Test("Enquanto os Ajustes gravam uma combinação, o atalho fica solto e volta no fim")
+    func recordingReleasesTheShortcut() throws {
+        let (preferences, suite) = try Self.makePreferences()
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let registrar = FakeRegistrar()
+        let center = PanelHotKeyCenter(preferences: preferences, registrar: registrar, isEnabled: true)
+        center.setOwner(true)
+
+        center.setRecording(true)
+        #expect(registrar.registered == nil)
+        #expect(!center.isActive)
+        center.setRecording(false)
+        #expect(registrar.registered == .standard)
+        #expect(center.isActive)
+    }
+
     @Test("Fora do ambiente permitido (os testes do app), o atalho nunca é registrado")
     func disabledEnvironmentNeverRegisters() throws {
         let (preferences, suite) = try Self.makePreferences()
