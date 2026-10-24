@@ -110,9 +110,14 @@ enum CanvasRenderCulling {
         let extraWidth = max(logicalViewport.width, 1) * overscan
         let extraHeight = max(logicalViewport.height, 1) * overscan
         let renderRect = logicalViewport.insetBy(dx: -extraWidth, dy: -extraHeight)
-        return items.filter { item in
-            alwaysInclude.contains(item.id) || frame(of: item, displayedSize: displayedSizes[item.id]).intersects(renderRect)
+        var visible: [BoardItem] = []
+        visible.reserveCapacity(min(items.count, 128))
+        for item in items {
+            if alwaysInclude.contains(item.id) || frame(of: item, displayedSize: displayedSizes[item.id]).intersects(renderRect) {
+                visible.append(item)
+            }
         }
+        return visible
     }
 
     static func visibleFreeTexts(
@@ -132,10 +137,16 @@ enum CanvasRenderCulling {
         let extraWidth = max(logicalViewport.width, 1) * overscan
         let extraHeight = max(logicalViewport.height, 1) * overscan
         let renderRect = logicalViewport.insetBy(dx: -extraWidth, dy: -extraHeight)
-        return freeTexts.filter { freeText in
-            alwaysInclude.contains(freeText.id)
+        var visible: [BoardFreeText] = []
+        visible.reserveCapacity(min(freeTexts.count, 128))
+        for freeText in freeTexts {
+            if alwaysInclude.contains(freeText.id)
                 || frame(of: freeText, displayedSize: displayedSizes[freeText.id]).intersects(renderRect)
+            {
+                visible.append(freeText)
+            }
         }
+        return visible
     }
 
     private static func frame(of item: BoardItem, displayedSize: BoardSize? = nil) -> CGRect {
