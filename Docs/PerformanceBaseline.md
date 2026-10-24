@@ -45,7 +45,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
 - `800646e`: `PerformanceBaselineTests` passou a medir, com `XCTClockMetric` e `XCTMemoryMetric`, leitura da hierarquia e codificação JSON de uma fixture determinística de 500 cards com 50% de mídia. A fixture é criada fora da janela medida para separar custo de preparação do cenário.
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
-- `397f9aa`: `ReminderPickerSheet` passou a filtrar e particionar lembretes uma vez por avaliação, e o resumo de conteúdo passou de uma varredura por tipo para uma contagem acumulada; a ordem e os textos foram preservados por testes.
+- `397f9aa` e `c6f347d`: `ReminderPickerSheet` passou a filtrar e particionar lembretes numa única passagem por avaliação, e o resumo de conteúdo passou de uma varredura por tipo para uma contagem acumulada; a ordem e os textos foram preservados por testes.
 
 Evidências verificadas após as mudanças:
 
