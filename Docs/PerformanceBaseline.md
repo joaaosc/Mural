@@ -95,7 +95,7 @@ Evidências verificadas após as mudanças:
 - `ThumbnailPerformanceTests`: 2/2 passaram em Debug após adicionar o fixture real de vídeo; o PNG mediu 0,011 s e 36.081,901 kB de pico físico médio, enquanto o MOV H.264 mediu 0,102 s e 61.090,510 kB. A medição de vídeo confirma geração e decode de um asset temporal real, mas não quantifica ainda o benefício do cancelamento de requests concorrentes.
 - `ThumbnailPerformanceTests`: 2/2 também passaram em Release com `ENABLE_TESTABILITY=YES`; o PNG mediu 0,010 s e 32.654,330 kB de pico físico médio, e o MOV H.264 mediu 0,103 s e 93.471,848 kB. A diferença de memória entre configurações não é uma regressão atribuível sem execução pareada no mesmo processo e estado; esses valores ficam como baseline de configuração.
 - `ReminderPickerTests` e `MuralTests`: 9/9 passaram após as reduções de recomputação.
-- `BoardModelTests`: 21/21 passaram, incluindo invalidação dos caches depois de criar uma nova pasta, cartão e texto livre e a disponibilidade dos snapshots de tamanhos.
+- `BoardModelTests`: 22/22 passaram, incluindo invalidação dos caches depois de criar uma nova pasta, cartão e texto livre, a disponibilidade dos snapshots de tamanhos e sua atualização após redimensionar um texto livre.
 - `CanvasRenderCullingTests`: 9/9 passaram em Debug e 9/9 em Release após incluir o snapshot de tamanhos para cartões e textos livres e consolidar os derivados do `CardButton`. O Release aguardou processos de build concorrentes, mas terminou com todos os testes verdes.
 - formatter do projeto e `scripts/check-xcproj.sh`: sem diferenças ou erros.
 

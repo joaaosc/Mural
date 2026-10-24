@@ -91,6 +91,18 @@ struct BoardModelTests {
         #expect(model.rootExtent != initialExtent)
     }
 
+    @Test("Snapshots de tamanho refletem redimensionamento do mural")
+    func sizeSnapshotsInvalidateAfterResize() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let freeText = model.createFreeText("Texto")
+        let initial = try #require(model.freeTextSizes[freeText.id])
+        let resized = BoardSize(width: 260, height: 120)
+
+        #expect(initial != resized)
+        #expect(model.resizeFreeText(freeText.id, to: resized))
+        #expect(model.freeTextSizes[freeText.id] == resized)
+    }
+
     @Test("A revisão do board avança sem comparação estrutural")
     func boardRevisionAdvancesOnMutation() throws {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)
