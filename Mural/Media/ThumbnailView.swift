@@ -17,10 +17,11 @@ struct ThumbnailView: View {
     }
 
     var body: some View {
+        let currentRequest = request
         let shown =
-            imageRequest == request
+            imageRequest == currentRequest
             ? image
-            : request.flatMap { ThumbnailCache.shared.cachedImage(for: $0) }
+            : currentRequest.flatMap { ThumbnailCache.shared.cachedImage(for: $0) }
         ZStack {
             if let image = shown {
                 Image(decorative: image, scale: 1)
@@ -30,17 +31,17 @@ struct ThumbnailView: View {
                 Rectangle().fill(.quaternary)
             }
         }
-        .task(id: request) {
-            activeRequest = request
+        .task(id: currentRequest) {
+            activeRequest = currentRequest
             image = nil
             imageRequest = nil
-            guard let request, !Task.isCancelled else { return }
+            guard let currentRequest, !Task.isCancelled else { return }
 
-            let loadedImage = await ThumbnailCache.shared.image(for: request)
-            guard !Task.isCancelled, activeRequest == request else { return }
+            let loadedImage = await ThumbnailCache.shared.image(for: currentRequest)
+            guard !Task.isCancelled, activeRequest == currentRequest else { return }
 
             image = loadedImage
-            imageRequest = loadedImage == nil ? nil : request
+            imageRequest = loadedImage == nil ? nil : currentRequest
         }
     }
 }
