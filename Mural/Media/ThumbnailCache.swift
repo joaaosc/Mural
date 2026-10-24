@@ -14,6 +14,7 @@ final class ThumbnailCache {
     private struct InFlight {
         let id: UUID
         let task: Task<CGImage?, Never>
+        var waiters: Set<UUID>
     }
 
     private let images = NSCache<NSString, CGImage>()
@@ -43,30 +44,62 @@ final class ThumbnailCache {
 
     func image(for request: ThumbnailRequest) async -> CGImage? {
         requestObserver?(request)
+        guard !Task.isCancelled else { return nil }
         if let cached = cachedImage(for: request) { return cached }
 
+        let waiterID = UUID()
         let entry: InFlight
-        if let existing = inFlight[request] {
+        if var existing = inFlight[request] {
+            existing.waiters.insert(waiterID)
+            inFlight[request] = existing
             entry = existing
         } else {
             let loader = self.loader
             let task = Task {
                 await loader(request)
             }
-            let newEntry = InFlight(id: UUID(), task: task)
+            let newEntry = InFlight(id: UUID(), task: task, waiters: [waiterID])
             inFlight[request] = newEntry
             entry = newEntry
         }
 
         defer {
-            if inFlight[request]?.id == entry.id {
-                inFlight.removeValue(forKey: request)
-            }
+            releaseWaiter(waiterID, for: request, entryID: entry.id, cancelIfLast: Task.isCancelled)
         }
 
-        guard let image = await entry.task.value else { return nil }
+        let image = await withTaskCancellationHandler {
+            await entry.task.value
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.releaseWaiter(waiterID, for: request, entryID: entry.id, cancelIfLast: true)
+            }
+        }
+        guard !Task.isCancelled, inFlight[request]?.id == entry.id, let image else { return nil }
         images.setObject(image, forKey: key(request), cost: image.bytesPerRow * image.height)
         return image
+    }
+
+    /// Descarta uma miniatura pronta e impede uma geração antiga do mesmo pedido de repovoar o cache.
+    func invalidate(_ request: ThumbnailRequest) {
+        images.removeObject(forKey: key(request))
+        guard let entry = inFlight.removeValue(forKey: request) else { return }
+        entry.task.cancel()
+    }
+
+    private func releaseWaiter(
+        _ waiterID: UUID,
+        for request: ThumbnailRequest,
+        entryID: UUID,
+        cancelIfLast: Bool
+    ) {
+        guard var entry = inFlight[request], entry.id == entryID, entry.waiters.remove(waiterID) != nil else { return }
+        guard entry.waiters.isEmpty else {
+            inFlight[request] = entry
+            return
+        }
+
+        inFlight.removeValue(forKey: request)
+        if cancelIfLast { entry.task.cancel() }
     }
 
     private func key(_ request: ThumbnailRequest) -> NSString {
