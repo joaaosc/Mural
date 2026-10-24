@@ -172,7 +172,9 @@ public final class BoardModel {
 
     /// Copies files whose uniform type is already known, preserving the
     /// provider's classification through staging and commit.
+    /// Num mural só para ver (`isReadOnly`) não grava arquivo nenhum e devolve a importação vazia.
     public func prepareTypedFiles(_ files: [TypedFile], parentID: UUID? = nil) async -> PreparedImport {
+        guard !isReadOnly else { return refuseEdit(PreparedImport(items: [], failures: [])) }
         guard !Task.isCancelled else { return PreparedImport(items: [], failures: []) }
         return await Self.copyTypedFiles(files, parentID: parentID, importer: importer)
     }
@@ -612,6 +614,7 @@ public final class BoardModel {
     /// - Returns: `false` quando o texto não existe ou já tinha esse tamanho.
     @discardableResult
     public func resizeFreeText(_ freeTextID: UUID, to size: BoardSize?) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard board.resizeFreeText(id: freeTextID, to: size) else { return false }
         persist()
         return true
@@ -672,6 +675,7 @@ public final class BoardModel {
     /// - Returns: `false` quando o cartão não existe, não muda de tamanho ou já tinha esse tamanho.
     @discardableResult
     public func resize(_ itemID: UUID, to size: BoardSize?) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard board.resize(id: itemID, to: size) else { return false }
         persist()
         return true

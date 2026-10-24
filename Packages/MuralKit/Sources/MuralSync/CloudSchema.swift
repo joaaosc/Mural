@@ -40,10 +40,11 @@ public enum CloudSchema {
 
     /// As chaves dos campos dos registros; o valor de texto é o nome do campo no iCloud.
     public enum Key: String, CaseIterable, Sendable {
-        // Cartão (o texto livre também usa `createdAt`, `x`, `y` e `text`).
+        // Cartão (o texto livre também usa `createdAt`, `x`, `y`, `width`, `height` e `text`).
         case kind, title, createdAt, parentID, x, y, layer, folderX, folderY, fileName, text, caption
         case stickyColor, colorTag, tag, checklist, imageMetadata, link, reminder, music, attachments
-        // Cartão e mural.
+        case width, height
+        // Cartão, texto livre e mural.
         case formatVersion
         // Mural.
         case name

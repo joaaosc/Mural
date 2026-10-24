@@ -197,7 +197,7 @@ public enum SyncCore {
                 received.skippedRecordNames.append(record.id.name)
             case .card(let item):
                 upsert(item, into: &received.changes.savedItems)
-            case .unsupportedCard:
+            case .unsupported:
                 break
             case .freeText(let freeText):
                 upsert(freeText, into: &received.changes.savedFreeTexts)
@@ -242,7 +242,7 @@ public enum SyncCore {
     /// O que um registro trouxe, já lido.
     private enum Absorbed {
         case card(BoardItem)
-        case unsupportedCard
+        case unsupported
         case freeText(BoardFreeText)
         case board(name: String)
         case mediaFile(fileName: String, url: URL)
@@ -272,12 +272,18 @@ public enum SyncCore {
                 absorbed = .card(item)
             case .unsupported:
                 state.unsupportedRecordNames.insert(recordName)
-                absorbed = .unsupportedCard
+                absorbed = .unsupported
             }
         case .freeText?:
-            let freeText = try CardRecordMapping.freeText(from: record)
-            upsert(freeText, into: &state.base.freeTexts)
-            absorbed = .freeText(freeText)
+            switch try CardRecordMapping.freeText(from: record) {
+            case .freeText(let freeText):
+                upsert(freeText, into: &state.base.freeTexts)
+                state.unsupportedRecordNames.remove(recordName)
+                absorbed = .freeText(freeText)
+            case .unsupported:
+                state.unsupportedRecordNames.insert(recordName)
+                absorbed = .unsupported
+            }
         case .mural?:
             guard recordName == CloudSchema.muralRecordName, let name = CardRecordMapping.boardName(from: record) else {
                 throw CardRecordMappingError.invalidRecord("o registro do mural precisa se chamar mural e ter nome: \(recordName)")

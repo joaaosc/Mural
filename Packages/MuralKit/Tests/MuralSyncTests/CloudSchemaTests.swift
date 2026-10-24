@@ -54,7 +54,7 @@ struct CloudSchemaTests {
             Set(CloudSchema.Key.allCases.map(\.rawValue)) == [
                 "kind", "title", "createdAt", "parentID", "x", "y", "layer", "folderX", "folderY", "fileName", "text", "caption",
                 "stickyColor", "colorTag", "tag", "checklist", "imageMetadata", "link", "reminder", "music", "attachments",
-                "formatVersion", "name", "file", "cardID",
+                "width", "height", "formatVersion", "name", "file", "cardID",
             ])
     }
 

@@ -169,6 +169,25 @@ struct BoardStructureRepairTests {
         #expect(isStructurallyValid(board))
     }
 
+    @Test("Post-it redimensionado levado ao mural ganha uma vaga do tamanho que tem e não cobre os vizinhos")
+    func resizedStickyGetsASpotOfItsOwnSize() throws {
+        // O primeiro vão da grade, em (80, 80), cabe um post-it do tamanho padrão, mas não este.
+        let roots = [note(2, at: BoardPoint(x: 240, y: 80))]
+        var orphan = sticky(9, in: 99)
+        orphan.size = BoardSize(width: 420, height: 300)
+        var board = olderBoard(roots + [orphan])
+
+        #expect(board.repairStructure() == [orphan.id])
+
+        let fixed = try #require(board.item(id: orphan.id))
+        #expect(fixed.position == BoardLayout.freePosition(for: orphan, avoiding: roots))
+        for other in roots {
+            #expect(
+                !BoardLayout.overlaps(fixed.position, BoardLayout.size(of: fixed), other.position, BoardLayout.size(of: other), gap: 0),
+                "cobre \(other.title)")
+        }
+    }
+
     @Test("O cartão levado ao mural não desvia da posição antiga que tinha dentro da pasta")
     func relocatedCardIgnoresItsOwnStalePosition() throws {
         let roots = [folder(1, at: BoardPoint(x: 80, y: 80))]

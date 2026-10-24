@@ -17,8 +17,9 @@ extension Board {
     public mutating func repairStructure() -> [UUID] {
         var moved: [UUID] = []
         for index in indicesToMoveToBoard() {
-            // A posição vem antes de soltar o cartão: ele ainda está na pasta, então não conta como obstáculo para si mesmo.
-            let position = BoardLayout.freePosition(for: items[index].kind, avoiding: rootItems)
+            // A posição vem antes de soltar o cartão: ele ainda está na pasta, então não conta como obstáculo para si mesmo. A vaga
+            // tem o tamanho que o cartão tem, como em `BoardModel.moveToBoard`: um post-it redimensionado não cai sobre os vizinhos.
+            let position = BoardLayout.freePosition(for: items[index], avoiding: rootItems)
             items[index].position = position
             items[index].parentID = nil
             items[index].folderPosition = nil

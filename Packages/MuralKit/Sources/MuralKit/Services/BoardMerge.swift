@@ -290,6 +290,7 @@ public enum BoardMerge {
         case .colorTag: target.colorTag = source.colorTag
         case .attachments: target.attachments = source.attachments
         case .folderPosition: target.folderPosition = source.folderPosition
+        case .size: target.size = source.size
         }
     }
 }

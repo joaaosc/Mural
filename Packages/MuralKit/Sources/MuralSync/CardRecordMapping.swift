@@ -19,6 +19,14 @@ public enum CardDecoding: Equatable, Sendable {
     case unsupported
 }
 
+/// O que um registro de texto livre traz para esta build.
+public enum FreeTextDecoding: Equatable, Sendable {
+    case freeText(BoardFreeText)
+    /// Registro de um app mais novo (versão do formato maior que `Board.currentFormatVersion`): fica como está no iCloud, sem apagar
+    /// nem regravar, como o cartão `CardDecoding.unsupported`.
+    case unsupported
+}
+
 /// Traduz o conteúdo do mural (cartão, texto livre, nome do mural e arquivo de mídia) de e para os campos de um registro do iCloud.
 ///
 /// As datas viajam como `.double(timeIntervalSinceReferenceDate)`, nunca como um tipo data: a ida e volta precisa devolver o mesmo
@@ -51,6 +59,8 @@ public enum CardRecordMapping {
         values[.parentID] = shared.parentID.map { .string($0.uuidString) }
         values[.folderX] = shared.folderPosition.map { .double($0.x) }
         values[.folderY] = shared.folderPosition.map { .double($0.y) }
+        values[.width] = shared.size.map { .double($0.width) }
+        values[.height] = shared.size.map { .double($0.height) }
         values[.fileName] = shared.fileName.map { .string($0) }
         values[.text] = shared.text.map { .string($0) }
         values[.caption] = shared.caption.map { .string($0) }
@@ -76,7 +86,7 @@ public enum CardRecordMapping {
     /// esta build não conhece) dá `.unsupported`, sem ler o resto: o que ele guarda além disso pode ter mudado de forma.
     /// - Throws: `CardRecordMappingError.invalidRecord` se o registro não é de cartão, o nome não é o `uuidString` do cartão, falta
     ///   `kind`, `title`, `createdAt`, `x` ou `y`, um campo tem o tipo errado, o JSON de um campo está ilegível, `folderX` e
-    ///   `folderY` não vêm juntos ou um nome de arquivo sai de `Items/`.
+    ///   `folderY` (ou `width` e `height`) não vêm juntos ou um nome de arquivo sai de `Items/`.
     public static func card(from record: CloudRecord) throws -> CardDecoding {
         let id = try entityID(of: record, type: .card)
         let reader = FieldReader(record: record)
@@ -106,6 +116,7 @@ public enum CardRecordMapping {
         case (nil, nil): folderPosition = nil
         default: throw CardRecordMappingError.invalidRecord("folderX e folderY precisam vir juntos")
         }
+        let size = try size(from: reader)
 
         let fileName = try reader.string(.fileName)
         let attachments = try reader.json([NoteAttachment].self, .attachments)
@@ -134,33 +145,52 @@ public enum CardRecordMapping {
             music: try reader.json(MusicSnapshot.self, .music),
             colorTag: colorTag,
             attachments: attachments,
-            folderPosition: folderPosition)
+            folderPosition: folderPosition,
+            size: size)
         return .card(SharedFieldPolicy.shared(item), layer: try reader.double(.layer))
     }
 
     // MARK: Texto livre
 
-    /// Os campos do registro de um texto livre.
+    /// Os campos do registro de um texto livre, com a versão do formato que ele exige: como no cartão, um campo novo do texto livre
+    /// sobe essa versão, e um app mais velho deixa o registro como está em vez de regravá-lo sem o campo.
     public static func fields(for freeText: BoardFreeText) -> [String: CloudValue] {
-        rawFields([
+        var values: [CloudSchema.Key: CloudValue] = [
             .text: .string(freeText.text),
             .x: .double(freeText.position.x),
             .y: .double(freeText.position.y),
             .createdAt: .double(freeText.createdAt.timeIntervalSinceReferenceDate),
-        ])
+            .formatVersion: .int(Int64(Board(freeTexts: [freeText]).requiredFormatVersion)),
+        ]
+        values[.width] = freeText.size.map { .double($0.width) }
+        values[.height] = freeText.size.map { .double($0.height) }
+        return rawFields(values)
     }
 
-    /// O texto livre de um registro. O `id` é o nome do registro.
-    /// - Throws: `CardRecordMappingError.invalidRecord` se o registro não é de texto livre, o nome não é o `uuidString` dele ou
-    ///   falta `text`, `x`, `y` ou `createdAt`, ou um deles tem o tipo errado.
-    public static func freeText(from record: CloudRecord) throws -> BoardFreeText {
+    /// O texto livre de um registro. O `id` é o nome do registro. Registro de versão do formato maior que
+    /// `Board.currentFormatVersion` dá `.unsupported`, sem ler o resto; registro sem a versão é lido normalmente.
+    /// - Throws: `CardRecordMappingError.invalidRecord` se o registro não é de texto livre, o nome não é o `uuidString` dele,
+    ///   falta `text`, `x`, `y` ou `createdAt`, um campo tem o tipo errado ou `width` e `height` não vêm juntos.
+    public static func freeText(from record: CloudRecord) throws -> FreeTextDecoding {
         let id = try entityID(of: record, type: .freeText)
         let reader = FieldReader(record: record)
-        return BoardFreeText(
-            id: id,
-            text: try reader.require(reader.string(.text), .text),
-            position: BoardPoint(x: try reader.require(reader.double(.x), .x), y: try reader.require(reader.double(.y), .y)),
-            createdAt: Date(timeIntervalSinceReferenceDate: try reader.require(reader.double(.createdAt), .createdAt)))
+        if let version = try reader.int(.formatVersion), version > Int64(Board.currentFormatVersion) { return .unsupported }
+        return .freeText(
+            BoardFreeText(
+                id: id,
+                text: try reader.require(reader.string(.text), .text),
+                position: BoardPoint(x: try reader.require(reader.double(.x), .x), y: try reader.require(reader.double(.y), .y)),
+                createdAt: Date(timeIntervalSinceReferenceDate: try reader.require(reader.double(.createdAt), .createdAt)),
+                size: try size(from: reader)))
+    }
+
+    /// O tamanho guardado no registro: largura e altura vêm juntas, ou nenhuma (o tamanho padrão).
+    private static func size(from reader: FieldReader) throws -> BoardSize? {
+        switch (try reader.double(.width), try reader.double(.height)) {
+        case (let width?, let height?): return BoardSize(width: width, height: height)
+        case (nil, nil): return nil
+        default: throw CardRecordMappingError.invalidRecord("width e height precisam vir juntos")
+        }
     }
 
     // MARK: Mural

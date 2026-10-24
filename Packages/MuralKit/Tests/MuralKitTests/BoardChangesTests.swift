@@ -62,7 +62,8 @@ private func fullItem() -> BoardItem {
         music: MusicSnapshot(kind: .album, title: "Álbum"),
         colorTag: .red,
         attachments: [attachment(34)],
-        folderPosition: BoardPoint(x: 3, y: 4))
+        folderPosition: BoardPoint(x: 3, y: 4),
+        size: BoardSize(width: 200, height: 150))
 }
 
 // MARK: Campos
@@ -76,7 +77,7 @@ struct BoardItemFieldTests {
         let expected = Set(BoardItem.Field.allCases.map(\.rawValue)).union(["id"])
         let difference = Set(object.keys).symmetricDifference(expected)
         #expect(difference.isEmpty, "propriedade de BoardItem sem BoardItem.Field (ou o contrário): \(difference.sorted())")
-        #expect(BoardItem.Field.allCases.count == 19)
+        #expect(BoardItem.Field.allCases.count == 20)
     }
 
     @Test("Os nomes das propriedades guardadas também são o id e os campos, mesmo que o cartão do teste não as preencha")
@@ -120,6 +121,7 @@ struct BoardItemFieldTests {
         edit(.colorTag) { $0.colorTag = .blue }
         edit(.attachments) { $0.attachments = [] }
         edit(.folderPosition) { $0.folderPosition = nil }
+        edit(.size) { $0.size = nil }
 
         #expect(Set(edited.keys) == Set(BoardItem.Field.allCases), "falta um caso neste teste")
         for (field, item) in edited {

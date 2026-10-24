@@ -166,6 +166,10 @@ struct BoardModelReadOnlyTests {
             Action("prepareFiles") { readOnly in
                 #expect(await model.prepareFiles([scene.clipSource]).items.isEmpty == readOnly)
             },
+            Action("prepareTypedFiles") { readOnly in
+                let typed = BoardModel.TypedFile(url: scene.clipSource, contentTypeIdentifier: "com.apple.quicktime-movie")
+                #expect(await model.prepareTypedFiles([typed]).items.isEmpty == readOnly)
+            },
             Action("prepareData") { readOnly in
                 let prepared = await model.prepareData(Data([1]), fileExtension: "mov", kind: .video, title: "Outro")
                 #expect(prepared.items.isEmpty == readOnly)
@@ -245,6 +249,9 @@ struct BoardModelReadOnlyTests {
             Action("moveFreeText") { readOnly in
                 #expect(model.moveFreeText(scene.freeText.id, to: BoardPoint(x: 10, y: 10)) == !readOnly)
             },
+            Action("resizeFreeText") { readOnly in
+                #expect(model.resizeFreeText(scene.freeText.id, to: BoardSize(width: 400, height: 200)) == !readOnly)
+            },
             Action("deleteFreeText") { readOnly in
                 #expect(model.deleteFreeText(scene.freeText.id) == !readOnly)
             },
@@ -254,6 +261,9 @@ struct BoardModelReadOnlyTests {
             },
             Action("placeInFolder") { _ in
                 model.placeInFolder(scene.inner.id, at: BoardPoint(x: 30, y: 30))
+            },
+            Action("resize") { readOnly in
+                #expect(model.resize(scene.sticky.id, to: BoardSize(width: 300, height: 240)) == !readOnly)
             },
             Action("arrange") { readOnly in
                 #expect(model.arrange([scene.sticky.id: BoardPoint(x: 900, y: 600)]).isEmpty == readOnly)
@@ -295,7 +305,7 @@ struct BoardModelReadOnlyTests {
         let probe = try makeScene()
         defer { cleanUp(probe) }
         let total = actions(for: probe).count
-        #expect(total == 38, "a lista mudou: confira se algum método novo que muda o mural ficou de fora")
+        #expect(total == 41, "a lista mudou: confira se algum método novo que muda o mural ficou de fora")
 
         for index in 0..<total {
             let scene = try makeScene()

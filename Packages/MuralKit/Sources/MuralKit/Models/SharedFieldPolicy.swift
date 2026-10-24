@@ -18,7 +18,7 @@ public enum SharedFieldPolicy {
         case .keySentences:
             .local
         case .kind, .title, .createdAt, .parentID, .position, .fileName, .text, .caption, .checklist, .stickyColor, .imageMetadata,
-            .tag, .link, .reminder, .music, .colorTag, .attachments, .folderPosition:
+            .tag, .link, .reminder, .music, .colorTag, .attachments, .folderPosition, .size:
             .shared
         }
     }

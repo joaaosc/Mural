@@ -159,7 +159,7 @@ extension BoardItem {
     public enum Field: String, CaseIterable, Sendable {
         case kind, title, createdAt, parentID, position, fileName, text, caption
         case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music
-        case colorTag, attachments, folderPosition
+        case colorTag, attachments, folderPosition, size
     }
 
     /// Os campos que diferem entre este cartão e `other`. O `id` não entra: é o que liga um cartão ao outro.
@@ -189,6 +189,7 @@ extension BoardItem {
         case .colorTag: colorTag != other.colorTag
         case .attachments: attachments != other.attachments
         case .folderPosition: folderPosition != other.folderPosition
+        case .size: size != other.size
         }
     }
 }

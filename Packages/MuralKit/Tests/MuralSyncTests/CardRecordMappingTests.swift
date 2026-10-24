@@ -202,6 +202,7 @@ struct CardRecordMappingTests {
             ("música", BoardItem(kind: .music, title: "m"), 8),
             ("lugar na pasta", BoardItem(kind: .sticky, title: "p", parentID: UUID(), folderPosition: BoardPoint(x: 1, y: 2)), 9),
             ("legenda", BoardItem(kind: .image, title: "i", caption: "legenda"), 10),
+            ("tamanho", BoardItem(kind: .sticky, title: "t", size: BoardSize(width: 200, height: 150)), 11),
         ]
         for (name, item, version) in cases {
             let fields = try CardRecordMapping.fields(for: item, layer: 0)
@@ -367,20 +368,54 @@ struct CardRecordMappingTests {
 
     // MARK: Texto livre
 
-    @Test("Texto livre: as quatro chaves, e a ida e volta é exata")
+    @Test("Texto livre: as quatro chaves e a versão do formato, e a ida e volta é exata")
     func freeTextRoundTrips() throws {
         let freeText = BoardFreeText(
             text: "Lembrar do leite 🥛", position: BoardPoint(x: -12.5, y: 340.125), createdAt: SyncFixtures.fractionalDate)
 
         let fields = CardRecordMapping.fields(for: freeText)
 
-        #expect(Set(fields.keys) == ["text", "x", "y", "createdAt"])
+        #expect(Set(fields.keys) == ["text", "x", "y", "createdAt", "formatVersion"])
         #expect(fields["createdAt"] == .double(SyncFixtures.fractionalDate.timeIntervalSinceReferenceDate))
+        #expect(fields["formatVersion"] == .int(7))
         let record = SyncFixtures.record(.freeText, name: freeText.id.uuidString, fields: fields)
-        let decoded = try CardRecordMapping.freeText(from: record)
+        guard case .freeText(let decoded) = try CardRecordMapping.freeText(from: record) else {
+            Issue.record("o texto livre não foi lido")
+            return
+        }
         #expect(decoded == freeText)
         #expect(decoded.createdAt.timeIntervalSinceReferenceDate.bitPattern == freeText.createdAt.timeIntervalSinceReferenceDate.bitPattern)
         #expect(CardRecordMapping.fields(for: decoded) == fields)
+    }
+
+    @Test("Texto livre com tamanho: largura e altura viajam juntas e a versão do formato sobe para a do tamanho")
+    func freeTextSizeRoundTrips() throws {
+        let freeText = BoardFreeText(
+            text: "Grande", position: BoardPoint(x: 3, y: 4), createdAt: SyncFixtures.fractionalDate,
+            size: BoardSize(width: 320.5, height: 180.25))
+
+        let fields = CardRecordMapping.fields(for: freeText)
+
+        #expect(fields["width"] == .double(320.5) && fields["height"] == .double(180.25))
+        #expect(fields["formatVersion"] == .int(11))
+        let record = SyncFixtures.record(.freeText, name: freeText.id.uuidString, fields: fields)
+        #expect(try CardRecordMapping.freeText(from: record) == .freeText(freeText))
+    }
+
+    @Test("Texto livre de versão futura não é suportado, e um sem a versão (gravado antes dela) é lido")
+    func freeTextVersionGatesTheRecord() throws {
+        let freeText = BoardFreeText(id: Self.fixedID, text: "Oi", position: BoardPoint(x: 1, y: 2), createdAt: SyncFixtures.fractionalDate)
+        var fields = CardRecordMapping.fields(for: freeText)
+
+        fields["formatVersion"] = .int(Int64(Board.currentFormatVersion + 1))
+        #expect(
+            try CardRecordMapping.freeText(from: SyncFixtures.record(.freeText, name: Self.fixedID.uuidString, fields: fields))
+                == .unsupported)
+
+        fields["formatVersion"] = nil
+        #expect(
+            try CardRecordMapping.freeText(from: SyncFixtures.record(.freeText, name: Self.fixedID.uuidString, fields: fields))
+                == .freeText(freeText))
     }
 
     @Test("Texto livre com campo ausente, de tipo errado ou com nome ou tipo de registro errado é inválido")
@@ -402,6 +437,11 @@ struct CardRecordMappingTests {
             wrong[key] = .data(Data())
             #expect(try failure(of: SyncFixtures.record(.freeText, name: Self.fixedID.uuidString, fields: wrong)).contains(key))
         }
+        for key in ["width", "height"] {
+            var alone = fields
+            alone[key] = .double(200)
+            #expect(try failure(of: SyncFixtures.record(.freeText, name: Self.fixedID.uuidString, fields: alone)).contains("juntos"))
+        }
         #expect(try failure(of: SyncFixtures.record(.freeText, name: "texto", fields: fields)).contains("UUID"))
         #expect(try failure(of: SyncFixtures.record(.card, name: Self.fixedID.uuidString, fields: fields)).contains("Card"))
     }
@@ -413,7 +453,7 @@ struct CardRecordMappingTests {
         let sticky = Board(items: [BoardItem(kind: .sticky, title: "a")])
         let withFreeText = Board(freeTexts: [BoardFreeText(text: "oi")])
         let rich = Board(items: [SyncFixtures.fullItem(kind: .text)], freeTexts: [BoardFreeText(text: "oi")])
-        let cases: [(board: Board, version: Int)] = [(Board(), 1), (sticky, 1), (withFreeText, 7), (rich, 10)]
+        let cases: [(board: Board, version: Int)] = [(Board(), 1), (sticky, 1), (withFreeText, 7), (rich, 11)]
 
         for (board, version) in cases {
             let fields = CardRecordMapping.boardFields(name: "Casa 🏠", board: board)

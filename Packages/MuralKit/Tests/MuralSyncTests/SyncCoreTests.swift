@@ -410,7 +410,7 @@ struct SyncCoreTests {
     func deletedBoardRecordIsPendingAgain() throws {
         var scenario = try syncedScenario()
         defer { cleanUp(scenario.items) }
-        #expect(scenario.state.baseName == Self.boardName && scenario.state.baseBoardFormatVersion == 10)
+        #expect(scenario.state.baseName == Self.boardName && scenario.state.baseBoardFormatVersion == 11)
 
         let received = try SyncCore.receive(saved: [], deleted: [recordID("mural")], into: &scenario.state)
 
@@ -686,6 +686,26 @@ struct SyncCoreTests {
         #expect(understood.changes.savedItems == [item])
     }
 
+    @Test("Texto livre de app mais novo também só fica anotado: não entra no mural e não sobe nem é apagado")
+    func newerFreeTextIsOnlyNoted() throws {
+        var state = BoardSyncState(cloud: Self.cloud)
+        let freeText = BoardFreeText(text: "Do futuro", position: BoardPoint(x: 10, y: 20), createdAt: SyncFixtures.fractionalDate)
+        var fields = CardRecordMapping.fields(for: freeText)
+        fields["formatVersion"] = .int(Int64(Board.currentFormatVersion + 1))
+        var future = SyncFixtures.record(.freeText, name: freeText.id.uuidString, fields: fields)
+        future.systemFields = Data("app-novo".utf8)
+
+        let received = try SyncCore.receive(saved: [future], deleted: [], into: &state)
+
+        #expect(received.isEmpty && state.unsupportedRecordNames == [freeText.id.uuidString] && state.base == Board())
+        // Um texto com o mesmo id aqui não sobe por cima do registro do app mais novo.
+        let local = Board(freeTexts: [freeText])
+        let changes = SyncCore.pendingChanges(
+            state: state, local: local, name: Self.boardName, itemsDirectory: URL(filePath: "/nao-existe"))
+        #expect(!changes.contains(.save(recordID(freeText.id.uuidString))))
+        #expect(!changes.contains(.delete(recordID(freeText.id.uuidString))))
+    }
+
     // MARK: O que chegou
 
     @Test("Cartões gravados e apagados por outra pessoa entram na base, e juntados ao mural não voltam ao iCloud")
@@ -885,7 +905,7 @@ struct SyncCoreTests {
             (Board(), 1),
             (Board(items: [link]), 3),
             (Board(freeTexts: [BoardFreeText(text: "Oi")]), 7),
-            (Self.board(), 10),
+            (Self.board(), 11),
         ]
         for (board, version) in boards {
             let record = SyncFixtures.record(.mural, name: "mural", fields: CardRecordMapping.boardFields(name: "Casa", board: board))

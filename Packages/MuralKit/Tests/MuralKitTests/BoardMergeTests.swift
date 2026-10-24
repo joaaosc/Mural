@@ -202,6 +202,22 @@ struct MergeItemTests {
         #expect(result.conflictCopy == nil)
     }
 
+    @Test("O tamanho do post-it mudado só lá entra; mudado dos dois jeitos, fica o daqui")
+    func stickySizeFollowsTheFieldRule() {
+        let base = sticky(1, text: "Tinta")
+        var remote = base
+        remote.size = BoardSize(width: 300, height: 200)
+
+        let onlyThere = BoardMerge.mergeItem(base: base, local: base, remote: remote, now: now)
+        #expect(onlyThere.merged.size == BoardSize(width: 300, height: 200))
+
+        var local = base
+        local.size = BoardSize(width: 150, height: 150)
+        let both = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
+        #expect(both.merged.size == BoardSize(width: 150, height: 150))
+        #expect(both.conflictCopy == nil)
+    }
+
     // MARK: Texto
 
     @Test("Texto editado em parágrafos diferentes: os dois entram, sem cópia")

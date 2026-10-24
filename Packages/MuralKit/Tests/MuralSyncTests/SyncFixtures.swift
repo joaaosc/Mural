@@ -101,6 +101,7 @@ enum SyncFixtures {
                 duration: 215.123_456),
             colorTag: .purple,
             attachments: [NoteAttachment(fileName: "AAAAAAAA-0000-4000-8000-000000000002.png", pixelWidth: 640, pixelHeight: 480)],
-            folderPosition: BoardPoint(x: -12, y: 48.5))
+            folderPosition: BoardPoint(x: -12, y: 48.5),
+            size: BoardSize(width: 210.5, height: 160.25))
     }
 }
