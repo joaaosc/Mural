@@ -8,14 +8,13 @@ enum ReminderPickerFilter {
     /// e acentos) e não concluídos primeiro, mantendo a ordem de cada grupo.
     static func visible(_ snapshots: [ReminderSnapshot], query: String, showCompleted: Bool) -> [ReminderSnapshot] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = snapshots.filter { snapshot in
-            (showCompleted || !snapshot.isCompleted) && (term.isEmpty || snapshot.title.localizedStandardContains(term))
-        }
         var pending: [ReminderSnapshot] = []
         var completed: [ReminderSnapshot] = []
-        pending.reserveCapacity(matches.count)
-        completed.reserveCapacity(matches.count)
-        for snapshot in matches {
+        for snapshot in snapshots {
+            guard
+                showCompleted || !snapshot.isCompleted,
+                term.isEmpty || snapshot.title.localizedStandardContains(term)
+            else { continue }
             if snapshot.isCompleted {
                 completed.append(snapshot)
             } else {
