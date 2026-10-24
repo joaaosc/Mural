@@ -154,6 +154,47 @@ extension BoardItem {
 }
 
 extension BoardItem {
+    /// Cada propriedade guardada do cartão, menos o `id`, que o identifica. O valor é a chave do JSON: o iCloud guarda e compara
+    /// o cartão campo a campo, e uma propriedade nova precisa de um caso aqui (o teste das chaves do JSON avisa quando falta).
+    public enum Field: String, CaseIterable, Sendable {
+        case kind, title, createdAt, parentID, position, fileName, text, caption
+        case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music
+        case colorTag, attachments, folderPosition, size
+    }
+
+    /// Os campos que diferem entre este cartão e `other`. O `id` não entra: é o que liga um cartão ao outro.
+    public func changedFields(from other: BoardItem) -> Set<Field> {
+        Set(Field.allCases.filter { differs(in: $0, from: other) })
+    }
+
+    /// O `switch` é exaustivo de propósito: um caso novo de `Field` não compila até ter a comparação.
+    private func differs(in field: Field, from other: BoardItem) -> Bool {
+        switch field {
+        case .kind: kind != other.kind
+        case .title: title != other.title
+        case .createdAt: createdAt != other.createdAt
+        case .parentID: parentID != other.parentID
+        case .position: position != other.position
+        case .fileName: fileName != other.fileName
+        case .text: text != other.text
+        case .caption: caption != other.caption
+        case .checklist: checklist != other.checklist
+        case .stickyColor: stickyColor != other.stickyColor
+        case .imageMetadata: imageMetadata != other.imageMetadata
+        case .tag: tag != other.tag
+        case .keySentences: keySentences != other.keySentences
+        case .link: link != other.link
+        case .reminder: reminder != other.reminder
+        case .music: music != other.music
+        case .colorTag: colorTag != other.colorTag
+        case .attachments: attachments != other.attachments
+        case .folderPosition: folderPosition != other.folderPosition
+        case .size: size != other.size
+        }
+    }
+}
+
+extension BoardItem {
     /// Texto que representa o cartão: o corpo, se houver, senão o título.
     public var displayText: String { text ?? title }
 

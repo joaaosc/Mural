@@ -6,7 +6,8 @@ let package = Package(
     name: "MuralKit",
     platforms: [.macOS("27.0")],
     products: [
-        .library(name: "MuralKit", targets: ["MuralKit"])
+        .library(name: "MuralKit", targets: ["MuralKit"]),
+        .library(name: "MuralSync", targets: ["MuralSync"]),
     ],
     dependencies: [
         // Dependência remota usada pelos recursos de seleção e geração de texto.
@@ -21,9 +22,19 @@ let package = Package(
             ],
             swiftSettings: [.enableUpcomingFeature("ApproachableConcurrency")],
         ),
+        .target(
+            name: "MuralSync",
+            dependencies: ["MuralKit"],
+            swiftSettings: [.enableUpcomingFeature("ApproachableConcurrency")],
+        ),
         .testTarget(
             name: "MuralKitTests",
             dependencies: ["MuralKit"],
+            swiftSettings: [.enableUpcomingFeature("ApproachableConcurrency")],
+        ),
+        .testTarget(
+            name: "MuralSyncTests",
+            dependencies: ["MuralSync", "MuralKit"],
             swiftSettings: [.enableUpcomingFeature("ApproachableConcurrency")],
         ),
     ]

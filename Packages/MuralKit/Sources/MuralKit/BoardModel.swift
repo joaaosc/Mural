@@ -49,6 +49,18 @@ public final class BoardModel {
     /// Verdadeiro quando o mural salvo não pôde ser lido nem guardado à parte: nada é
     /// gravado, para não sobrescrever o arquivo original com um mural novo.
     public private(set) var isPersistenceSuspended = false
+    /// Verdadeiro quando o mural foi recebido só para ver: quem compartilhou não deu permissão para editar. É a rede de
+    /// segurança do modelo: o conteúdo compartilhado não muda nem por um caminho que a interface esqueceu de esconder.
+    ///
+    /// Com ele ligado, todo método que mudaria o mural não muda nada e devolve o valor de "nada feito" do próprio método
+    /// (`nil`, `false`, lista vazia). Nas ações da pessoa, `lastError` explica o motivo; nas automáticas (lembretes, prévias de
+    /// link, música) não há aviso. Continuam valendo o que é de cada Mac e o que só limpa arquivos: as frases curtas
+    /// (`setKeySentences`), as partes locais das prévias e da capa da música (`SharedFieldPolicy`), `discard`,
+    /// `discardNoteImage`, `finalizeDeferredDeletions` e `applyMergedBoard` (o que as outras pessoas mudaram chega mesmo a quem só vê).
+    ///
+    /// Os métodos que devolvem o cartão criado sem opcional (`createNote`, `createSticky`, `createFolder(named:)` e
+    /// `createFreeText`) mantêm a assinatura: devolvem o valor sem pô-lo no mural, porque as telas não os chamam em só leitura.
+    public var isReadOnly = false
 
     @ObservationIgnored let store: BoardStore
     @ObservationIgnored let importer: ItemImporter
@@ -358,6 +370,7 @@ public final class BoardModel {
     /// Arquivos que falham são pulados e relatados em `lastError`.
     @discardableResult
     public func importFiles(_ urls: [URL], into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
+        guard !isReadOnly else { return refuseEdit([]) }
         var imported: [BoardItem] = []
         var failures: [String] = []
         for url in urls {
@@ -378,6 +391,7 @@ public final class BoardModel {
 
     @discardableResult
     public func importText(_ text: String, into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> BoardItem? {
+        guard !isReadOnly else { return refuseEdit(nil) }
         guard let item = try? importer.importText(text, parentID: parentID) else { return nil }
         let placed = insert(item, anchor: anchor)
         persist()
@@ -387,6 +401,7 @@ public final class BoardModel {
     /// Imagem ou outro conteúdo que chegou como dados (sem arquivo de origem).
     @discardableResult
     public func importData(_ data: Data, fileExtension: String, kind: ItemKind, title: String, into parentID: UUID? = nil) -> BoardItem? {
+        guard !isReadOnly else { return refuseEdit(nil) }
         do {
             let item = try importer.importData(data, fileExtension: fileExtension, kind: kind, title: title, parentID: parentID)
             let placed = insert(item)
@@ -422,40 +437,56 @@ public final class BoardModel {
 
     /// Copia os arquivos e inspeciona as imagens fora do Main Actor: um vídeo grande
     /// não congela a janela. Nada entra no board até `commit(_:into:)`.
+    /// Num mural só para ver (`isReadOnly`) não grava arquivo nenhum e devolve a importação vazia.
     public func prepareFiles(_ urls: [URL], parentID: UUID? = nil) async -> PreparedImport {
-        await Self.copyFiles(urls, parentID: parentID, importer: importer)
+        guard !isReadOnly else { return refuseEdit(PreparedImport(items: [], failures: [])) }
+        return await Self.copyFiles(urls, parentID: parentID, importer: importer)
     }
 
     /// Copies files whose uniform type is already known, preserving the
     /// provider's classification through staging and commit.
+    /// Num mural só para ver (`isReadOnly`) não grava arquivo nenhum e devolve a importação vazia.
     public func prepareTypedFiles(_ files: [TypedFile], parentID: UUID? = nil) async -> PreparedImport {
+        guard !isReadOnly else { return refuseEdit(PreparedImport(items: [], failures: [])) }
         guard !Task.isCancelled else { return PreparedImport(items: [], failures: []) }
         return await Self.copyTypedFiles(files, parentID: parentID, importer: importer)
     }
 
     /// Grava dados colados (imagem, PDF) fora do Main Actor.
+    /// Num mural só para ver (`isReadOnly`) não grava arquivo nenhum e devolve a importação vazia.
     public func prepareData(
         _ data: Data, fileExtension: String, kind: ItemKind, title: String, parentID: UUID? = nil
     ) async -> PreparedImport {
-        await Self.writeData(
+        guard !isReadOnly else { return refuseEdit(PreparedImport(items: [], failures: [])) }
+        return await Self.writeData(
             data, fileExtension: fileExtension, kind: kind, title: title, parentID: parentID, importer: importer)
     }
 
     /// Grava uma imagem colada numa nota (dados em memória) fora do Main Actor.
     /// O arquivo fica em `Items/` sem ser citado: `addNoteAttachment` o liga à nota e `discardNoteImage` o apaga.
+    /// Num mural só para ver (`isReadOnly`) não grava arquivo nenhum e devolve `nil`.
     public func prepareNoteImage(data: Data, fileExtension: String) async -> NoteAttachment? {
-        await Self.writeNoteImage(data: data, fileExtension: fileExtension, importer: importer)
+        guard !isReadOnly else { return refuseEdit(nil) }
+        return await Self.writeNoteImage(data: data, fileExtension: fileExtension, importer: importer)
     }
 
     /// Copia uma imagem do disco para `Items/` fora do Main Actor, para colar numa nota.
+    /// Num mural só para ver (`isReadOnly`) não copia arquivo nenhum e devolve `nil`.
     public func prepareNoteImage(fileAt url: URL) async -> NoteAttachment? {
-        await Self.copyNoteImage(fileAt: url, importer: importer)
+        guard !isReadOnly else { return refuseEdit(nil) }
+        return await Self.copyNoteImage(fileAt: url, importer: importer)
     }
 
     /// Insere no board os cartões preparados. A pasta de destino é conferida de novo:
     /// se ela sumiu durante a cópia, o conteúdo vai para o mural em vez de ficar órfão.
+    /// Num mural só para ver (`isReadOnly`), que pode ter passado a ser assim durante a cópia, recusa e apaga os arquivos
+    /// preparados, para não deixar órfãos em `Items/`.
     @discardableResult
     public func commit(_ prepared: PreparedImport, into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
+        guard !isReadOnly else {
+            discard(prepared)
+            return refuseEdit([])
+        }
         let folderExists = parentID.map { item(id: $0)?.kind == .folder } ?? true
         var items = prepared.items
         if !folderExists {
@@ -561,6 +592,7 @@ public final class BoardModel {
     public func importText(
         _ text: String, as kind: ItemKind, into parentID: UUID? = nil, at anchor: BoardPoint? = nil
     ) -> BoardItem? {
+        guard !isReadOnly else { return refuseEdit(nil) }
         guard let item = try? importer.importText(text, as: kind, parentID: parentID) else { return nil }
         let placed = insert(item, anchor: anchor)
         persist()
@@ -570,19 +602,25 @@ public final class BoardModel {
     // MARK: Cartões de texto
 
     /// Nota vazia, para ser escrita na página de leitura.
+    /// Num mural só para ver (`isReadOnly`) devolve a nota sem pô-la no mural: as telas não chamam este método nesse caso.
     @discardableResult
     public func createNote(into parentID: UUID? = nil) -> BoardItem {
-        let placed = insert(BoardItem(kind: .text, title: "", parentID: parentID))
+        let note = BoardItem(kind: .text, title: "", parentID: parentID)
+        guard !isReadOnly else { return refuseEdit(note) }
+        let placed = insert(note)
         persist()
         return placed
     }
 
     /// Post-it vazio, para ser escrito na versão ampliada.
+    /// Num mural só para ver (`isReadOnly`) devolve o post-it sem pô-lo no mural: as telas não chamam este método nesse caso.
     @discardableResult
     public func createSticky(
         into parentID: UUID? = nil, color: StickyColor = .yellow, at position: BoardPoint? = nil
     ) -> BoardItem {
-        let placed = insert(BoardItem(kind: .sticky, title: "", parentID: parentID, stickyColor: color))
+        let sticky = BoardItem(kind: .sticky, title: "", parentID: parentID, stickyColor: color)
+        guard !isReadOnly else { return refuseEdit(sticky) }
+        let placed = insert(sticky)
         if parentID != nil, let position {
             _ = board.placeInFolder(id: placed.id, at: position)
         }
@@ -604,6 +642,7 @@ public final class BoardModel {
     /// Cria um cartão para cada lembrete e grava uma vez ao final. O título do cartão é o do lembrete.
     @discardableResult
     public func addReminders(_ snapshots: [ReminderSnapshot], into parentID: UUID? = nil) -> [BoardItem] {
+        guard !isReadOnly else { return refuseEdit([]) }
         let now = Date.now
         var pending: [BoardItem] = []
         for (index, snapshot) in snapshots.enumerated() {
@@ -621,9 +660,11 @@ public final class BoardModel {
     }
 
     /// Troca o estado guardado do lembrete; o título do cartão acompanha.
+    /// Num mural só para ver (`isReadOnly`) o lembrete fica como está, sem aviso: quem mantém o cartão é o Mac de quem o criou.
     /// - Returns: `false`, sem gravar, se o cartão não é um lembrete ou nada mudou.
     @discardableResult
     public func updateReminder(_ itemID: UUID, with snapshot: ReminderSnapshot) -> Bool {
+        guard !isReadOnly else { return false }
         guard var item = item(id: itemID), item.kind == .reminder,
             item.reminder != snapshot || (item.reminder?.title != snapshot.title && item.title == item.reminder?.title)
         else { return false }
@@ -636,7 +677,9 @@ public final class BoardModel {
     }
 
     /// Marca o lembrete como apagado no Lembretes, mantendo o último estado conhecido.
+    /// Num mural só para ver (`isReadOnly`) o lembrete fica como está, sem aviso.
     public func markReminderMissing(_ itemID: UUID) {
+        guard !isReadOnly else { return }
         guard var item = item(id: itemID), item.kind == .reminder, var snapshot = item.reminder,
             !snapshot.isMissing
         else { return }
@@ -649,17 +692,22 @@ public final class BoardModel {
     // MARK: Pastas
 
     /// Pasta vazia, solta no mural numa posição livre. Sem nome, vira "Nova pasta".
+    /// Num mural só para ver (`isReadOnly`) devolve a pasta sem pô-la no mural: as telas não chamam este método nesse caso.
     @discardableResult
     public func createFolder(named name: String) -> BoardItem {
-        let placed = insert(BoardItem(kind: .folder, title: Self.folderTitle(from: name)))
+        let folder = BoardItem(kind: .folder, title: Self.folderTitle(from: name))
+        guard !isReadOnly else { return refuseEdit(folder) }
+        let placed = insert(folder)
         persist()
         return placed
     }
 
     /// Pasta vazia dentro de outra pasta. Sem nome, vira "Nova pasta".
-    /// - Returns: `nil`, sem criar nada, se o pai não é uma pasta ou já está no último nível (`Board.maximumFolderDepth`).
+    /// - Returns: `nil`, sem criar nada, se o pai não é uma pasta ou já está no último nível (`Board.maximumFolderDepth`),
+    ///   ou se o mural é só para ver (`isReadOnly`).
     @discardableResult
     public func createFolder(named name: String, into parentID: UUID) -> BoardItem? {
+        guard !isReadOnly else { return refuseEdit(nil) }
         guard canCreateFolder(in: parentID) else { return nil }
         let placed = insert(BoardItem(kind: .folder, title: Self.folderTitle(from: name), parentID: parentID))
         persist()
@@ -670,6 +718,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem mudar nada, se o item não é pasta, o nome fica vazio ou é igual ao atual.
     @discardableResult
     public func renameFolder(_ itemID: UUID, to name: String) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard var item = item(id: itemID), item.kind == .folder else { return false }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean != item.title else { return false }
@@ -683,6 +732,7 @@ public final class BoardModel {
     /// - Returns: `false` se o cartão não existe, o nome fica vazio ou não mudou.
     @discardableResult
     public func renameItem(_ itemID: UUID, to name: String) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard var item = item(id: itemID) else { return false }
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean != item.title else { return false }
@@ -704,6 +754,7 @@ public final class BoardModel {
     /// Grava título e corpo (Markdown) de uma nota. Sem título, usa a primeira linha do corpo.
     /// Corpo novo descarta as frases curtas escolhidas para o anterior.
     public func updateNote(_ itemID: UUID, title: String, text: String) {
+        guard !isReadOnly else { return refuseEdit() }
         guard var item = item(id: itemID), item.kind == .text else { return }
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -722,6 +773,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem alterar nada, se o cartão não é uma nota, o texto não é mais `source` ou o bloco não é tarefa.
     @discardableResult
     public func toggleNoteTask(_ itemID: UUID, segment: Int, in source: String) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard var item = item(id: itemID), item.kind == .text, item.text == source,
             let toggled = TextSegmenter.segment(source).togglingTask(inSegment: segment)
         else { return false }
@@ -739,6 +791,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem alterar nada, se o cartão não existe ou não é uma nota.
     @discardableResult
     public func addNoteAttachment(_ attachment: NoteAttachment, to itemID: UUID) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard var item = item(id: itemID), item.kind == .text else { return false }
         var attachments = item.attachments ?? []
         guard !attachments.contains(where: { $0.fileName == attachment.fileName }) else { return true }
@@ -757,6 +810,7 @@ public final class BoardModel {
 
     /// Grava texto e cor de um post-it. O título acompanha a primeira linha.
     public func updateSticky(_ itemID: UUID, text: String, color: StickyColor) {
+        guard !isReadOnly else { return refuseEdit() }
         guard var item = item(id: itemID), item.kind == .sticky else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = trimmed.isEmpty ? nil : trimmed
@@ -772,6 +826,7 @@ public final class BoardModel {
     /// - Returns: `false`, sem alterar nada, se o cartão não existe ou já tem essa cor.
     @discardableResult
     public func setColorTag(_ color: TagColor?, for itemID: UUID) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard var item = item(id: itemID), item.colorTag != color else { return false }
         item.colorTag = color
         board.update(item)
@@ -780,7 +835,8 @@ public final class BoardModel {
     }
 
     /// Guarda as frases curtas escolhidas, se ainda valem para o texto atual do cartão
-    /// (ele pode ter mudado enquanto o modelo escolhia).
+    /// (ele pode ter mudado enquanto o modelo escolhia). Vale também num mural só para ver (`isReadOnly`): as frases curtas
+    /// são de cada Mac e não vão para as outras pessoas.
     @discardableResult
     public func setKeySentences(_ record: KeySentenceRecord, for itemID: UUID) -> Bool {
         guard var item = item(id: itemID), let source = NoteFolding.source(of: item), record.matches(source) else {
@@ -796,12 +852,14 @@ public final class BoardModel {
     // MARK: Alterações
 
     /// Cria um texto livre diretamente no mural, em uma posição livre da grade.
+    /// Num mural só para ver (`isReadOnly`) devolve o texto sem pô-lo no mural: as telas não chamam este método nesse caso.
     @discardableResult
     public func createFreeText(_ text: String = "", at position: BoardPoint? = nil) -> BoardFreeText {
         let position = BoardLayout.clamped(
             position ?? BoardLayout.freeTextPosition(avoiding: board.rootItems, freeTexts: board.freeTexts)
         )
         let freeText = BoardFreeText(text: text, position: position)
+        guard !isReadOnly else { return refuseEdit(freeText) }
         board.add(freeText)
         persist()
         return freeText
@@ -811,6 +869,7 @@ public final class BoardModel {
     /// - Returns: `false` quando o texto não existe ou já tinha o mesmo conteúdo normalizado.
     @discardableResult
     public func updateFreeText(_ freeTextID: UUID, text: String) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard var freeText = freeText(id: freeTextID) else { return false }
         let normalized = BoardFreeText.normalized(text)
         guard freeText.text != normalized else { return false }
@@ -823,6 +882,7 @@ public final class BoardModel {
     /// Move um texto livre e mantém o ponto dentro do mural.
     @discardableResult
     public func moveFreeText(_ freeTextID: UUID, to position: BoardPoint) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard let current = freeText(id: freeTextID), current.position != BoardLayout.clamped(position) else {
             return false
         }
@@ -835,6 +895,7 @@ public final class BoardModel {
     /// - Returns: `false` quando o texto não existe ou já tinha esse tamanho.
     @discardableResult
     public func resizeFreeText(_ freeTextID: UUID, to size: BoardSize?) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard board.resizeFreeText(id: freeTextID, to: size) else { return false }
         persist()
         return true
@@ -843,6 +904,7 @@ public final class BoardModel {
     /// Apaga um texto livre sem tocar nos arquivos dos cartões.
     @discardableResult
     public func deleteFreeText(_ freeTextID: UUID) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard !isPersistenceSuspended else {
             lastError = "Não foi possível apagar o texto livre: a persistência está suspensa."
             return false
@@ -864,6 +926,7 @@ public final class BoardModel {
     }
 
     public func toggleChecklistEntry(_ entryID: UUID, in itemID: UUID) {
+        guard !isReadOnly else { return refuseEdit() }
         guard var item = item(id: itemID), item.checklist != nil else { return }
         item.checklist?.toggle(entryID: entryID)
         board.update(item)
@@ -871,6 +934,7 @@ public final class BoardModel {
     }
 
     public func setCaption(_ text: String, for itemID: UUID) {
+        guard !isReadOnly else { return refuseEdit() }
         guard var item = item(id: itemID) else { return }
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let caption = clean.isEmpty ? nil : clean
@@ -882,6 +946,7 @@ public final class BoardModel {
 
     /// Muda a posição de um cartão solto (arredondada e nunca abaixo de 0) e o leva para cima dos outros.
     public func move(_ itemID: UUID, to position: BoardPoint) {
+        guard !isReadOnly else { return refuseEdit() }
         guard board.move(id: itemID, to: BoardLayout.clamped(position)) else { return }
         persist()
     }
@@ -891,6 +956,7 @@ public final class BoardModel {
     /// - Returns: `false` quando o cartão não existe, não muda de tamanho ou já tinha esse tamanho.
     @discardableResult
     public func resize(_ itemID: UUID, to size: BoardSize?) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
         guard board.resize(id: itemID, to: size) else { return false }
         persist()
         return true
@@ -898,6 +964,7 @@ public final class BoardModel {
 
     /// Põe o post-it num lugar livre da pasta onde ele está, por cima dos outros (regras em `Board.placeInFolder`).
     public func placeInFolder(_ itemID: UUID, at position: BoardPoint) {
+        guard !isReadOnly else { return refuseEdit() }
         guard board.placeInFolder(id: itemID, at: position) else { return }
         persist()
     }
@@ -906,6 +973,7 @@ public final class BoardModel {
     /// - Returns: onde estavam os cartões que mudaram de lugar, para desfazer.
     @discardableResult
     public func arrange(_ positions: [UUID: BoardPoint]) -> [UUID: BoardPoint] {
+        guard !isReadOnly else { return refuseEdit([:]) }
         let previous = Dictionary(
             uniqueKeysWithValues: board.rootItems.compactMap { item -> (UUID, BoardPoint)? in
                 guard let position = positions[item.id], position != item.position else { return nil }
@@ -918,12 +986,14 @@ public final class BoardModel {
 
     /// Guarda um cartão, ou uma pasta com tudo que há nela, dentro de outra pasta (regras em `Board.moveIntoFolder`).
     public func moveIntoFolder(_ itemID: UUID, folderID: UUID) {
+        guard !isReadOnly else { return refuseEdit() }
         guard board.moveIntoFolder(id: itemID, folderID: folderID) else { return }
         persist()
     }
 
     /// Tira o cartão de dentro da pasta e o solta no mural, numa posição livre (a mesma regra de colar).
     public func moveToBoard(_ itemID: UUID) {
+        guard !isReadOnly else { return refuseEdit() }
         guard let item = item(id: itemID), item.parentID != nil else { return }
         // A vaga é do tamanho que o cartão tem: um post-it redimensionado guarda o tamanho dentro da pasta.
         let position = BoardLayout.freePosition(for: item, avoiding: board.rootItems)
@@ -934,6 +1004,7 @@ public final class BoardModel {
     /// Sobe o cartão um nível: da pasta para a pasta que a guarda ou, se a pasta está solta, para o mural.
     /// Um cartão que já está solto fica como está.
     public func moveUp(_ itemID: UUID) {
+        guard !isReadOnly else { return refuseEdit() }
         guard let parentID = item(id: itemID)?.parentID else { return }
         if let grandparentID = item(id: parentID)?.parentID {
             moveIntoFolder(itemID, folderID: grandparentID)
@@ -953,6 +1024,7 @@ public final class BoardModel {
 
     /// Apaga o cartão (e, se for pasta, tudo que há dentro dela, em qualquer nível) junto com os arquivos guardados.
     public func delete(_ itemID: UUID) {
+        guard !isReadOnly else { return refuseEdit() }
         guard !isPersistenceSuspended else {
             lastError = "Não foi possível apagar o item: a persistência está suspensa. Nenhum arquivo foi removido."
             return
@@ -1009,11 +1081,58 @@ public final class BoardModel {
         deferredDeletions = pending
     }
 
+    /// Troca o mural pelo resultado de uma junção com o que chegou do iCloud (`BoardMerge.apply`).
+    ///
+    /// Vale também num mural só para ver (`isReadOnly`): é assim que quem só vê recebe o que as outras pessoas mudaram, e a junção
+    /// não é uma ação da pessoa. Os arquivos que o mural deixou de citar entram na mesma fila de remoção adiada de `delete`: nada é
+    /// apagado antes de a versão nova estar gravada (`finalizeDeferredDeletions(persistedBoard:)`). Quem chama avisa a gravação
+    /// como depois de um `delete`; no modo imediato o mural é gravado antes de a troca valer e só então os arquivos saem.
+    /// - Returns: `false`, sem trocar nada, se a persistência está suspensa ou a gravação imediata falha (`lastError` explica).
+    @discardableResult
+    public func applyMergedBoard(_ merged: Board) -> Bool {
+        guard merged != board else { return true }
+        guard !isPersistenceSuspended else {
+            lastError = "Não foi possível aplicar o que chegou do iCloud: a persistência está suspensa. Nenhum arquivo foi removido."
+            return false
+        }
+
+        let released = citedFileNames(in: board).subtracting(citedFileNames(in: merged))
+        if persistence == .deferred {
+            board = merged
+            deferredDeletions.formUnion(released)
+            return true
+        }
+        do {
+            // Como em `delete`: o mural novo precisa estar gravado antes de valer em memória ou de apagar arquivos.
+            try store.save(merged)
+        } catch {
+            lastError = "Não foi possível aplicar o que chegou do iCloud: \(error.localizedDescription). Nenhum arquivo foi removido."
+            return false
+        }
+        board = merged
+        for name in released { importer.removeFile(named: name) }
+        return true
+    }
+
     // MARK: Interno
 
     private static func folderTitle(from name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Nova pasta" : trimmed
+    }
+
+    /// O aviso de `lastError` quando uma ação da pessoa é recusada num mural só para ver.
+    static let readOnlyMessage = "Este mural é só para ver: quem compartilhou não deu permissão para editar."
+
+    /// Recusa uma ação da pessoa num mural só para ver: avisa em `lastError` e devolve o valor de "nada feito" do método.
+    func refuseEdit<Value>(_ nothingDone: Value) -> Value {
+        lastError = Self.readOnlyMessage
+        return nothingDone
+    }
+
+    /// O mesmo para os métodos que não devolvem nada.
+    func refuseEdit() {
+        lastError = Self.readOnlyMessage
     }
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.

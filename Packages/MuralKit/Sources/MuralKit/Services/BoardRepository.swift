@@ -77,7 +77,10 @@ public actor BoardRepository {
             }
         }
         do {
-            try encode(loaded.snapshot.manifest).write(to: package.appendingPathComponent("manifest.json"), options: .atomic)
+            // A cópia exportada não leva o iCloud: quem a importa ganha um mural só dele, e uma build antiga continua abrindo o pacote.
+            var manifest = loaded.snapshot.manifest
+            manifest.cloud = nil
+            try encode(manifest).write(to: package.appendingPathComponent("manifest.json"), options: .atomic)
             try encode(loaded.snapshot.board).write(to: package.appendingPathComponent("board.json"), options: .atomic)
             try encode(loaded.snapshot.workspace).write(to: package.appendingPathComponent("view-state.json"), options: .atomic)
         } catch {
@@ -243,7 +246,8 @@ public actor BoardRepository {
                         workspace: manifest.workspaceRevision
                     )
                 }
-                if manifest.name == existingManifest.name { return }
+                // Nome e iCloud mudam sem revisão nova (renomear, mudar a permissão de quem recebeu o mural).
+                if manifest.name == existingManifest.name, manifest.cloud == existingManifest.cloud { return }
             }
         }
 
@@ -510,8 +514,9 @@ public actor BoardRepository {
             withIntermediateDirectories: true)
     }
 
-    /// Nome de arquivo de mídia aceito: um único componente, sem ocultos nem `..`.
-    static func isSafeAssetName(_ name: String) -> Bool {
+    /// Nome de arquivo de mídia aceito: um único componente, sem ocultos nem `..`. É público para o iCloud (`MuralSync`) usar a
+    /// mesma regra, em vez de uma cópia, ao receber nomes de outras pessoas.
+    public static func isSafeAssetName(_ name: String) -> Bool {
         !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains(":")
             && name == (name as NSString).lastPathComponent
     }

@@ -13,8 +13,13 @@ final class OpenBoardSessions {
 
     private var entries: [ObjectIdentifier: Entry] = [:]
 
+    /// Chamado a cada sessão que se registra (toda sessão de janela se registra ao carregar, qualquer que seja quem a criou). A
+    /// sincronização com o iCloud o usa para ouvir as gravações sem que a sessão a conheça. Um só ouvinte: o do controlador do app.
+    var onRegister: (@MainActor (BoardWindowSession) -> Void)?
+
     func register(_ session: BoardWindowSession) {
         entries[ObjectIdentifier(session)] = Entry(session: session)
+        onRegister?(session)
     }
 
     func unregister(_ session: BoardWindowSession) {
@@ -111,6 +116,8 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     var hasOpenWindow: @MainActor () -> Bool = {
         NSApp.windows.contains { ($0.isVisible || $0.isMiniaturized) && $0.canBecomeMain }
     }
+    /// O controlador da sincronização com o iCloud; `nil` com ela desligada (então o app não faz nada a mais por causa dela).
+    var cloudSync: @MainActor () -> CloudSyncController? = { CloudSyncController.current }
     private var isTerminating = false
 
     /// As abas são do próprio app (`MuralWindowView`), como no Safari: sem isso, com a preferência do
@@ -126,6 +133,8 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     /// Aberto pelo início de sessão, não abre: o Mural fica só com o ícone da barra de menus e sai do Dock. Se a
     /// restauração do macOS já trouxe uma janela, o Dock fica como está, porque há janela.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // O iCloud de verdade avisa por notificação remota quando o que está lá muda. O iCloud falso não envia nenhuma.
+        if cloudSync()?.mode == .cloudKit { NSApplication.shared.registerForRemoteNotifications() }
         if LaunchContext.isLoginItemLaunch(currentAppleEvent()) {
             if !hasOpenWindow() { dockPresence(false) }
             return
@@ -139,8 +148,18 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
 
     /// A pessoa pode ter mudado "Abrir ao Iniciar Sessão" nos Ajustes do Sistema enquanto o app estava em segundo
     /// plano: o item do menu do app relê o estado ao voltar.
+    ///
+    /// Ao ativar o app, busca também o que mudou no iCloud enquanto ele estava em segundo plano (sem sincronização, nada).
     func applicationDidBecomeActive(_ notification: Notification) {
         LoginItemModel.shared.refresh()
+        guard let sync = cloudSync() else { return }
+        Task { @MainActor in await sync.fetch() }
+    }
+
+    /// O iCloud avisou que há mudança: busca.
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        guard let sync = cloudSync() else { return }
+        Task { @MainActor in await sync.fetch() }
     }
 
     /// Clique no ícone do Dock sem janelas abertas, ou abrir o app pelo Finder ou pelo Spotlight enquanto ele roda só

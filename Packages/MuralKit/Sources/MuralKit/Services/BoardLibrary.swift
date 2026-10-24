@@ -370,8 +370,33 @@ public actor BoardLibrary {
 
     /// Exports a board as an isolated package under `Transfers`.
     public func exportPackage(_ route: BoardRoute) async throws -> URL {
+        let source = try packageSource(for: route)
+        try makeDirectories()
+        return try await assemblePackage(from: source, in: transfersDirectory, named: "\(UUID().uuidString).mural")
+    }
+
+    /// Cópia de segurança completa do mural em `directory/<uuid>-<data>.mural`, a pasta criada se faltar.
+    ///
+    /// É a mesma montagem de `exportPackage`, mas o pacote fica onde está: serve de rede de segurança antes de o mural ser enviado
+    /// ao iCloud pela primeira vez, e quem chama passa uma pasta própria (`Application Support/Mural/Backups/`). A data vem de
+    /// `now` em UTC, sem separadores, para o nome servir em qualquer volume. Duas cópias do mesmo mural no mesmo segundo
+    /// recusam a segunda (`BoardPortablePackageError.destinationExists`) em vez de sobrescrever a primeira.
+    public func backupPackage(_ route: BoardRoute, to directory: URL, now: Date = .now) async throws -> URL {
+        let source = try packageSource(for: route)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch { throw BoardLibraryError.io(String(describing: error)) }
+        let stamp = now.formatted(
+            .iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false).timeSeparator(.omitted)
+                .timeZone(separator: .omitted))
+        return try await assemblePackage(from: source, in: directory, named: "\(source.id.rawValue.uuidString)-\(stamp).mural")
+    }
+
+    private typealias PackageSource = (repository: BoardRepository, id: BoardID)
+
+    /// O repositório e o id do mural de uma rota que pode virar pacote: um mural salvo, ou o rascunho de exemplo ainda vivo.
+    private func packageSource(for route: BoardRoute) throws -> PackageSource {
         let repository = try repository(for: route)
-        let id: BoardID
         switch route {
         case .library:
             throw BoardLibraryError.unavailableRoute(route)
@@ -379,17 +404,21 @@ public actor BoardLibrary {
             guard let state = try loadState(), state.lifecycle == .draft, state.stableWelcomeID == welcomeID else {
                 throw BoardLibraryError.unavailableRoute(route)
             }
-            id = welcomeID
+            return (repository, welcomeID)
         case .saved(let savedID):
-            id = savedID
+            return (repository, savedID)
         }
-        try makeDirectories()
-        let destination = transfersDirectory.appendingPathComponent("\(UUID().uuidString).mural", isDirectory: true)
-        let staging = transfersDirectory.appendingPathComponent(".\(destination.lastPathComponent)-materializing", isDirectory: true)
+    }
+
+    /// Monta o pacote do mural numa pasta de passagem escondida dentro de `root` e só o publica como `name` depois de validado; a
+    /// pasta de passagem sai de qualquer jeito.
+    private func assemblePackage(from source: PackageSource, in root: URL, named name: String) async throws -> URL {
+        let destination = root.appendingPathComponent(name, isDirectory: true)
+        let staging = root.appendingPathComponent(".\(destination.lastPathComponent)-materializing", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: staging) }
         do {
-            try await repository.materializePackage(for: id, to: staging)
-            return try await portablePackageService.finalize(package: staging, destination: destination, root: transfersDirectory)
+            try await source.repository.materializePackage(for: source.id, to: staging)
+            return try await portablePackageService.finalize(package: staging, destination: destination, root: root)
         } catch let error as BoardPortablePackageError {
             throw BoardLibraryError.portable(error)
         } catch let error as BoardRepositoryError {
@@ -426,6 +455,8 @@ public actor BoardLibrary {
             let newID = BoardID()
             var manifest = loaded.snapshot.manifest
             manifest.id = newID
+            // O mural importado é um mural novo, só deste Mac: não herda a zona do iCloud do mural de origem.
+            manifest.cloud = nil
             let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: loaded.snapshot.workspace)
             try await savedRepository.save(
                 snapshot,

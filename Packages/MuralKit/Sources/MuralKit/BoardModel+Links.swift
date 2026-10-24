@@ -14,6 +14,7 @@ extension BoardModel {
     public func importLinks(
         _ drafts: [LinkDraft], into parentID: UUID? = nil, at anchor: BoardPoint? = nil
     ) -> [BoardItem] {
+        guard !isReadOnly else { return refuseEdit([]) }
         let now = Date.now
         var seen = Set<String>()
         var pending: [BoardItem] = []
@@ -100,6 +101,10 @@ extension BoardModel {
     /// (`LinkPreviewUpdate.replacesContent`) os novos, se não forem vazios, trocam os de antes. O título do
     /// cartão só vira o título da página enquanto for o provisório (o host do endereço); depois de
     /// renomeado, não é mexido. Numa falha (`.failed`) só o estado muda.
+    ///
+    /// Num mural só para ver (`isReadOnly`) entram só as partes de cada Mac: os arquivos e o estado da prévia
+    /// (`SharedFieldPolicy.preservingLocalFields(of:in:)`). Título do cartão, da página, site, resumo e imagem remota
+    /// ficam como estão, sem aviso.
     public func applyLinkPreviews(_ updates: [LinkPreviewUpdate]) {
         guard !updates.isEmpty else { return }
         var updated = board
@@ -111,8 +116,10 @@ extension BoardModel {
         var changed = false
         for update in updates {
             guard let index = indices[update.itemID] else { continue }
-            let merged = Self.merging(update, into: updated.items[index])
-            if merged != updated.items[index] {
+            let current = updated.items[index]
+            var merged = Self.merging(update, into: current)
+            if isReadOnly { merged = SharedFieldPolicy.preservingLocalFields(of: merged, in: current) }
+            if merged != current {
                 updated.items[index] = merged
                 changed = true
             }

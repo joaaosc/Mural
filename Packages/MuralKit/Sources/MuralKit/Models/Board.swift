@@ -86,9 +86,16 @@ public struct Board: Codable, Equatable, Sendable {
         items.filter { $0.parentID == nil }
     }
 
-    /// Cartões dentro de uma pasta, na ordem de criação.
+    /// Cartões dentro de uma pasta, na ordem de criação (em empate de data, pelo `id.uuidString`).
     public func children(of folderID: UUID) -> [BoardItem] {
-        items.filter { $0.parentID == folderID }.sorted { $0.createdAt < $1.createdAt }
+        items.filter { $0.parentID == folderID }.sorted(by: Self.isCreatedBefore)
+    }
+
+    /// A ordem de criação: pela data e, em empate, pelo `id.uuidString`. Datas iguais acontecem, e sem o desempate cada Mac
+    /// poderia ordenar os cartões de um jeito, conforme a ordem da própria lista.
+    static func isCreatedBefore(_ lhs: BoardItem, _ rhs: BoardItem) -> Bool {
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     /// Post-its soltos num lugar livre da pasta, na ordem da lista: o último fica por cima.
@@ -145,6 +152,21 @@ public struct Board: Codable, Equatable, Sendable {
     /// Quantas pastas há acima do cartão (0 = solto no mural). O nível de uma pasta é a profundidade dela mais 1.
     public func depth(of id: UUID) -> Int {
         ancestors(of: id).count
+    }
+
+    /// A cadeia de pais chega ao mural passando só por pastas e sem passar de `Board.maximumFolderDepth` níveis
+    /// (uma pasta ocupa um nível; um cartão que não é pasta cabe em qualquer pasta). Um ciclo nunca chega ao mural
+    /// e acaba no limite de níveis.
+    static func hasValidParentChain(_ item: BoardItem, in itemsByID: [UUID: BoardItem]) -> Bool {
+        var foldersAbove = 0
+        var next = item.parentID
+        while let parentID = next {
+            guard let parent = itemsByID[parentID], parent.kind == .folder else { return false }
+            foldersAbove += 1
+            guard foldersAbove <= maximumFolderDepth else { return false }
+            next = parent.parentID
+        }
+        return item.kind != .folder || foldersAbove < maximumFolderDepth
     }
 
     /// As pastas para onde o cartão pode ir agora, ordenadas pelo caminho. Ficam de fora o próprio cartão, o que há dentro dele
@@ -398,7 +420,7 @@ public struct Board: Codable, Equatable, Sendable {
         for item in items {
             if let parentID = item.parentID { grouped[parentID, default: []].append(item) }
         }
-        return grouped.mapValues { $0.sorted { $0.createdAt < $1.createdAt } }
+        return grouped.mapValues { $0.sorted(by: Self.isCreatedBefore) }
     }
 
     private func descendants(of folderID: UUID, byParent: [UUID: [BoardItem]]) -> [BoardItem] {

@@ -32,7 +32,13 @@ struct MuralWindowView: View {
     /// Largura do item da faixa na barra da janela: tudo menos os semáforos e o botão da barra lateral à
     /// esquerda e o "+" à direita. Um item da barra não estica sozinho; ele usa a largura pedida.
     private var stripItemWidth: CGFloat {
-        max(0, windowWidth - 150 - 70)
+        max(0, windowWidth - 150 - 70 - (syncedSession == nil ? 0 : SyncStatusIndicator.toolbarWidth))
+    }
+
+    /// A sessão da aba ativa quando o mural dela está no iCloud: só ela ganha o indicador de sincronização.
+    private var syncedSession: BoardWindowSession? {
+        guard let session = tabs.selected?.session, session.cloud != nil else { return nil }
+        return session
     }
 
     /// Com a barra lateral aberta, as abas começam depois dela (e da linha divisória), como no Safari. A conta
@@ -99,6 +105,11 @@ struct MuralWindowView: View {
             }
             // O vidro do sistema cobriria também o recuo sobre a barra lateral: a faixa desenha o próprio vidro.
             .sharedBackgroundVisibility(.hidden)
+            if let session = syncedSession {
+                ToolbarItem(placement: .primaryAction) {
+                    SyncStatusIndicator(issue: CloudSyncController.current?.issues[session.boardID])
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
                     .help("Novo mural (⌘N)")
@@ -121,7 +132,11 @@ struct MuralWindowView: View {
             alert?.title ?? "",
             isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }),
             presenting: alert
-        ) { _ in
+        ) { alert in
+            // Aviso do iCloud: o OK o dispensa. Os outros alertas ficam com o botão padrão.
+            if let noticeID = alert.noticeID {
+                Button("OK") { CloudSyncController.current?.dismissNotice(noticeID) }
+            }
         } message: { alert in
             Text(alert.message)
         }
@@ -141,6 +156,9 @@ struct MuralWindowView: View {
                     : "O mural e os arquivos guardados nele vão para o Lixo do Mac.")
         }
         .onChange(of: tabs.request) { _, _ in consumeRequest() }
+        // Os avisos de murais que saíram do iCloud usam o alerta da janela, um de cada vez.
+        .onChange(of: CloudSyncController.current?.notices, initial: true) { _, _ in presentNextNotice() }
+        .onChange(of: alert?.id) { _, id in if id == nil { presentNextNotice() } }
         .onChange(of: tabs.snapshot) { _, snapshot in storedTabs = snapshot.storage }
         .onChange(of: tabs.isSidebarVisible) { _, visible in storedSidebar = visible }
         .onOpenURL { source in
@@ -201,8 +219,32 @@ struct MuralWindowView: View {
             isNewBoardPresented = true
         case .openPackage:
             isPackageImporterPresented = true
+        #if DEBUG
+        case .putInCloud(let route):
+            putInCloud(route)
+        #endif
         }
     }
+
+    /// Mostra o aviso mais antigo do iCloud quando a janela não tem outro alerta na frente.
+    private func presentNextNotice() {
+        guard alert == nil, let notice = CloudSyncController.current?.notices.first else { return }
+        alert = WindowAlert(title: "Mural fora do iCloud", message: notice.message, noticeID: notice.id)
+    }
+
+    #if DEBUG
+    /// Depuração: pede ao controlador que ponha o mural no iCloud e mostra o erro, se houver.
+    private func putInCloud(_ route: BoardRoute) {
+        guard let sync = CloudSyncController.current else { return }
+        Task {
+            do {
+                try await sync.putInCloud(route)
+            } catch {
+                alert = WindowAlert(title: "Não foi possível pôr o mural no iCloud", message: error.localizedDescription)
+            }
+        }
+    }
+    #endif
 
     private func createBoard() {
         isNewBoardPresented = false
@@ -260,11 +302,13 @@ struct MuralWindowView: View {
     }
 }
 
-/// Aviso simples da janela (criar ou importar um mural).
+/// Aviso simples da janela (criar ou importar um mural, ou um aviso do iCloud).
 private struct WindowAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    /// O aviso do iCloud que este alerta mostra; `nil` nos demais.
+    var noticeID: UUID?
 }
 
 /// O conteúdo de uma aba: o mural, ou o carregamento, ou o erro com as saídas possíveis.

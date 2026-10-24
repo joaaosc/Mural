@@ -61,6 +61,19 @@ public actor BoardSession {
         lastFlushErrorDescription = nil
     }
 
+    /// Troca o `cloud` do manifesto dentro da própria sessão, para a gravação seguinte levá-lo. Gravar o manifesto por fora, pela
+    /// biblioteca, com a sessão aberta, não vale: a próxima gravação da sessão devolveria o `cloud` antigo ao disco. Não mexe nas
+    /// revisões: o `cloud` não é conteúdo do mural.
+    public func setCloud(_ cloud: BoardCloudInfo?) throws {
+        guard !isRetired else { throw BoardSessionError.retired }
+        guard !isFlushInProgress else { throw BoardSessionError.flushInProgress }
+        guard cloud != manifest.cloud else { return }
+        manifest.cloud = cloud
+        generation &+= 1
+        isDirty = true
+        lastFlushErrorDescription = nil
+    }
+
     /// Encerra a sessão. Idempotente.
     public func retire() {
         isRetired = true

@@ -95,6 +95,20 @@ enum LaunchConfiguration {
         return SystemMusicArtworkFetcher()
     }
 
+    /// De onde vem o iCloud: nos testes de interface, o iCloud falso, em memória; com o entitlement de CloudKit, o de verdade; no
+    /// resto, nenhum. Sem o entitlement o app nem cria `CKContainer` (criá-lo encerra o app). O app aberto só para hospedar os
+    /// testes unitários (`XCTestConfigurationFilePath`) fica sem sincronização: com o entitlement, ele tocaria a conta iCloud real
+    /// de quem roda os testes. Os testes do controlador o criam por conta própria, com o iCloud falso.
+    static func cloudSync(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        hasCloudKitEntitlement: Bool = CloudAvailability.hasCloudKitEntitlement
+    ) -> CloudSyncMode {
+        if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return .inMemory }
+        guard environment["XCTestConfigurationFilePath"] == nil else { return .off }
+        return hasCloudKitEntitlement ? .cloudKit : .off
+    }
+
     /// Se o detalhe de um link carrega a página de verdade: nos testes de interface, não; ele mostra uma página
     /// local de exemplo (`FixtureLinkPage`), sem rede.
     static func loadsLivePages(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
