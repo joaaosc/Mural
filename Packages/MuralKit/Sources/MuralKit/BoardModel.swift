@@ -21,6 +21,7 @@ public final class BoardModel {
         didSet {
             boardRevision &+= 1
             rootItemsCache = nil
+            rootFolderItemsCache = nil
             freeTextsCache = nil
             rootItemSizesCache = nil
             freeTextSizesCache = nil
@@ -54,6 +55,7 @@ public final class BoardModel {
     @ObservationIgnored let persistence: Persistence
     @ObservationIgnored private var deferredDeletions: Set<String> = []
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
+    @ObservationIgnored private var rootFolderItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
     @ObservationIgnored private var rootItemSizesCache: [UUID: BoardSize]?
     @ObservationIgnored private var freeTextSizesCache: [UUID: BoardSize]?
@@ -121,6 +123,15 @@ public final class BoardModel {
         let rootItems = currentBoard.rootItems
         rootItemsCache = rootItems
         return rootItems
+    }
+
+    /// Pastas soltas no mural, memoizadas para que os menus de movimento não refiltrem
+    /// `rootItems` a cada cartão durante a mesma revisão do board.
+    private var rootFolderItems: [BoardItem] {
+        if let rootFolderItemsCache { return rootFolderItemsCache }
+        let folders = rootItems.filter { $0.kind == .folder }
+        rootFolderItemsCache = folders
+        return folders
     }
 
     public var freeTexts: [BoardFreeText] {
@@ -213,7 +224,7 @@ public final class BoardModel {
             for: id,
             moving: moving,
             byParent: folderChildrenByParent(for: currentBoard),
-            rootItems: rootItems)
+            rootFolderItems: rootFolderItems)
         if moving.kind != .folder {
             let parentID = moving.parentID
             if nonFolderFolderDestinationsCache.count >= Self.derivedCacheEntryLimit,

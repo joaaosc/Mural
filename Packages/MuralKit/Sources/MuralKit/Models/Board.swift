@@ -160,13 +160,27 @@ public struct Board: Codable, Equatable, Sendable {
         byParent: [UUID: [BoardItem]],
         rootItems: [BoardItem]
     ) -> [FolderDestination] {
+        folderDestinations(
+            for: id,
+            moving: moving,
+            byParent: byParent,
+            rootFolderItems: rootItems.filter { $0.kind == .folder })
+    }
+
+    /// Variante interna que reutiliza também as pastas raiz já filtradas pelo `BoardModel`.
+    func folderDestinations(
+        for id: UUID,
+        moving: BoardItem,
+        byParent: [UUID: [BoardItem]],
+        rootFolderItems: [BoardItem]
+    ) -> [FolderDestination] {
         guard moving.id == id else { return [] }
         // Níveis que a pasta movida ocupa com tudo que tem dentro; cartão que não é pasta não conta nível.
         let height = moving.kind == .folder ? folderHeight(of: id, byParent: byParent) : 0
         var destinations: [FolderDestination] = []
         var visited = Set<UUID>()
         // De cima para baixo, levando os títulos do caminho; não entra no próprio cartão.
-        var pending = rootItems.filter { $0.kind == .folder }.reversed().map { (folder: $0, parentPath: [String]()) }
+        var pending = rootFolderItems.reversed().map { (folder: $0, parentPath: [String]()) }
         while let (folder, parentPath) = pending.popLast() {
             guard folder.id != id, visited.insert(folder.id).inserted else { continue }
             let path = parentPath + [folder.title]
