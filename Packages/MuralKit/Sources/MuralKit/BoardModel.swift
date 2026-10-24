@@ -9,6 +9,8 @@ import StretchText
 @MainActor
 @Observable
 public final class BoardModel {
+    private static let derivedCacheEntryLimit = 16
+
     public enum Persistence: Sendable, Equatable {
         case immediate
         case deferred
@@ -19,7 +21,9 @@ public final class BoardModel {
             rootItemsCache = nil
             freeTextsCache = nil
             childrenCache.removeAll(keepingCapacity: true)
+            childrenCacheOrder.removeAll(keepingCapacity: true)
             folderDestinationsCache.removeAll(keepingCapacity: true)
+            folderDestinationsCacheOrder.removeAll(keepingCapacity: true)
         }
     }
     /// Última falha a mostrar ao usuário (importação, gravação, arquivo corrompido).
@@ -35,7 +39,9 @@ public final class BoardModel {
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
+    @ObservationIgnored private var childrenCacheOrder: [UUID] = []
     @ObservationIgnored private var folderDestinationsCache: [UUID: [FolderDestination]] = [:]
+    @ObservationIgnored private var folderDestinationsCacheOrder: [UUID] = []
 
     /// - Parameter seedIfEmpty: na primeira abertura, começa com o mural de exemplo.
     public init(store: BoardStore, seedIfEmpty: Bool = true, persistence: Persistence = .immediate) {
@@ -98,7 +104,12 @@ public final class BoardModel {
         let currentBoard = board
         if let cached = childrenCache[folderID] { return cached }
         let children = currentBoard.children(of: folderID)
+        if childrenCache.count >= Self.derivedCacheEntryLimit, let evicted = childrenCacheOrder.first {
+            childrenCache.removeValue(forKey: evicted)
+            childrenCacheOrder.removeFirst()
+        }
         childrenCache[folderID] = children
+        childrenCacheOrder.append(folderID)
         return children
     }
     public func item(id: UUID) -> BoardItem? { board.item(id: id) }
@@ -108,7 +119,12 @@ public final class BoardModel {
         let currentBoard = board
         if let cached = folderDestinationsCache[id] { return cached }
         let destinations = currentBoard.folderDestinations(for: id)
+        if folderDestinationsCache.count >= Self.derivedCacheEntryLimit, let evicted = folderDestinationsCacheOrder.first {
+            folderDestinationsCache.removeValue(forKey: evicted)
+            folderDestinationsCacheOrder.removeFirst()
+        }
         folderDestinationsCache[id] = destinations
+        folderDestinationsCacheOrder.append(id)
         return destinations
     }
     public func freeText(id: UUID) -> BoardFreeText? { board.freeText(id: id) }

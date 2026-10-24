@@ -47,7 +47,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
 - `397f9aa` e `c6f347d`: `ReminderPickerSheet` passou a filtrar e particionar lembretes numa única passagem por avaliação, e o resumo de conteúdo passou de uma varredura por tipo para uma contagem acumulada; a ordem e os textos foram preservados por testes.
 - `afabf76`: `BoardModel` passou a memoizar destinos de pasta para os menus e gestos que consultam vários cartões durante a mesma versão do mural; o cache é invalidado a cada mudança do board e os consumidores da UI passaram a usar esse caminho.
-- `BoardModel` também memoiza `rootItems`, `freeTexts` e `children(of:)` durante a mesma versão do mural; cada getter continua lendo `board` para preservar o rastreamento de observação do SwiftUI, e qualquer mutação invalida todos os derivados.
+- `BoardModel` também memoiza `rootItems`, `freeTexts` e `children(of:)` durante a mesma versão do mural; cada getter continua lendo `board` para preservar o rastreamento de observação do SwiftUI, qualquer mutação invalida todos os derivados e os caches por pasta ficam limitados a 16 entradas FIFO.
 - `MuralTests/PerformanceBaselineTests`: o cenário de Release passou a medir 200 consultas repetidas de destinos já memoizados e leituras repetidas de derivados do board, mantendo a preparação dos caches fora das janelas medidas.
 
 Evidências verificadas após as mudanças:
