@@ -43,6 +43,24 @@ struct BackgroundImportTests {
         #expect(model.lastError?.contains("sumiu.png") == true)
     }
 
+    @Test("Confirmar um lote posiciona os cartões raiz sem sobreposição")
+    func commitBatchPlacesRootItems() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = BoardModel(
+            board: Board(), store: BoardStore(directory: root.appendingPathComponent("Board.mural", isDirectory: true)),
+            persistence: .deferred)
+        let items = (0..<3).map { index in
+            BoardItem(kind: .image, title: "Imagem \(index)")
+        }
+
+        let created = model.commit(BoardModel.PreparedImport(items: items, failures: []))
+
+        #expect(created.count == items.count)
+        #expect(Set(created.map(\.position)).count == created.count)
+        #expect(model.board.items.map(\.id) == created.map(\.id))
+    }
+
     @Test("Pasta apagada durante a cópia: o conteúdo vai para o mural, nunca fica órfão")
     func commitFallsBackToRootWhenFolderVanished() async throws {
         let root = try directory()

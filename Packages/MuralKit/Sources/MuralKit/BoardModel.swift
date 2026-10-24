@@ -173,16 +173,17 @@ public final class BoardModel {
     /// Arquivos que falham são pulados e relatados em `lastError`.
     @discardableResult
     public func importFiles(_ urls: [URL], into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
-        var created: [BoardItem] = []
+        var imported: [BoardItem] = []
         var failures: [String] = []
         for url in urls {
             do {
                 let item = try importer.importFile(at: url, parentID: parentID)
-                created.append(insert(item, anchor: anchor))
+                imported.append(item)
             } catch {
                 failures.append(url.lastPathComponent)
             }
         }
+        let created = insertBatch(imported, anchor: anchor)
         if !failures.isEmpty {
             lastError = "Não foi possível importar: \(failures.joined(separator: ", "))."
         }
@@ -271,11 +272,13 @@ public final class BoardModel {
     @discardableResult
     public func commit(_ prepared: PreparedImport, into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
         let folderExists = parentID.map { board.item(id: $0)?.kind == .folder } ?? true
-        var created: [BoardItem] = []
-        for var item in prepared.items {
-            if !folderExists { item.parentID = nil }
-            created.append(insert(item, anchor: anchor))
+        var items = prepared.items
+        if !folderExists {
+            for index in items.indices {
+                items[index].parentID = nil
+            }
         }
+        let created = insertBatch(items, anchor: anchor)
         if !prepared.failures.isEmpty {
             lastError = "Não foi possível importar: \(prepared.failures.joined(separator: ", "))."
         }
@@ -826,17 +829,23 @@ public final class BoardModel {
 
     /// Cartões soltos no mural ganham uma posição livre; os de pasta não precisam.
     func insert(_ item: BoardItem, anchor: BoardPoint? = nil) -> BoardItem {
-        var placed = item
-        if placed.parentID == nil {
-            if let anchor {
-                let positions = BoardLayout.importPositions(
-                    kinds: [placed.kind], anchor: anchor, avoiding: board.rootItems)
-                placed.position = positions[0]
-            } else {
-                placed.position = BoardLayout.freePosition(for: placed.kind, avoiding: board.rootItems)
+        insertBatch([item], anchor: anchor)[0]
+    }
+
+    /// Insere um lote calculando as vagas livres uma única vez contra o snapshot atual dos cartões raiz.
+    /// Itens que já pertencem a uma pasta não participam do posicionamento do mural.
+    func insertBatch(_ items: [BoardItem], anchor: BoardPoint? = nil) -> [BoardItem] {
+        guard !items.isEmpty else { return [] }
+        var placed = items
+        let rootIndices = placed.indices.filter { placed[$0].parentID == nil }
+        if !rootIndices.isEmpty {
+            let positions = BoardLayout.importPositions(
+                kinds: rootIndices.map { placed[$0].kind }, anchor: anchor, avoiding: board.rootItems)
+            for (index, position) in zip(rootIndices, positions) {
+                placed[index].position = position
             }
         }
-        board.add(placed)
+        for item in placed { board.add(item) }
         return placed
     }
 

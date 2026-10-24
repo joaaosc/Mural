@@ -118,4 +118,16 @@ final class PerformanceBaselineTests: XCTestCase {
 
         XCTAssertEqual(foundCount, ids.count)
     }
+
+    func testBatchImportPositioningPerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let kinds = Array(repeating: ItemKind.image, count: 200)
+        var positions: [BoardPoint] = []
+
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            positions = BoardLayout.importPositions(kinds: kinds, anchor: nil, avoiding: board.rootItems)
+        }
+
+        XCTAssertEqual(positions.count, kinds.count)
+    }
 }
