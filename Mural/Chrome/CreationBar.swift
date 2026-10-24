@@ -13,6 +13,7 @@ struct CreationBar: View {
     /// `nil` quando não dá para criar pasta ali (por exemplo, no último nível de pastas).
     var onNewFolder: (() -> Void)? = nil
     var onAddFiles: () -> Void
+    var onAddPhotos: () -> Void = {}
     var onAddReminders: () -> Void = {}
 
     var body: some View {
@@ -31,6 +32,9 @@ struct CreationBar: View {
             }
             Button("Arquivos…", systemImage: "paperclip", action: onAddFiles)
                 .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
+            Button("Fotos…", systemImage: "photo.on.rectangle", action: onAddPhotos)
+                .accessibilityLabel("Adicionar fotos e vídeos do app Fotos")
+                .help("Adicionar fotos e vídeos do app Fotos")
             Button("Lembretes…", systemImage: "checklist.checked", action: onAddReminders)
                 .help("Adicionar lembretes do app Lembretes")
         }

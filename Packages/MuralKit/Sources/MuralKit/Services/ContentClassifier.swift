@@ -10,11 +10,25 @@ public enum ContentClassifier {
     /// Classifica um arquivo pelo tipo uniforme (UTType) da extensão.
     public static func kind(forFileAt url: URL) -> ItemKind? {
         guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
+        return kind(for: type)
+    }
+
+    /// Classifies a file using an explicit uniform type. This is the preferred
+    /// path for providers such as PhotosPicker, whose temporary file name is
+    /// not a reliable source of content type information.
+    public static func kind(for type: UTType) -> ItemKind? {
         if type.conforms(to: .image) { return .image }
         if type.conforms(to: .movie) { return .video }
         if type.conforms(to: .pdf) { return .pdf }
         if type.conforms(to: .plainText) { return .text }
         return nil
+    }
+
+    /// Returns a safe extension for a supported type. The provider's original
+    /// filename is used only as a fallback when the type has no preferred one.
+    public static func preferredFileExtension(for type: UTType) -> String? {
+        guard kind(for: type) != nil else { return nil }
+        return type.preferredFilenameExtension
     }
 
     /// Classifica texto colado: lista, post-it ou nota.

@@ -1,6 +1,7 @@
 import AppKit
 import MuralKit
 import MusicKit
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -31,6 +32,8 @@ private struct LoadedRootView: View {
     @State private var boardNameDraft = ""
     @State private var isNewFolderPresented = false
     @State private var isReminderPickerPresented = false
+    @State private var isPhotoPickerPresented = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var freeTextEditor: BoardFreeTextEditorRequest?
     @State private var folderNameDraft = ""
     /// Cartão esperando o nome novo (Renomear… no menu dele).
@@ -206,6 +209,17 @@ private struct LoadedRootView: View {
             allowsMultipleSelection: true
         ) { result in
             importFilesResult(result)
+        }
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $selectedPhotoItems,
+            matching: .any(of: [.images, .videos]),
+            preferredItemEncoding: .current
+        )
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            selectedPhotoItems = []
+            Task { await session.importPhotos(items) }
         }
         .onChange(of: session.actions.request) { _, request in
             guard let request else { return }
@@ -470,6 +484,10 @@ private struct LoadedRootView: View {
                         onNewFreeText: newFreeTextAction,
                         onNewFolder: newFolderAction,
                         onAddFiles: { session.beginFileImport(folderID: currentFolderID) },
+                        onAddPhotos: {
+                            session.beginPhotoImport(folderID: currentFolderID)
+                            isPhotoPickerPresented = true
+                        },
                         onAddReminders: { isReminderPickerPresented = true })
                 }
             }

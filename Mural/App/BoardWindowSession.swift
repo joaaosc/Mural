@@ -1,5 +1,6 @@
 import MuralKit
 import Observation
+import PhotosUI
 import StretchText
 import SwiftUI
 import os
@@ -586,6 +587,19 @@ final class BoardWindowSession {
         isImporterPresented = true
     }
 
+    /// Captures the same destination contract for the Photos picker. The
+    /// picker may outlive the current folder view, so its result is never
+    /// routed using `currentFolderID` after presentation.
+    func beginPhotoImport(folderID: UUID? = nil) {
+        guard !isClosed else { return }
+        importDestination = BoardImportDestination(
+            route: route,
+            boardID: boardID,
+            presentationEpoch: presentationEpoch,
+            folderID: folderID,
+            anchor: visibleBoardAnchor)
+    }
+
     /// Invalidates callbacks belonging to a panel/session that is no longer
     /// current without coupling that decision to autosave revisions.
     func invalidatePresentation() {
@@ -620,6 +634,99 @@ final class BoardWindowSession {
             return
         }
         model.commit(prepared, into: destination.folderID, at: destination.anchor)
+        captureBoardIfNeeded()
+    }
+
+    /// Loads selected PhotosPicker items through file-backed transfer, stages
+    /// them inside the app container, then commits typed files in selection
+    /// order. A failed item is reported while successful items remain usable.
+    func importPhotos(_ items: [PhotosPickerItem]) async {
+        guard !items.isEmpty, let destination = importDestination else { return }
+        importDestination = nil
+        isImporterPresented = false
+        guard destination.route == route,
+            destination.boardID == boardID,
+            destination.presentationEpoch == presentationEpoch,
+            let model
+        else {
+            error = "A importação foi descartada porque o mural mudou enquanto o seletor estava aberto."
+            return
+        }
+        guard destination.folderID.map({ model.item(id: $0)?.kind == .folder }) ?? true else {
+            error = "A pasta selecionada não existe mais neste mural."
+            return
+        }
+
+        let operationID = UUID()
+        let stagingDirectory: URL
+        do {
+            stagingDirectory = try PhotoImportStaging.directory(for: operationID)
+        } catch {
+            model.lastError = "Não foi possível preparar a importação de Fotos."
+            return
+        }
+        defer { PhotoImportStaging.remove(stagingDirectory) }
+
+        var stagedFiles: [BoardModel.TypedFile] = []
+        var failures: [String] = []
+        for (index, pickerItem) in items.enumerated() {
+            do {
+                try Task.checkCancellation()
+                guard
+                    let contentType = pickerItem.supportedContentTypes.first(where: {
+                        ContentClassifier.kind(for: $0) == .image || ContentClassifier.kind(for: $0) == .video
+                    })
+                else {
+                    failures.append("Item \(index + 1)")
+                    continue
+                }
+                guard let loaded = try await pickerItem.loadTransferable(type: PhotoPickerFile.self) else {
+                    failures.append("Item \(index + 1)")
+                    continue
+                }
+                try Task.checkCancellation()
+                let stagedURL = try await PhotoImportStaging.copy(
+                    loaded.fileURL,
+                    to: stagingDirectory,
+                    index: index,
+                    contentTypeIdentifier: contentType.identifier)
+                let kind = ContentClassifier.kind(for: contentType)
+                let title = kind == .video ? "Vídeo" : "Foto"
+                stagedFiles.append(
+                    BoardModel.TypedFile(
+                        url: stagedURL,
+                        contentTypeIdentifier: contentType.identifier,
+                        title: title))
+            } catch is CancellationError {
+                return
+            } catch {
+                failures.append("Item \(index + 1)")
+            }
+        }
+
+        guard !Task.isCancelled else { return }
+        guard !isClosed,
+            boardID == destination.boardID,
+            presentationEpoch == destination.presentationEpoch,
+            let model = self.model
+        else {
+            return
+        }
+        let prepared = await model.prepareTypedFiles(stagedFiles, parentID: destination.folderID)
+        guard !isClosed,
+            boardID == destination.boardID,
+            presentationEpoch == destination.presentationEpoch
+        else {
+            model.discard(prepared)
+            return
+        }
+        _ = withAnimation(.smooth) {
+            model.commit(prepared, into: destination.folderID, at: destination.anchor)
+        }
+        let allFailures = failures + prepared.failures
+        if !allFailures.isEmpty {
+            model.lastError = "Não foi possível importar: \(allFailures.joined(separator: ", "))."
+        }
         captureBoardIfNeeded()
     }
 

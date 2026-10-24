@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// Copia conteúdo colado ou arrastado para a pasta de itens e cria o cartão correspondente.
 ///
@@ -45,6 +46,42 @@ public struct ItemImporter: Sendable {
         if kind == .image {
             item.imageMetadata = ImageInspector.inspect(itemsDirectory.appendingPathComponent(fileName))
         }
+        return item
+    }
+
+    /// Imports a file with an explicit uniform type. This keeps providers with
+    /// opaque temporary names from being classified by a suffix alone.
+    public func importFile(
+        at source: URL,
+        contentTypeIdentifier: String,
+        title: String? = nil,
+        parentID: UUID? = nil
+    ) throws -> BoardItem {
+        guard fileManager.fileExists(atPath: source.path) else { throw ImportError.fileNotFound(source) }
+        guard let type = UTType(identifier: contentTypeIdentifier, allowUndeclared: false),
+            let kind = ContentClassifier.kind(for: type),
+            let fileExtension = ContentClassifier.preferredFileExtension(for: type)
+        else { throw ImportError.unsupportedType(contentTypeIdentifier) }
+
+        let id = UUID()
+        let fileName = "\(id.uuidString).\(fileExtension.lowercased())"
+        try fileManager.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
+        let destination = itemsDirectory.appendingPathComponent(fileName)
+        do {
+            try fileManager.copyItem(at: source, to: destination)
+        } catch {
+            try? fileManager.removeItem(at: destination)
+            throw error
+        }
+
+        var item = BoardItem(
+            id: id,
+            kind: kind,
+            title: title ?? source.deletingPathExtension().lastPathComponent,
+            parentID: parentID,
+            fileName: fileName
+        )
+        if kind == .image { item.imageMetadata = ImageInspector.inspect(destination) }
         return item
     }
 

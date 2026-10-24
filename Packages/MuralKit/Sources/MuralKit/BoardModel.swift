@@ -133,10 +133,30 @@ public final class BoardModel {
         public let failures: [String]
     }
 
+    /// A file whose content type was supplied by the provider rather than
+    /// inferred from a temporary filename.
+    public struct TypedFile: Sendable, Equatable {
+        public let url: URL
+        public let contentTypeIdentifier: String
+        public let title: String?
+
+        public init(url: URL, contentTypeIdentifier: String, title: String? = nil) {
+            self.url = url
+            self.contentTypeIdentifier = contentTypeIdentifier
+            self.title = title
+        }
+    }
+
     /// Copia os arquivos e inspeciona as imagens fora do Main Actor: um vídeo grande
     /// não congela a janela. Nada entra no board até `commit(_:into:)`.
     public func prepareFiles(_ urls: [URL], parentID: UUID? = nil) async -> PreparedImport {
         await Self.copyFiles(urls, parentID: parentID, importer: importer)
+    }
+
+    /// Copies files whose uniform type is already known, preserving the
+    /// provider's classification through staging and commit.
+    public func prepareTypedFiles(_ files: [TypedFile], parentID: UUID? = nil) async -> PreparedImport {
+        await Self.copyTypedFiles(files, parentID: parentID, importer: importer)
     }
 
     /// Grava dados colados (imagem, PDF) fora do Main Actor.
@@ -212,6 +232,29 @@ public final class BoardModel {
                 items.append(try importer.importFile(at: url, parentID: parentID))
             } catch {
                 failures.append(url.lastPathComponent)
+            }
+        }
+        return PreparedImport(items: items, failures: failures)
+    }
+
+    @concurrent
+    private nonisolated static func copyTypedFiles(
+        _ files: [TypedFile], parentID: UUID?, importer: ItemImporter
+    ) async -> PreparedImport {
+        let signpost = MuralSignposts.importing.beginInterval("Copiar arquivos tipados")
+        defer { MuralSignposts.importing.endInterval("Copiar arquivos tipados", signpost) }
+        var items: [BoardItem] = []
+        var failures: [String] = []
+        for file in files {
+            do {
+                items.append(
+                    try importer.importFile(
+                        at: file.url,
+                        contentTypeIdentifier: file.contentTypeIdentifier,
+                        title: file.title,
+                        parentID: parentID))
+            } catch {
+                failures.append(file.title ?? file.url.lastPathComponent)
             }
         }
         return PreparedImport(items: items, failures: failures)

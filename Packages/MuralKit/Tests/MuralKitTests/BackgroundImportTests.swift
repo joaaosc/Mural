@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import MuralKit
 
@@ -76,5 +77,24 @@ struct BackgroundImportTests {
         model.discard(prepared)
         #expect(!FileManager.default.fileExists(atPath: file.path))
         #expect(model.board.items.isEmpty)
+    }
+
+    @Test("Importação tipada não depende da extensão do arquivo temporário")
+    func typedImportUsesUniformType() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = BoardModel(
+            board: Board(), store: BoardStore(directory: root.appendingPathComponent("Board.mural", isDirectory: true)),
+            persistence: .deferred)
+        let source = try source(in: root, named: "provider-temporary-name", bytes: 16)
+        let prepared = await model.prepareTypedFiles([
+            BoardModel.TypedFile(url: source, contentTypeIdentifier: UTType.heic.identifier, title: "Foto")
+        ])
+
+        let item = try #require(prepared.items.first)
+        #expect(item.kind == .image)
+        #expect(item.title == "Foto")
+        #expect(item.fileName?.hasSuffix(".heic") == true)
+        #expect(model.commit(prepared).count == 1)
     }
 }
