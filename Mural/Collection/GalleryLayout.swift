@@ -48,9 +48,14 @@ struct GalleryLayout: Layout {
     }
 
     private func makeArrangement(width: CGFloat, subviews: Subviews) -> GalleryArrangement {
-        GalleryArrangement(width: width, lanes: subviews.map { $0[GalleryLaneKey.self] }, metrics: metrics) { index, columnWidth in
-            subviews[index].sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height
-        }
+        GalleryArrangement(
+            width: width,
+            laneCount: subviews.count,
+            laneAt: { index in subviews[index][GalleryLaneKey.self] },
+            metrics: metrics,
+            heightForWidth: { index, columnWidth in
+                subviews[index].sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height
+            })
     }
 }
 
