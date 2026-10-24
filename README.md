@@ -48,6 +48,11 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   ⌘B e ⌘I, no menu Formatar. As tarefas (`- [ ]`) marcam e desmarcam com um clique na página
   da nota, sem mudar as frases curtas nem fechar os parágrafos abertos.
 - **Sticker** (post-it): texto curto sobre papel colorido, com as cinco cores na edição.
+- **Mudar o tamanho** de um sticker ou de um texto livre solto no mural: arrastar o canto inferior
+  direito (a alça aparece com o ponteiro em cima; Shift mantém a proporção) ou o menu do botão
+  direito › Tamanho (Pequeno, Médio, Grande, Muito grande ou o padrão). A letra cresce junto. Dentro
+  de uma pasta o sticker volta ao tamanho das colunas e guarda o dele para quando sair. Murais com
+  algum tamanho escolhido usam a versão 11 do formato.
 - **Leitura dobrável**: no corpo das notas e no texto de abertura das listas, cada parágrafo
   de duas frases ou mais mostra só uma frase até ser clicado, e abre no lugar
   ([StretchText](../Workbench/StretchText)). A miniatura do card mostra só as frases curtas.
@@ -147,14 +152,23 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
 - **Ícone do Mural na barra de menus**, enquanto o app está aberto (mesmo sem janela): abre um painel
   de vidro com a **vitrine dos murais**, em 3D como o Cover Flow, com reflexo. Cada capa mostra o mural
-  inteiro, desenhada com os próprios cartões. O centro começa no último mural usado pelo painel; senão,
-  no da aba ativa; senão, no editado por último. ← → ou dois dedos trocam de mural, e digitar letras
-  procura pelo nome. Visualizar › Abrir Painel de Murais abre o mesmo painel no meio da tela.
-- **Colar sem abrir a janela**: a seção "Copiado" mostra o que está na área de transferência e as
-  formas de colar, as mesmas do ⌘V: Sticker, Card de texto ou Lista para texto; link, imagem, PDF,
-  arquivos e música como eles são. Return ou ⌘V colam no mural do centro, no ponto em que você parou
-  nele (↑ ↓ escolhem a forma); a capa se atualiza e o painel fecha. Clicar na capa do centro, ⌘↩ ou
-  "Abrir mural" abrem o mural no app.
+  inteiro, desenhada com os próprios cartões; as laterais ficam levemente apagadas, e a do centro é a
+  escolhida. O centro começa no último mural usado pelo painel; senão, no da aba ativa; senão, no
+  editado por último. ← → ou dois dedos trocam de mural, digitar letras procura pelo nome e Return
+  abre o mural do centro. Visualizar › Abrir Painel de Murais abre o mesmo painel no meio da tela.
+- **⌘` de qualquer app** abre e fecha o painel (outra combinação, ou nenhuma, nos Ajustes). Com dois
+  Mural abertos, só o que mostra o ícone responde ao atalho.
+- **Arrastar o painel** pelo fundo o muda de lugar, e ele reabre ali; nos Ajustes dá para desligar
+  isso ou voltar o painel para junto do ícone.
+- **Colar sem abrir a janela**, em etapas: o painel abre na vitrine, sem nenhuma forma de colar
+  escolhida, e a linha "Copiado" mostra o que está na área de transferência. **Tab** mostra as formas
+  de colar, as mesmas do ⌘V (Sticker, Card de texto ou Lista para texto; link, imagem, PDF, arquivos e
+  música como eles são), com ↑ ↓ para escolher e Return para colar. Com texto, **outro Tab** mostra a
+  formatação antes de colar: como está, limpar espaços, juntar linhas, lista com marcadores, lista de
+  tarefas, minúsculas ou MAIÚSCULAS, com a prévia do resultado. ⇧Tab volta uma etapa e Esc volta à
+  vitrine (nela, fecha o painel). ⌘V cola direto, em qualquer etapa, com o que estiver escolhido. O
+  cartão entra no mural do centro, a capa se atualiza e o painel fecha. Clicar na capa do centro, ⌘↩
+  ou "Abrir mural" abrem o mural no app.
 - **Privacidade**: ao abrir, o painel só vê o tipo do que foi copiado, sem ler o conteúdo, e o macOS
   não pergunta nada. O conteúdo é lido na hora de colar: pelo ⌘V, sempre sem pergunta; pelo Return,
   o macOS pode pedir licença até o Mural ter permissão de colar nos Ajustes do Sistema (Privacidade e
@@ -167,9 +181,10 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   menus; abrir um mural pelo painel (ou o app pelo Finder) traz a janela, o Dock e os menus de volta.
   Com mais de um Mural aberto (o instalado e uma cópia de desenvolvimento), só um mostra o ícone: o de
   Aplicativos e, entre cópias, o aberto há mais tempo.
-- **Abrir ao Iniciar Sessão**, no menu "Mais opções" do painel e no menu Mural (começa desligado):
-  aberto assim, o Mural fica só na barra de menus, sem janela. Se o macOS pedir, "Permitir nos Ajustes
-  do Sistema…" leva aos Itens de Início de Sessão.
+- **Ajustes** (a engrenagem do painel, ⌘, ou Mural › Ajustes…): na aba Geral, **Abrir ao Iniciar
+  Sessão** (começa desligado; também no menu Mural), com o qual o Mural fica só na barra de menus, sem
+  janela, e **Sair do Mural**; na aba Painel, o atalho e o lugar do painel. Se o macOS pedir,
+  "Permitir nos Ajustes do Sistema…" leva aos Itens de Início de Sessão.
 
 ## Requisitos
 
