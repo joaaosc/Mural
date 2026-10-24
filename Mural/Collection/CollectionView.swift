@@ -44,9 +44,9 @@ struct CollectionView: View {
     var body: some View {
         let children = model.children(of: folder.id)
         // Os cartões das colunas: tudo, menos os post-its largados num lugar livre da pasta.
-        let columnItems = children.filter { !$0.isPlacedInFolder }
-        // Os post-its soltos, na ordem da lista: o último fica por cima.
-        let placedStickies = model.board.placedStickies(in: folder.id)
+        // Os post-its soltos são derivados da mesma lista já memoizada: não percorremos o board inteiro
+        // nem fazemos uma segunda filtragem independente para descobrir os dois grupos.
+        let (columnItems, placedStickies) = splitChildren(children)
         let isDraggingFromColumns =
             stickyDrag.map { drag in
                 columnItems.contains { $0.id == drag.id }
@@ -125,6 +125,21 @@ struct CollectionView: View {
             if let token = presentationToken { _ = session?.finishReadingRestore(token: token) }
         }
         .accessibilityHidden(restoring)
+    }
+
+    private func splitChildren(_ children: [BoardItem]) -> (columnItems: [BoardItem], placedStickies: [BoardItem]) {
+        var columnItems: [BoardItem] = []
+        var placedStickies: [BoardItem] = []
+        columnItems.reserveCapacity(children.count)
+        placedStickies.reserveCapacity(children.count)
+        for child in children {
+            if child.isPlacedInFolder {
+                placedStickies.append(child)
+            } else {
+                columnItems.append(child)
+            }
+        }
+        return (columnItems, placedStickies)
     }
 
     private func card(for item: BoardItem, columnItems: [BoardItem]) -> some View {
