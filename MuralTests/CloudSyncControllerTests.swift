@@ -560,14 +560,20 @@ struct CloudSyncControllerTests {
 
     // MARK: Configuração
 
-    @Test("A configuração: iCloud falso nos testes de interface, o de verdade só com o entitlement, senão nenhum")
+    @Test("A configuração: iCloud falso nos testes de interface, o de verdade só com o entitlement e fora dos testes unitários")
     func launchConfigurationChoosesTheCloud() {
-        #expect(LaunchConfiguration.cloudSync(arguments: ["-uiTesting"], hasCloudKitEntitlement: false) == .inMemory)
-        #expect(LaunchConfiguration.cloudSync(arguments: ["-uiTestingKeep"], hasCloudKitEntitlement: false) == .inMemory)
-        #expect(LaunchConfiguration.cloudSync(arguments: ["-uiTesting"], hasCloudKitEntitlement: true) == .inMemory)
-        #expect(LaunchConfiguration.cloudSync(arguments: [], hasCloudKitEntitlement: true) == .cloudKit)
-        #expect(LaunchConfiguration.cloudSync(arguments: [], hasCloudKitEntitlement: false) == .off)
-        #expect(LaunchConfiguration.cloudSync(arguments: ["-manualTesting"], hasCloudKitEntitlement: false) == .off)
+        let plain: [String: String] = [:]
+        let unitTests = ["XCTestConfigurationFilePath": "/tmp/config.xctestconfiguration"]
+        #expect(LaunchConfiguration.cloudSync(arguments: ["-uiTesting"], environment: plain, hasCloudKitEntitlement: false) == .inMemory)
+        #expect(
+            LaunchConfiguration.cloudSync(arguments: ["-uiTestingKeep"], environment: plain, hasCloudKitEntitlement: false) == .inMemory)
+        #expect(LaunchConfiguration.cloudSync(arguments: ["-uiTesting"], environment: plain, hasCloudKitEntitlement: true) == .inMemory)
+        #expect(LaunchConfiguration.cloudSync(arguments: [], environment: plain, hasCloudKitEntitlement: true) == .cloudKit)
+        #expect(LaunchConfiguration.cloudSync(arguments: [], environment: plain, hasCloudKitEntitlement: false) == .off)
+        #expect(LaunchConfiguration.cloudSync(arguments: ["-manualTesting"], environment: plain, hasCloudKitEntitlement: false) == .off)
+        #expect(
+            LaunchConfiguration.cloudSync(arguments: [], environment: unitTests, hasCloudKitEntitlement: true) == .off,
+            "o app que hospeda os testes unitários não toca a conta iCloud real")
     }
 
     @Test("O entitlement vale só se a lista de serviços do iCloud traz CloudKit")
