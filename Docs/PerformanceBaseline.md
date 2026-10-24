@@ -45,6 +45,9 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `BoardCanvasView`: durante um arraste, a lista de pastas raiz aceitas é filtrada uma vez no início do gesto e reutilizada nos eventos seguintes, sem alterar o cálculo de destino de `BoardLayout`.
 - `BoardModel.rootExtent`: a extensão ocupada pelo mural solto é memoizada por versão do `board`; `BoardCanvasView` e o ajuste à janela reutilizam o valor sem varrer cartões em cada avaliação.
 - `BoardModel.item(id:)`: o lookup passou a usar um índice lazy de UUID para a versão atual do `board`, preservando a primeira ocorrência em dados duplicados e invalidando o índice em qualquer mutação.
+- `BoardModel.freeText(id:)`: o lookup de textos livres passou a usar um índice lazy de UUID para a versão atual do `board`, reduzindo o custo dos eventos repetidos de redimensionamento e preservando a primeira ocorrência em dados duplicados.
+- Lookups internos de cartões em atualizações de notas, lembretes, música, links, captions, tags e movimentação passaram a reutilizar o índice de cartões do modelo.
+- `BoardModel.musicItems`: a coleção derivada passou a ser memoizada por versão do `board`, com invalidação junto dos demais caches.
 - `BoardModel.reminderItems`: a filtragem de lembretes também é memoizada por versão do `board`, preservando a ordem original e a invalidação junto dos demais derivados.
 - `BoardModel.insertBatch`: importações de arquivos preparados e de lotes agora calculam as posições livres uma vez contra o snapshot dos cartões raiz, em vez de refiltrar o mural a cada item.
 - `80992e4`: o target `MuralTests` passou a linkar o produto `StretchText` que os próprios testes importam, permitindo validar os testes focados.
