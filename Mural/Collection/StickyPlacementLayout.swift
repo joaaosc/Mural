@@ -36,14 +36,14 @@ struct StickyPlacementLayout: Layout {
             frames = cache.frames
         } else {
             frames = self.frames(width: bounds.width, subviews: subviews)
+            cache.frames = frames
+            cache.width = bounds.width
         }
         for (subview, frame) in zip(subviews, frames) {
             subview.place(
                 at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
                 proposal: ProposedViewSize(width: frame.width, height: frame.height))
         }
-        cache.frames.removeAll(keepingCapacity: true)
-        cache.width = nil
     }
 
     private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {

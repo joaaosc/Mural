@@ -34,16 +34,14 @@ struct GalleryLayout: Layout {
             arrangement = cached
         } else {
             arrangement = makeArrangement(width: bounds.width, subviews: subviews)
+            cache.arrangement = arrangement
+            cache.width = bounds.width
         }
         for (subview, frame) in zip(subviews, arrangement.frames) {
             subview.place(
                 at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
                 proposal: ProposedViewSize(width: frame.width, height: frame.height))
         }
-        // O cache é intencionalmente só do par medida-posicionamento: mudanças de conteúdo
-        // não podem reaproveitar uma geometria de outro ciclo.
-        cache.arrangement = nil
-        cache.width = nil
     }
 
     private func makeArrangement(width: CGFloat, subviews: Subviews) -> GalleryArrangement {
