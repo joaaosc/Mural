@@ -27,14 +27,22 @@ nonisolated struct MarqueeSelection: Equatable, Sendable {
         let rect = rect
         guard rect.width > 0, rect.height > 0 else { return [] }
         var result: Set<UUID> = []
-        for (id, frame) in frames where frame.intersects(rect) {
-            result.insert(id)
-        }
+        insertHits(in: frames, rect: rect, into: &result)
         return result
     }
 
     /// O que fica marcado: a base mais os cartões cruzados.
     func selection(in frames: [UUID: CGRect]) -> Set<UUID> {
-        base.union(hits(in: frames))
+        var result = base
+        let rect = rect
+        guard rect.width > 0, rect.height > 0 else { return result }
+        insertHits(in: frames, rect: rect, into: &result)
+        return result
+    }
+
+    private func insertHits(in frames: [UUID: CGRect], rect: CGRect, into result: inout Set<UUID>) {
+        for (id, frame) in frames where frame.intersects(rect) {
+            result.insert(id)
+        }
     }
 }
