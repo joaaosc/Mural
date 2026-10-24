@@ -714,11 +714,19 @@ final class BoardWindowSession {
                         ContentClassifier.kind(for: $0) == .image || ContentClassifier.kind(for: $0) == .video
                     })
                 else {
-                    failures.append("Item \(index + 1)")
+                    PhotoImportDiagnostics.log.error(
+                        "Item \(index + 1, privacy: .public): sem tipo de imagem ou vídeo em \(pickerItem.supportedContentTypes.map(\.identifier).joined(separator: ","), privacy: .public)"
+                    )
+                    failures.append(PhotoImportDiagnostics.label(forItemAt: index, reason: .unsupportedType))
                     continue
                 }
+                PhotoImportDiagnostics.log.info(
+                    "Item \(index + 1, privacy: .public): carregando \(contentType.identifier, privacy: .public)")
                 guard let loaded = try await pickerItem.loadTransferable(type: PhotoPickerFile.self) else {
-                    failures.append("Item \(index + 1)")
+                    PhotoImportDiagnostics.log.error(
+                        "Item \(index + 1, privacy: .public): loadTransferable devolveu nil para \(contentType.identifier, privacy: .public)"
+                    )
+                    failures.append(PhotoImportDiagnostics.label(forItemAt: index, reason: .noRepresentation))
                     continue
                 }
                 PhotoImportCleanup.register(loaded.fileURL)
@@ -754,7 +762,11 @@ final class BoardWindowSession {
             } catch is CancellationError {
                 return
             } catch {
-                failures.append("Item \(index + 1)")
+                let reason = PhotoImportDiagnostics.reason(for: error)
+                PhotoImportDiagnostics.log.error(
+                    "Item \(index + 1, privacy: .public) falhou (\(String(describing: reason), privacy: .public)): \(PhotoImportDiagnostics.describe(error), privacy: .public) | tipos: \(pickerItem.supportedContentTypes.map(\.identifier).joined(separator: ","), privacy: .public) | \(String(describing: error), privacy: .public)"
+                )
+                failures.append(PhotoImportDiagnostics.label(forItemAt: index, reason: reason))
             }
         }
 

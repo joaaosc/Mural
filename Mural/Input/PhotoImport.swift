@@ -1,6 +1,7 @@
 import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
+import os
 
 /// File-backed representation used by PhotosPicker. The picker supplies a
 /// temporary URL; the session copies it into its own staging directory before
@@ -11,11 +12,27 @@ struct PhotoPickerFile: Transferable, Sendable {
     nonisolated static let transferRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("MuralPhotoPickerTransfers", isDirectory: true)
 
+    /// The picker's item provider registers the photo under its concrete type
+    /// (e.g. `public.jpeg`) and fails a request for the generic `public.image`
+    /// with "No loader block available". CoreTransferable asks for the
+    /// representation's declared type, so concrete types come first and the
+    /// generic ones remain only as a fallback for formats not listed here.
+    /// `TransferRepresentationBuilder` accepts at most 10 representations.
     static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(importedContentType: .image, shouldAttemptToOpenInPlace: false) { received in
-            try Self(copying: received.file)
-        }
-        FileRepresentation(importedContentType: .movie, shouldAttemptToOpenInPlace: false) { received in
+        imported(.jpeg)
+        imported(.heic)
+        imported(.heif)
+        imported(.png)
+        imported(.gif)
+        imported(.rawImage)
+        imported(.image)
+        imported(.quickTimeMovie)
+        imported(.mpeg4Movie)
+        imported(.movie)
+    }
+
+    private static func imported(_ type: UTType) -> FileRepresentation<PhotoPickerFile> {
+        FileRepresentation(importedContentType: type, shouldAttemptToOpenInPlace: false) { received in
             try Self(copying: received.file)
         }
     }
@@ -28,6 +45,71 @@ struct PhotoPickerFile: Transferable, Sendable {
         let destination = directory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.copyItem(at: source, to: destination)
         self.fileURL = destination
+    }
+}
+
+/// Classifies and logs failures of a PhotosPicker transfer. The system reports
+/// most of them as opaque errors (`PHPhotosErrorDomain -1`,
+/// `NSItemProvider.errorDomain -1000`), so the full error chain goes to the log
+/// while the user sees a short, actionable reason.
+enum PhotoImportDiagnostics {
+    nonisolated static let log = Logger(subsystem: "com.joaocosta.Mural", category: "Fotos")
+
+    nonisolated enum Reason: Equatable, Sendable {
+        case unsupportedType
+        case noRepresentation
+        case photosUnavailable
+        case outOfSpace
+        case other
+    }
+
+    nonisolated static func reason(for error: Error) -> Reason {
+        let chain = errorChain(error)
+        if chain.contains(where: isOutOfSpace) { return .outOfSpace }
+        if chain.contains(where: { $0.domain == "PHPhotosErrorDomain" || $0.domain == NSItemProvider.errorDomain }) {
+            return .photosUnavailable
+        }
+        if chain.contains(where: { $0.domain.hasPrefix("CoreTransferable.TransferableSupportError") }) {
+            return .noRepresentation
+        }
+        return .other
+    }
+
+    /// Text added to the failed item in the "Não foi possível importar" banner.
+    /// It always starts with "Item N" so the position in the selection stays visible.
+    nonisolated static func label(forItemAt index: Int, reason: Reason) -> String {
+        let item = "Item \(index + 1)"
+        switch reason {
+        case .unsupportedType:
+            return "\(item) (tipo de arquivo sem suporte)"
+        case .noRepresentation:
+            return "\(item) (o Fotos não entregou o arquivo neste formato)"
+        case .photosUnavailable:
+            return "\(item) (o Fotos não conseguiu entregar o arquivo; verifique a conexão e o iCloud Fotos)"
+        case .outOfSpace:
+            return "\(item) (sem espaço livre no Mac)"
+        case .other:
+            return item
+        }
+    }
+
+    nonisolated static func errorChain(_ error: Error) -> [NSError] {
+        var chain: [NSError] = []
+        var current: NSError? = error as NSError
+        while let next = current, chain.count < 8 {
+            chain.append(next)
+            current = next.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return chain
+    }
+
+    nonisolated static func describe(_ error: Error) -> String {
+        errorChain(error).map { "\($0.domain) \($0.code)" }.joined(separator: " <- ")
+    }
+
+    private nonisolated static func isOutOfSpace(_ error: NSError) -> Bool {
+        (error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileWriteOutOfSpace.rawValue)
+            || (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOSPC))
     }
 }
 
