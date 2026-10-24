@@ -9,6 +9,7 @@ build/
 .build/
 .swiftpm/
 *.xcresult
+*.trace
 buildServer.json
 /Makefile
 xcodemake_*.log
