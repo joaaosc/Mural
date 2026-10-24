@@ -1,4 +1,6 @@
+import AVFoundation
 import CoreGraphics
+import CoreVideo
 import Foundation
 import ImageIO
 import MuralKit
@@ -33,6 +35,33 @@ final class ThumbnailPerformanceTests: XCTestCase {
         }
 
         XCTAssertNotNil(result.image, "A thumbnail should be produced from the generated image fixture")
+    }
+
+    func testVideoThumbnailGenerationPerformance() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ThumbnailVideoPerformanceTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let sourceURL = temporaryDirectory.appendingPathComponent("fixture.mov")
+        try await makeDeterministicVideo(at: sourceURL)
+
+        let result = LockedThumbnailResult()
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            let expectation = expectation(description: "video thumbnail generation completes")
+            Task {
+                let image = await ThumbnailLoader.cgImage(
+                    for: sourceURL,
+                    kind: .video,
+                    maxPixelSize: 256
+                )
+                result.set(image)
+                expectation.fulfill()
+            }
+            wait(for: [expectation], timeout: 10)
+        }
+
+        XCTAssertNotNil(result.image, "A thumbnail should be produced from the generated video fixture")
     }
 
     private func makeDeterministicPNG(at url: URL, width: Int, height: Int) throws {
@@ -71,6 +100,56 @@ final class ThumbnailPerformanceTests: XCTestCase {
         guard CGImageDestinationFinalize(destination) else {
             throw CocoaError(.fileWriteUnknown)
         }
+    }
+
+    private nonisolated func makeDeterministicVideo(at url: URL) async throws {
+        let width = 320
+        let height = 180
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: width,
+                AVVideoHeightKey: height,
+            ])
+        guard writer.canAdd(input) else { throw CocoaError(.fileWriteUnknown) }
+        let receiver = writer.inputPixelBufferReceiver(
+            for: input,
+            pixelBufferAttributes: CVPixelBufferCreationAttributes(
+                pixelFormatType: CVPixelFormatType(rawValue: kCVPixelFormatType_32BGRA),
+                size: CVImageSize(width: width, height: height)))
+        try writer.start()
+        writer.startSession(atSourceTime: .zero)
+
+        for frame in 0..<30 {
+            var mutableBuffer = try CVMutablePixelBuffer(
+                CVPixelBufferCreationAttributes(
+                    pixelFormatType: CVPixelFormatType(rawValue: kCVPixelFormatType_32BGRA),
+                    size: CVImageSize(width: width, height: height)))
+            try mutableBuffer.accessUnsafeMutableRawPlaneBytes { planes in
+                guard let plane = planes.first else { throw CocoaError(.fileWriteUnknown) }
+                let bytes = plane.bytes
+                let bytesPerRow = plane.properties.bytesPerRow
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let offset = y * bytesPerRow + x * 4
+                        bytes[offset] = UInt8((x + frame * 3) % 256)
+                        bytes[offset + 1] = UInt8((y + frame * 2) % 256)
+                        bytes[offset + 2] = UInt8((x + y + frame) % 256)
+                        bytes[offset + 3] = 255
+                    }
+                }
+            }
+            let readOnlyBuffer = CVReadOnlyPixelBuffer(mutableBuffer)
+            try await receiver.append(readOnlyBuffer, with: CMTime(value: CMTimeValue(frame), timescale: 30))
+        }
+
+        receiver.finish()
+        let expectation = expectation(description: "video fixture writing completes")
+        writer.finishWriting { expectation.fulfill() }
+        await fulfillment(of: [expectation], timeout: 10)
+        guard writer.status == .completed else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
     }
 }
 
