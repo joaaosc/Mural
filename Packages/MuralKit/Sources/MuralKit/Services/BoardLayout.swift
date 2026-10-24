@@ -178,15 +178,24 @@ public enum BoardLayout {
         origin: BoardPoint = BoardPoint(x: 80, y: 80), step: Double = 40,
         columns: Int = 24, gap: Double = 24
     ) -> BoardPoint {
-        let occupied: [(BoardPoint, (width: Double, height: Double))] =
-            items.map { ($0.position, size(of: $0)) }
-            + freeTexts.map { ($0.position, size(of: $0)) }
+        var occupied: [(BoardPoint, (width: Double, height: Double))] = []
+        occupied.reserveCapacity(items.count + freeTexts.count)
+        for item in items {
+            occupied.append((item.position, size(of: item)))
+        }
+        for freeText in freeTexts {
+            occupied.append((freeText.position, size(of: freeText)))
+        }
         var row = 0
         while row < 200 {
             for column in 0..<columns {
                 let candidate = BoardPoint(x: origin.x + Double(column) * step, y: origin.y + Double(row) * step)
-                let clear = occupied.allSatisfy { other in
-                    !overlaps(candidate, freeTextSize, other.0, other.1, gap: gap)
+                var clear = true
+                for other in occupied {
+                    if overlaps(candidate, freeTextSize, other.0, other.1, gap: gap) {
+                        clear = false
+                        break
+                    }
                 }
                 if clear { return candidate }
             }
