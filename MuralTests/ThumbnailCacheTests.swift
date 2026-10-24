@@ -74,6 +74,57 @@ struct ThumbnailCacheTests {
         #expect(await recorder.count == 1)
     }
 
+    @Test("Pedidos distintos respeitam o limite de decodificações em voo")
+    func distinctRequestsAreBounded() async {
+        let recorder = ThumbnailDecodeConcurrencyRecorder(result: makeImage(width: 31))
+        let cache = ThumbnailCache(
+            loader: { request in await recorder.load(request) },
+            decodeConcurrency: 2)
+        let requests = (0..<4).map { index in
+            ThumbnailRequest(
+                url: URL(filePath: "/tmp/photo-\(index).jpg"), kind: .image, maxPixelSize: 640)
+        }
+
+        let loads = requests.map { request in Task { await cache.image(for: request) } }
+        await recorder.waitForStarted(2)
+        #expect(await recorder.active == 2)
+        #expect(await recorder.peak == 2)
+
+        await recorder.release(count: 2)
+        await recorder.waitForStarted(4)
+        #expect(await recorder.peak == 2)
+        await recorder.release(count: 2)
+
+        for load in loads {
+            #expect((await load.value)?.width == 31)
+        }
+    }
+
+    @Test("Cancelar um pedido que espera decodificação não prende a fila")
+    func cancellingQueuedRequestDoesNotBlockNextDecode() async {
+        let recorder = ThumbnailRequestRecorder(result: makeImage(width: 32), waitsForRelease: true)
+        let observer = ThumbnailRequestObserver()
+        let cache = ThumbnailCache(
+            loader: { request in await recorder.load(request) },
+            requestObserver: observer.observe,
+            decodeConcurrency: 1)
+        let firstRequest = ThumbnailRequest(
+            url: URL(filePath: "/tmp/first-photo.jpg"), kind: .image, maxPixelSize: 640)
+        let secondRequest = ThumbnailRequest(
+            url: URL(filePath: "/tmp/second-photo.jpg"), kind: .image, maxPixelSize: 640)
+
+        let first = Task { await cache.image(for: firstRequest) }
+        await observer.waitForCount(1)
+        let second = Task { await cache.image(for: secondRequest) }
+        await observer.waitForCount(2)
+        second.cancel()
+        await recorder.release()
+
+        #expect((await first.value)?.width == 32)
+        #expect(await second.value == nil)
+        #expect(await recorder.count == 1)
+    }
+
     @Test("Cancelar um waiter não cancela a geração compartilhada")
     func cancellingOneWaiterDoesNotCancelTheSharedLoad() async {
         let recorder = ThumbnailRequestRecorder(result: makeImage(width: 4), waitsForRelease: true)
@@ -121,6 +172,7 @@ struct ThumbnailCacheTests {
 
         let cancelledWaiter = Task { await cache.image(for: request) }
         await observer.waitForCount(1)
+        await loader.waitForStart()
         cancelledWaiter.cancel()
         await loader.waitForCancellation()
 
@@ -162,6 +214,7 @@ struct ThumbnailCacheTests {
 
         let staleLoad = Task { await cache.image(for: request) }
         await observer.waitForCount(1)
+        await recorder.waitForLoadStart()
         cache.invalidate(request)
         await recorder.release()
 
@@ -201,6 +254,8 @@ private actor ThumbnailRequestRecorder {
     private let waitsForRelease: Bool
     private(set) var count = 0
     private(set) var cancellationCount = 0
+    private var didStart = false
+    private var startContinuations: [CheckedContinuation<Void, Never>] = []
     private var releaseContinuations: [CheckedContinuation<CGImage?, Never>] = []
     private var released = false
 
@@ -211,6 +266,10 @@ private actor ThumbnailRequestRecorder {
 
     func load(_: ThumbnailRequest) async -> CGImage? {
         count += 1
+        didStart = true
+        let starts = startContinuations
+        startContinuations.removeAll()
+        for continuation in starts { continuation.resume() }
         guard waitsForRelease, !released else { return result }
 
         let loaded = await withCheckedContinuation { continuation in
@@ -218,6 +277,13 @@ private actor ThumbnailRequestRecorder {
         }
         if Task.isCancelled { cancellationCount += 1 }
         return loaded
+    }
+
+    func waitForLoadStart() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startContinuations.append(continuation)
+        }
     }
 
     func release() {
@@ -230,9 +296,60 @@ private actor ThumbnailRequestRecorder {
     }
 }
 
+private actor ThumbnailDecodeConcurrencyRecorder {
+    let result: CGImage?
+    private(set) var active = 0
+    private(set) var peak = 0
+    private var started = 0
+    private var startContinuations: [(expected: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(result: CGImage?) {
+        self.result = result
+    }
+
+    func load(_: ThumbnailRequest) async -> CGImage? {
+        active += 1
+        started += 1
+        peak = max(peak, active)
+        resumeStartedWaiters()
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+        active -= 1
+        return result
+    }
+
+    func waitForStarted(_ expected: Int) async {
+        guard started < expected else { return }
+        await withCheckedContinuation { continuation in
+            startContinuations.append((expected, continuation))
+        }
+    }
+
+    func release(count: Int) {
+        let amount = min(max(count, 0), releaseContinuations.count)
+        let continuations = releaseContinuations.prefix(amount)
+        releaseContinuations.removeFirst(amount)
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    private func resumeStartedWaiters() {
+        let ready = startContinuations.filter { started >= $0.expected }
+        startContinuations.removeAll { started >= $0.expected }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
+}
+
 private actor CancellableThumbnailLoader {
     private let retryResult: CGImage
     private(set) var count = 0
+    private var didStart = false
+    private var startContinuations: [CheckedContinuation<Void, Never>] = []
     private var cancellationContinuations: [CheckedContinuation<Void, Never>] = []
     private var didObserveCancellation = false
 
@@ -242,6 +359,10 @@ private actor CancellableThumbnailLoader {
 
     func load(_: ThumbnailRequest) async -> CGImage? {
         count += 1
+        didStart = true
+        let starts = startContinuations
+        startContinuations.removeAll()
+        for continuation in starts { continuation.resume() }
         guard count == 1 else { return retryResult }
 
         while !Task.isCancelled {
@@ -254,6 +375,13 @@ private actor CancellableThumbnailLoader {
             continuation.resume()
         }
         return nil
+    }
+
+    func waitForStart() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startContinuations.append(continuation)
+        }
     }
 
     func waitForCancellation() async {
