@@ -103,6 +103,21 @@ struct BoardModelTests {
         #expect(model.freeTextSizes[freeText.id] == resized)
     }
 
+    @Test("Cache de folding acompanha mudanças no texto")
+    func foldedTextCacheInvalidatesAfterTextChange() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let note = model.createNote()
+        model.updateNote(note.id, title: "Nota", text: "Primeira frase. Segunda frase.")
+        let firstItem = try #require(model.item(id: note.id))
+        let first = try #require(model.foldedText(for: firstItem))
+
+        model.updateNote(note.id, title: "Nota", text: "Texto novo. Outra frase.")
+        let updatedItem = try #require(model.item(id: note.id))
+        let updated = try #require(model.foldedText(for: updatedItem))
+
+        #expect(first != updated)
+    }
+
     @Test("A revisão do board avança sem comparação estrutural")
     func boardRevisionAdvancesOnMutation() throws {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)

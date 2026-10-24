@@ -10,6 +10,7 @@ import StretchText
 @Observable
 public final class BoardModel {
     private static let derivedCacheEntryLimit = 16
+    private static let foldedTextCacheEntryLimit = 128
 
     public enum Persistence: Sendable, Equatable {
         case immediate
@@ -23,6 +24,8 @@ public final class BoardModel {
             freeTextsCache = nil
             rootItemSizesCache = nil
             freeTextSizesCache = nil
+            foldedTextCache.removeAll(keepingCapacity: true)
+            foldedTextCacheOrder.removeAll(keepingCapacity: true)
             reminderItemsCache = nil
             musicItemsCache = nil
             rootExtentCache = nil
@@ -54,6 +57,8 @@ public final class BoardModel {
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
     @ObservationIgnored private var rootItemSizesCache: [UUID: BoardSize]?
     @ObservationIgnored private var freeTextSizesCache: [UUID: BoardSize]?
+    @ObservationIgnored private var foldedTextCache: [UUID: FoldResult] = [:]
+    @ObservationIgnored private var foldedTextCacheOrder: [UUID] = []
     @ObservationIgnored private var reminderItemsCache: [BoardItem]?
     @ObservationIgnored var musicItemsCache: [BoardItem]?
     @ObservationIgnored private var rootExtentCache: BoardSize?
@@ -260,6 +265,24 @@ public final class BoardModel {
         guard let offset = freeTextIndexCache?[id], currentBoard.freeTexts.indices.contains(offset) else { return nil }
         return currentBoard.freeTexts[offset]
     }
+
+    /// Resultado dobrado de uma nota ou checklist, memoizado enquanto o `board`
+    /// não muda. `CardView` pode ser reavaliado muitas vezes durante rolagem;
+    /// segmentar e dobrar o mesmo texto em cada passagem não altera o desenho.
+    public func foldedText(for item: BoardItem) -> FoldResult? {
+        if let cached = foldedTextCache[item.id] { return cached }
+        guard let result = NoteFolding.fold(for: item) else { return nil }
+        if foldedTextCache.count >= Self.foldedTextCacheEntryLimit,
+            let evicted = foldedTextCacheOrder.first
+        {
+            foldedTextCache.removeValue(forKey: evicted)
+            foldedTextCacheOrder.removeFirst()
+        }
+        foldedTextCache[item.id] = result
+        foldedTextCacheOrder.append(item.id)
+        return result
+    }
+
     public func fileURL(for item: BoardItem) -> URL? { importer.fileURL(for: item) }
 
     /// URL de uma imagem citada numa nota, em `Items/`; `nil` se o nome não for de anexo seguro.

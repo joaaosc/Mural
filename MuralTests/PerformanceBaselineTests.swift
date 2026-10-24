@@ -172,6 +172,36 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertEqual(sizeCount, board.rootItems.count + board.freeTexts.count)
     }
 
+    func testCachedNoteFoldingPerformance() throws {
+        let notes = (0..<120).map { index in
+            BoardItem(
+                kind: .text,
+                title: "Fixture note \(index)",
+                text: (0..<12).map { "Sentence \($0) for note \(index)." }.joined(separator: " "))
+        }
+        let board = Board(items: notes)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardNoteFolding-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let model = BoardModel(
+            board: board,
+            store: BoardStore(directory: directory),
+            persistence: .deferred)
+        for item in notes {
+            _ = model.foldedText(for: item)
+        }
+
+        var foldedCount = 0
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            foldedCount = notes.reduce(into: 0) { count, item in
+                if model.foldedText(for: item) != nil { count += 1 }
+            }
+        }
+
+        XCTAssertEqual(foldedCount, notes.count)
+    }
+
     func testIndexedItemLookupPerformance() throws {
         let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
         let directory = FileManager.default.temporaryDirectory
