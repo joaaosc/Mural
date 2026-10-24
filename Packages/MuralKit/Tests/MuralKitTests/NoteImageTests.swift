@@ -143,6 +143,16 @@ struct NoteImageMarkupTests {
         #expect(note.assetFileNames == [name, other])
         let photo = BoardItem(kind: .image, title: "P", fileName: "x.png", text: "![a](\(other))")
         #expect(photo.assetFileNames == ["x.png"])
+
+        let repeated = BoardItem(
+            kind: .image,
+            title: "Repetida",
+            fileName: name,
+            attachments: [
+                NoteAttachment(fileName: name, pixelWidth: 1, pixelHeight: 1),
+                NoteAttachment(fileName: other, pixelWidth: 1, pixelHeight: 1),
+            ])
+        #expect(repeated.requiredAssetFileNames == [name, other])
     }
 }
 

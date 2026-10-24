@@ -179,21 +179,32 @@ extension BoardItem {
 extension BoardItem {
     /// Arquivos que precisam existir em `Items/`: o do cartão e os dos anexos, sem repetição.
     public var requiredAssetFileNames: [String] {
-        var names: [String] = []
-        if let fileName { names.append(fileName) }
-        names.append(contentsOf: (attachments ?? []).map(\.fileName))
-        return Self.unique(names)
+        assetFileNames(includeTextReferences: false)
     }
 
     /// Todos os arquivos de `Items/` ligados ao cartão: os obrigatórios e, numa nota, os que o texto cita.
     public var assetFileNames: [String] {
-        var names = requiredAssetFileNames
-        if kind == .text, let text { names.append(contentsOf: NoteImageMarkup.referencedFileNames(in: text)) }
-        return Self.unique(names)
+        assetFileNames(includeTextReferences: true)
     }
 
-    private static func unique(_ names: [String]) -> [String] {
+    private func assetFileNames(includeTextReferences: Bool) -> [String] {
+        let attachmentCount = attachments?.count ?? 0
+        var names: [String] = []
+        names.reserveCapacity((fileName == nil ? 0 : 1) + attachmentCount)
         var seen = Set<String>()
-        return names.filter { seen.insert($0).inserted }
+        seen.reserveCapacity(names.capacity)
+
+        if let fileName, seen.insert(fileName).inserted {
+            names.append(fileName)
+        }
+        for attachment in attachments ?? [] where seen.insert(attachment.fileName).inserted {
+            names.append(attachment.fileName)
+        }
+        if includeTextReferences, kind == .text, let text {
+            for name in NoteImageMarkup.referencedFileNames(in: text) where seen.insert(name).inserted {
+                names.append(name)
+            }
+        }
+        return names
     }
 }
