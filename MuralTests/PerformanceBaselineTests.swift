@@ -74,6 +74,7 @@ final class PerformanceBaselineTests: XCTestCase {
         let folderIDs = board.items.filter { $0.kind == .folder }.map(\.id)
         _ = model.rootItems
         _ = model.freeTexts
+        _ = model.reminderItems
         _ = model.rootExtent
         for id in folderIDs {
             _ = model.children(of: id)
@@ -83,6 +84,7 @@ final class PerformanceBaselineTests: XCTestCase {
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
             derivedCount += model.rootItems.count
             derivedCount += model.freeTexts.count
+            derivedCount += model.reminderItems.count
             derivedCount += Int(model.rootExtent.width)
             for id in folderIDs {
                 derivedCount += model.children(of: id).count

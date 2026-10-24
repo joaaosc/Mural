@@ -20,6 +20,7 @@ public final class BoardModel {
         didSet {
             rootItemsCache = nil
             freeTextsCache = nil
+            reminderItemsCache = nil
             rootExtentCache = nil
             itemIndexCache = nil
             childrenCache.removeAll(keepingCapacity: true)
@@ -40,6 +41,7 @@ public final class BoardModel {
     @ObservationIgnored private var deferredDeletions: Set<String> = []
     @ObservationIgnored private var rootItemsCache: [BoardItem]?
     @ObservationIgnored private var freeTextsCache: [BoardFreeText]?
+    @ObservationIgnored private var reminderItemsCache: [BoardItem]?
     @ObservationIgnored private var rootExtentCache: BoardSize?
     @ObservationIgnored private var itemIndexCache: [UUID: Int]?
     @ObservationIgnored private var childrenCache: [UUID: [BoardItem]] = [:]
@@ -403,7 +405,13 @@ public final class BoardModel {
     // MARK: Lembretes
 
     /// Todos os cartões de lembrete do mural, de qualquer nível.
-    public var reminderItems: [BoardItem] { board.items.filter { $0.kind == .reminder } }
+    public var reminderItems: [BoardItem] {
+        let currentBoard = board
+        if let reminderItemsCache { return reminderItemsCache }
+        let reminders = currentBoard.items.filter { $0.kind == .reminder }
+        reminderItemsCache = reminders
+        return reminders
+    }
 
     /// Cria um cartão para cada lembrete e grava uma vez ao final. O título do cartão é o do lembrete.
     @discardableResult
