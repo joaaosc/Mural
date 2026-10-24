@@ -62,10 +62,11 @@ struct FolderCard: View {
     /// Os cartões saem pela borda direita, cada um um pouco mais longe e mais inclinado que o anterior.
     /// O leque é só enfeite: a contagem de itens fica no texto do cartão.
     private var fan: some View {
-        let shown = Array(peeks.suffix(Self.fanSlots.count))
+        let shown = peeks.suffix(Self.fanSlots.count)
+        let firstSlot = Self.fanSlots.count - shown.count
         return ZStack {
             ForEach(Array(shown.enumerated()), id: \.element.id) { index, peek in
-                let slot = Self.fanSlots[Self.fanSlots.count - shown.count + index]
+                let slot = Self.fanSlots[firstSlot + index]
                 FolderPeekTile(item: peek, size: Self.fanTileSize)
                     .rotationEffect(.degrees(slot.angle))
                     .offset(x: slot.offset, y: slot.lift)
