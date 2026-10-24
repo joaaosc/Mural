@@ -2,6 +2,7 @@ import Foundation
 import MuralKit
 import XCTest
 
+@MainActor
 final class PerformanceBaselineTests: XCTestCase {
     func testStructuralBoardReadAndEncodingPerformance() throws {
         let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
@@ -33,5 +34,30 @@ final class PerformanceBaselineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(descendantCount, childCount)
         XCTAssertGreaterThan(destinationCount, 0)
         XCTAssertGreaterThan(encodedByteCount, 0)
+    }
+
+    func testCachedFolderDestinationLookupPerformance() throws {
+        let board = PerformanceBoardFixture.make(size: .items500, mediaDensity: .percent50)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PerformanceBoardModel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let model = BoardModel(
+            board: board,
+            store: BoardStore(directory: directory),
+            persistence: .deferred)
+        let ids = Array(board.items.prefix(200).map(\.id))
+        for id in ids {
+            _ = model.folderDestinations(for: id)
+        }
+
+        var destinationCount = 0
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()]) {
+            destinationCount = ids.reduce(into: 0) { total, id in
+                total += model.folderDestinations(for: id).count
+            }
+        }
+
+        XCTAssertGreaterThan(destinationCount, 0)
     }
 }

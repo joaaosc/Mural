@@ -47,6 +47,7 @@ As orientações de manter `body` rápido, evitar cálculos derivados repetidos 
 - `ThumbnailPerformanceTests`: o decode/redução de um PNG temporário é medido sem adicionar asset ao repositório; a preparação e a remoção ficam fora da janela medida.
 - `397f9aa` e `c6f347d`: `ReminderPickerSheet` passou a filtrar e particionar lembretes numa única passagem por avaliação, e o resumo de conteúdo passou de uma varredura por tipo para uma contagem acumulada; a ordem e os textos foram preservados por testes.
 - `afabf76`: `BoardModel` passou a memoizar destinos de pasta para os menus e gestos que consultam vários cartões durante a mesma versão do mural; o cache é invalidado a cada mudança do board e os consumidores da UI passaram a usar esse caminho.
+- `MuralTests/PerformanceBaselineTests`: o cenário de Release passou a medir também 200 consultas repetidas de destinos já memoizados, mantendo a preparação do cache fora da janela medida.
 
 Evidências verificadas após as mudanças:
 
@@ -54,7 +55,7 @@ Evidências verificadas após as mudanças:
 - `swift test --package-path Packages/MuralKit`: passou;
 - `ThumbnailCacheTests`: 7/7 passaram;
 - `PhotoImportDiagnosticsTests`: 7/7 passaram;
-- `PerformanceBaselineTests`: 1/1 passou em Debug e 1/1 em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário Release mediu tempo monotônico médio de 0,005102 s e pico físico de memória médio de 30.226,235 kB nas cinco iterações.
+- `PerformanceBaselineTests`: 2/2 passaram em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; a consulta memoizada de 200 cartões mediu tempo monotônico médio de 0,000021 s e pico físico de memória médio de 28.417,442 kB nas cinco iterações. O cenário estrutural medido junto marcou tempo monotônico médio de 0,008 s e pico físico de memória médio de 79.188,253 kB. Esses números são baselines da execução atual, não uma comparação antes/depois.
 - `ThumbnailPerformanceTests`: 1/1 passou em Release com `ENABLE_TESTABILITY=YES` somente no comando de teste; o cenário mediu tempo monotônico médio de 0,011 s e pico físico de memória médio de 35.914,784 kB nas cinco iterações.
 - `ReminderPickerTests` e `MuralTests`: 9/9 passaram após as reduções de recomputação.
 - `BoardModelTests`: 18/18 passaram, incluindo invalidação do cache depois de criar uma nova pasta.
