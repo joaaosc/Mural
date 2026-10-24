@@ -567,7 +567,11 @@ final class BoardWindowSession {
     }
 
     /// Janela fechando: interrompe o modelo, conclui a edição e grava o que falta.
-    func prepareToClose() async {
+    func prepareToClose(awaiting photoTask: Task<Void, Never>? = nil) async {
+        if let photoTask = photoTask ?? photoImportTask {
+            photoTask.cancel()
+            await photoTask.value
+        }
         keySentences?.cancelAll()
         finishEditing()
         await flushAndPrepareToLeave()
@@ -688,13 +692,19 @@ final class BoardWindowSession {
             model.lastError = "Não foi possível preparar a importação de Fotos."
             return
         }
-        defer { PhotoImportStaging.remove(stagingDirectory) }
+        PhotoImportCleanup.register(stagingDirectory)
+        defer {
+            PhotoImportCleanup.unregister([stagingDirectory])
+            PhotoImportStaging.remove(stagingDirectory)
+        }
 
         var receivedFiles: [URL] = []
         defer {
+            PhotoImportCleanup.unregister(receivedFiles)
             for url in receivedFiles { try? FileManager.default.removeItem(at: url) }
         }
         var stagedFiles: [BoardModel.TypedFile] = []
+        var alreadyReservedBytes: Int64 = 0
         var failures: [String] = []
         for (index, pickerItem) in items.enumerated() {
             do {
@@ -711,9 +721,13 @@ final class BoardWindowSession {
                     failures.append("Item \(index + 1)")
                     continue
                 }
+                PhotoImportCleanup.register(loaded.fileURL)
                 receivedFiles.append(loaded.fileURL)
+                let fileSize: Int64
                 do {
-                    try PhotoImportCapacityPolicy.validate(fileAt: loaded.fileURL)
+                    fileSize = try PhotoImportCapacityPolicy.validate(
+                        fileAt: loaded.fileURL,
+                        alreadyReservedBytes: alreadyReservedBytes)
                 } catch let capacityError as PhotoImportCapacityError {
                     failures.append(PhotoImportCapacityPolicy.message(for: capacityError))
                     break
@@ -731,6 +745,12 @@ final class BoardWindowSession {
                         url: stagedURL,
                         contentTypeIdentifier: contentType.identifier,
                         title: title))
+                let (updatedReservation, overflow) = alreadyReservedBytes.addingReportingOverflow(fileSize)
+                guard !overflow else {
+                    failures.append(PhotoImportCapacityPolicy.message(for: .arithmeticOverflow))
+                    break
+                }
+                alreadyReservedBytes = updatedReservation
             } catch is CancellationError {
                 return
             } catch {
@@ -1612,11 +1632,12 @@ final class BoardWindowSession {
         }
         guard !windowCloseHandled else { return }
         windowCloseHandled = true
+        let photoTask = photoImportTask
         invalidatePresentation()
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.prepareToClose()
+            await self.prepareToClose(awaiting: photoTask)
             self.markClosed()
             await self.releaseRegistryReference()
         }
