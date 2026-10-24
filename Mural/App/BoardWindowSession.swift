@@ -1,4 +1,5 @@
 import MuralKit
+import MuralSync
 import Observation
 import PhotosUI
 import StretchText
@@ -65,6 +66,22 @@ struct ReadingPresentationToken: Hashable, Sendable {
 
 typealias ReadingPresentationFinalizer = @MainActor () -> Void
 
+/// Por que o que chegou do iCloud não foi aplicado nesta janela. Quem pediu (o coordenador) mantém o estado antigo e busca a zona
+/// inteira de novo, então nenhum dos dois casos perde o que está no iCloud.
+enum BoardSyncApplyError: LocalizedError, Equatable {
+    /// A janela ainda não carregou o mural ou já fechou: quem chama usa outra sessão do mesmo mural.
+    case unavailable
+    /// A junção não pôde ser gravada no disco; o motivo vem do sistema.
+    case saveFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "O mural não está aberto nesta janela para receber o que chegou do iCloud."
+        case .saveFailed(let reason): "O que chegou do iCloud não pôde ser gravado neste Mac: \(reason)"
+        }
+    }
+}
+
 /// Adaptador MainActor de uma sessão de domínio para uma janela SwiftUI.
 /// Cada instância pertence a exatamente um `BoardID`; não há estado de mural atual.
 @MainActor
@@ -128,6 +145,9 @@ final class BoardWindowSession {
     @ObservationIgnored private var pendingWorkspace: BoardWorkspaceState?
     @ObservationIgnored private var pendingBoardSequence: UInt64?
     @ObservationIgnored private var pendingWorkspaceSequence: UInt64?
+    /// A sequência do mural mais novo já entregue ao domínio. Uma gravação capturada antes dele e que só roda depois (uma junção do
+    /// iCloud entrou na fila à frente dela) não o desfaz: o mural da junção parte do `model.board` vivo, que já a inclui.
+    @ObservationIgnored private var deliveredBoardSequence: UInt64 = 0
     @ObservationIgnored private var mutationSequence: UInt64 = 0
     @ObservationIgnored private var pendingAutosaveDebounce: Task<Void, Never>?
     @ObservationIgnored private var sessionPipeline: Task<Void, Never>?
@@ -141,6 +161,15 @@ final class BoardWindowSession {
     @ObservationIgnored private var pendingSaveCopyResult: Result<URL, any Error>?
     @ObservationIgnored private(set) var restoreTarget: CGPoint?
     @ObservationIgnored private var autosaveFailed = false
+    /// O mural como foi gravado pelo último `flush()` bem-sucedido (ou como estava no disco ao carregar). É o que vai ao iCloud
+    /// (regra 1): nunca o `model.board`, que pode ter edições ainda não gravadas, para nada subir que um travamento do app
+    /// pudesse desfazer aqui. `nil` antes de carregar e quando a sessão abriu com mudanças que ainda não estavam no disco (uma sessão
+    /// suja de outra janela): quem precisa do mural lê o disco até a primeira gravação.
+    @ObservationIgnored private(set) var lastPersistedBoard: Board?
+    /// Chamado depois de cada gravação bem-sucedida, com o mural gravado. `fromRemote` é `true` quando foi a gravação de um
+    /// `applyRemote` sem edição local junto (regra 3): quem escuta não pede pendências, porque o coordenador as calcula com o estado
+    /// novo já gravado. Com edição local na mesma gravação, `fromRemote` é `false`: há o que enviar.
+    @ObservationIgnored var onPersisted: (@MainActor (_ board: Board, _ fromRemote: Bool) -> Void)?
     @ObservationIgnored private var restoringReadingItems: [UUID: ReadingPresentationToken] = [:]
     @ObservationIgnored private var readingFinalizers: [ReadingPresentationToken: ReadingPresentationFinalizer] = [:]
     /// Esta janela é dona de uma referência no registry (`acquire`/`release`).
@@ -248,6 +277,7 @@ final class BoardWindowSession {
             let loadedWorkspace = await session.workspace
             let loadedGeneration = await session.generation
             let manifest = await session.manifest
+            let isDirtyOnLoad = await session.isDirty
             let packageURL = await session.repository.packageURL(for: boardID)
             // A janela pode ter fechado durante as esperas acima: devolve a referência.
             guard !isClosed else {
@@ -256,6 +286,7 @@ final class BoardWindowSession {
             }
 
             domainSession = session
+            lastPersistedBoard = isDirtyOnLoad ? nil : board
             workspace = loadedWorkspace
             readingPositions = loadedWorkspace.readingPositions
             generation = loadedGeneration
@@ -1271,9 +1302,15 @@ final class BoardWindowSession {
             guard let self else { return }
             do {
                 try await domainSession.rename(to: name)
-                _ = try await domainSession.flush()
+                let wasDirty = await domainSession.isDirty
+                let persisted = try await domainSession.flush()
                 self.manifestName = name
                 self.successMessage = "Mural renomeado."
+                // O nome também é do iCloud: esta gravação é local e avisa como qualquer outra.
+                if wasDirty {
+                    self.lastPersistedBoard = persisted.board
+                    self.onPersisted?(persisted.board, false)
+                }
             } catch let renameError {
                 self.error = "Não foi possível renomear o mural: \(renameError.localizedDescription)"
             }
@@ -1286,6 +1323,162 @@ final class BoardWindowSession {
     private static func normalizedName(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "Mural sem título" : trimmed
+    }
+
+    // MARK: Receber do iCloud
+
+    /// Junta o que chegou do iCloud ao mural desta janela e só volta com o resultado no disco (regra 2). Se a gravação falhar, lança:
+    /// quem chama mantém o estado antigo e marca o mural para uma busca completa da zona.
+    ///
+    /// Entra na mesma fila dos autosaves (`sessionPipeline`), então nunca corre junto com uma gravação. Os arquivos de
+    /// `received.files` NÃO são copiados aqui: quem chama os põe em `Items/` antes, senão o cartão que chegou apareceria sem a mídia.
+    /// - Throws: `BoardSyncApplyError`.
+    func applyRemote(_ received: ReceivedChanges) async throws {
+        guard domainSession != nil, model != nil, !isClosed else { throw BoardSyncApplyError.unavailable }
+        let previous = sessionPipeline
+        let work = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { throw BoardSyncApplyError.unavailable }
+            try await self.mergeAndPersist(received)
+        }
+        // A fila segue depois desta junção, tenha ela dado certo ou não.
+        sessionPipeline = Task { _ = await work.result }
+        try await work.value
+    }
+
+    /// O corpo de `applyRemote`, já dentro da fila. Grava aqui mesmo, sem pedir outra volta à fila: esta tarefa a ocupa, e esperar
+    /// por ela de dentro dela travaria.
+    private func mergeAndPersist(_ received: ReceivedChanges) async throws {
+        guard let domainSession, let model, !isClosed else { throw BoardSyncApplyError.unavailable }
+
+        // O nome vai primeiro porque espera o domínio, e entre ler o mural e trocá-lo não pode haver espera: uma edição feita nesse
+        // intervalo seria desfeita pela troca. A gravação abaixo leva nome e mural juntos.
+        let name = Self.normalizedName(received.mergedName(local: manifestName))
+        if name != manifestName {
+            do {
+                try await domainSession.rename(to: name)
+            } catch {
+                throw BoardSyncApplyError.saveFailed(error.localizedDescription)
+            }
+            manifestName = name
+        }
+
+        let before = model.board
+        // Edição local que o disco ainda não tem: a gravação traz junto o que há para enviar, e `onPersisted` não diz "só junção".
+        let hadLocalEdits = lastPersistedBoard.map { $0 != before } ?? true
+        var merged = BoardMerge.apply(received.changes, to: before, base: received.previousBase).board
+        reconcileDrafts(before: before, merged: &merged)
+        guard model.applyMergedBoard(merged) else {
+            throw BoardSyncApplyError.saveFailed(model.lastError ?? "o mural não pôde ser trocado")
+        }
+
+        let remainingIDs = Set(merged.items.map(\.id))
+        for removedID in Set(before.items.map(\.id)).subtracting(remainingIDs) { forgetSessionState(of: removedID) }
+        musicPlayback.stopIfMissing(in: model, boardID: boardID)
+        canonicalizeWorkspaceAfterContentMutation()
+        captureBoardIfNeeded()
+
+        pendingAutosaveDebounce?.cancel()
+        pendingAutosaveDebounce = nil
+        autosaveFailed = false
+        if let failure = await write(takePendingWrite(), on: domainSession, fromRemote: !hadLocalEdits) {
+            throw BoardSyncApplyError.saveFailed(failure.localizedDescription)
+        }
+        let stillDirty = await domainSession.isDirty
+        if autosaveFailed || stillDirty {
+            throw BoardSyncApplyError.saveFailed("o mural continua com mudanças sem gravar")
+        }
+    }
+
+    /// Regra 4: o que a pessoa está digitando não se perde nem apaga o que chegou. `before` é o mural de antes da junção e `merged`,
+    /// o resultado dela, que ganha as cópias de conflito.
+    ///
+    /// - Texto da nota ou legenda com rascunho aberto que mudou na junção: o rascunho é juntado por linha (`TextMerge`, o texto de
+    ///   antes como base). Se colide, o rascunho fica onde a pessoa digita e a versão que chegou entra como cópia de conflito, ao
+    ///   lado: o contrário da regra comum, para não tirar o texto de baixo do cursor. O título e a cor que a pessoa não mexeu
+    ///   acompanham o que chegou, para concluir a edição não os desfazer.
+    /// - Cartão com rascunho que a junção apagou: nasce uma cópia de conflito do cartão de antes com o texto do rascunho, e o rascunho
+    ///   sai (o editor fecha como em qualquer cartão apagado). Rascunho igual ao cartão de antes não tem o que proteger: sem cópia.
+    private func reconcileDrafts(before: Board, merged: inout Board) {
+        let now = Date.now
+        var copies: [BoardItem] = []
+        for id in Set(noteDrafts.keys).union(captionDrafts.keys).sorted(by: { $0.uuidString < $1.uuidString }) {
+            guard let original = before.item(id: id) else { continue }
+            guard let joined = merged.item(id: id) else {
+                let typedNote = noteDrafts[id].map { $0 != NoteDraft(item: original) } ?? false
+                let typedCaption =
+                    captionDrafts[id].map {
+                        $0.trimmingCharacters(in: .whitespacesAndNewlines) != (original.caption ?? "")
+                    } ?? false
+                if typedNote || typedCaption {
+                    let typed = Self.card(original, with: noteDrafts[id], caption: captionDrafts[id])
+                    copies.append(BoardMerge.conflictCopy(of: typed, now: now))
+                }
+                noteDrafts[id] = nil
+                captionDrafts[id] = nil
+                continue
+            }
+
+            var collided = false
+            if var draft = noteDrafts[id] {
+                if (original.text ?? "") != (joined.text ?? "") {
+                    if let text = TextMerge.merge(base: original.text ?? "", local: draft.text, remote: joined.text ?? "") {
+                        draft.text = text
+                    } else {
+                        collided = true
+                    }
+                }
+                switch joined.kind {
+                case .text:
+                    if draft.title == original.title { draft.title = joined.title }
+                case .sticky:
+                    if draft.color == (original.stickyColor ?? .yellow) { draft.color = joined.stickyColor ?? .yellow }
+                default:
+                    break
+                }
+                noteDrafts[id] = draft
+            }
+            if let draft = captionDrafts[id], (original.caption ?? "") != (joined.caption ?? "") {
+                if let text = TextMerge.merge(base: original.caption ?? "", local: draft, remote: joined.caption ?? "") {
+                    captionDrafts[id] = text
+                } else {
+                    collided = true
+                }
+            }
+            if collided { copies.append(BoardMerge.conflictCopy(of: joined, now: now)) }
+        }
+
+        guard !copies.isEmpty else { return }
+        merged.items += copies
+        // A cópia de um cartão que estava numa pasta apagada vai para o mural, como as cópias da própria junção.
+        merged.repairStructure()
+        merged.formatVersion = merged.requiredFormatVersion
+    }
+
+    /// O cartão como a conclusão da edição o deixaria com os rascunhos (as mesmas regras de `updateNote`, `updateSticky` e
+    /// `setCaption`), para a cópia de um cartão apagado levar o que a pessoa digitou.
+    private static func card(_ item: BoardItem, with note: NoteDraft?, caption: String?) -> BoardItem {
+        var typed = item
+        if let note {
+            let body = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch item.kind {
+            case .text:
+                typed.text = body.isEmpty ? nil : note.text
+                let title = note.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                typed.title = title.isEmpty ? (typed.text.map { ContentClassifier.title(forText: $0) } ?? "") : title
+            case .sticky:
+                typed.text = body.isEmpty ? nil : body
+                typed.title = typed.text.map { ContentClassifier.title(forText: $0) } ?? ""
+                typed.stickyColor = note.color
+            default:
+                break
+            }
+        }
+        if let caption {
+            let clean = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+            typed.caption = clean.isEmpty ? nil : clean
+        }
+        return typed
     }
 
     // MARK: Posições de leitura e drafts
@@ -1430,13 +1623,18 @@ final class BoardWindowSession {
         model.delete(itemID)
         musicPlayback.stopIfMissing(in: model, boardID: boardID)
         canonicalizeWorkspaceAfterContentMutation()
+        forgetSessionState(of: itemID)
+        captureBoardIfNeeded()
+    }
+
+    /// Esquece o que a janela guardava de um cartão que saiu do mural: rascunhos, seleção, edição e restauração de leitura.
+    private func forgetSessionState(of itemID: UUID) {
         captionDrafts.removeValue(forKey: itemID)
         noteDrafts.removeValue(forKey: itemID)
         newItemIDs.remove(itemID)
         selectedItemIDs.remove(itemID)
         if editingItemID == itemID { editingItemID = nil }
         restoringReadingItems.removeValue(forKey: itemID)
-        captureBoardIfNeeded()
     }
 
     // MARK: Organizar
@@ -1753,57 +1951,84 @@ final class BoardWindowSession {
         }
     }
 
-    private func enqueueAutosave() {
-        guard let domainSession, !isClosed else { return }
-        autosaveFailed = false
-        let board = pendingBoard
-        let savedWorkspace = pendingWorkspace
-        let boardSequence = pendingBoardSequence
-        let workspaceSequence = pendingWorkspaceSequence
+    /// O que a janela capturou e ainda não entregou ao domínio, com a sequência de cada parte para a falha saber se há algo mais novo.
+    private struct PendingWrite {
+        var board: Board?
+        var workspace: BoardWorkspaceState?
+        var boardSequence: UInt64?
+        var workspaceSequence: UInt64?
+    }
+
+    private func takePendingWrite() -> PendingWrite {
+        let pending = PendingWrite(
+            board: pendingBoard, workspace: pendingWorkspace, boardSequence: pendingBoardSequence,
+            workspaceSequence: pendingWorkspaceSequence)
         pendingBoard = nil
         pendingWorkspace = nil
         pendingBoardSequence = nil
         pendingWorkspaceSequence = nil
+        return pending
+    }
+
+    private func enqueueAutosave() {
+        guard let domainSession, !isClosed else { return }
+        autosaveFailed = false
+        let pending = takePendingWrite()
         let previous = sessionPipeline
         sessionPipeline = Task { [weak self] in
             await previous?.value
             guard let self, !Task.isCancelled else { return }
-            let signpost = MuralSignposts.persistence.beginInterval("Autosave")
-            defer { MuralSignposts.persistence.endInterval("Autosave", signpost) }
-            do {
-                var expectedGeneration = await domainSession.generation
-                if let board {
-                    try await domainSession.update(board: board, expectedGeneration: expectedGeneration)
-                    expectedGeneration = await domainSession.generation
-                }
-                if let savedWorkspace {
-                    try await domainSession.update(workspace: savedWorkspace, expectedGeneration: expectedGeneration)
-                }
-                if await domainSession.isDirty {
-                    let persisted = try await domainSession.flush()
-                    // Só apaga a mídia que a versão gravada já não usa; uma exclusão feita
-                    // durante esta gravação espera a próxima.
-                    model?.finalizeDeferredDeletions(persistedBoard: persisted.board)
-                }
-                generation = await domainSession.generation
-                isDirty = await domainSession.isDirty
-                error = nil
-                autosaveFailed = false
-            } catch {
-                let hasNewerBoard = pendingBoardSequence.map { $0 > (boardSequence ?? 0) } ?? false
-                if let board, !hasNewerBoard {
-                    pendingBoard = board
-                    pendingBoardSequence = boardSequence
-                }
-                let hasNewerWorkspace = pendingWorkspaceSequence.map { $0 > (workspaceSequence ?? 0) } ?? false
-                if let savedWorkspace, !hasNewerWorkspace {
-                    pendingWorkspace = savedWorkspace
-                    pendingWorkspaceSequence = workspaceSequence
-                }
-                isDirty = true
-                autosaveFailed = true
-                self.error = "Não foi possível salvar o mural: \(error.localizedDescription)"
+            await self.write(pending, on: domainSession, fromRemote: false)
+        }
+    }
+
+    /// Entrega o capturado ao domínio e grava. É o corpo de um autosave: só roda dentro da fila (`sessionPipeline`), uma gravação
+    /// por vez. Depois de gravar guarda o mural em `lastPersistedBoard` e avisa `onPersisted`.
+    /// - Returns: o erro, se a gravação falhou; o capturado volta para a próxima tentativa, a não ser que haja algo mais novo.
+    @discardableResult
+    private func write(_ pending: PendingWrite, on domainSession: BoardSession, fromRemote: Bool) async -> (any Error)? {
+        let signpost = MuralSignposts.persistence.beginInterval("Autosave")
+        defer { MuralSignposts.persistence.endInterval("Autosave", signpost) }
+        do {
+            var expectedGeneration = await domainSession.generation
+            if let board = pending.board, (pending.boardSequence ?? 0) >= deliveredBoardSequence {
+                try await domainSession.update(board: board, expectedGeneration: expectedGeneration)
+                deliveredBoardSequence = pending.boardSequence ?? deliveredBoardSequence
+                expectedGeneration = await domainSession.generation
             }
+            if let savedWorkspace = pending.workspace {
+                try await domainSession.update(workspace: savedWorkspace, expectedGeneration: expectedGeneration)
+            }
+            var flushed: Board?
+            if await domainSession.isDirty {
+                let persisted = try await domainSession.flush()
+                // Só apaga a mídia que a versão gravada já não usa; uma exclusão feita
+                // durante esta gravação espera a próxima.
+                model?.finalizeDeferredDeletions(persistedBoard: persisted.board)
+                lastPersistedBoard = persisted.board
+                flushed = persisted.board
+            }
+            generation = await domainSession.generation
+            isDirty = await domainSession.isDirty
+            error = nil
+            autosaveFailed = false
+            if let flushed { onPersisted?(flushed, fromRemote) }
+            return nil
+        } catch {
+            let hasNewerBoard = pendingBoardSequence.map { $0 > (pending.boardSequence ?? 0) } ?? false
+            if let board = pending.board, !hasNewerBoard {
+                pendingBoard = board
+                pendingBoardSequence = pending.boardSequence
+            }
+            let hasNewerWorkspace = pendingWorkspaceSequence.map { $0 > (pending.workspaceSequence ?? 0) } ?? false
+            if let savedWorkspace = pending.workspace, !hasNewerWorkspace {
+                pendingWorkspace = savedWorkspace
+                pendingWorkspaceSequence = pending.workspaceSequence
+            }
+            isDirty = true
+            autosaveFailed = true
+            self.error = "Não foi possível salvar o mural: \(error.localizedDescription)"
+            return error
         }
     }
 
