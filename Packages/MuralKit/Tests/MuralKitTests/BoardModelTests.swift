@@ -103,6 +103,32 @@ struct BoardModelTests {
         #expect(model.freeTextSizes[freeText.id] == resized)
     }
 
+    @Test("Extensão e snapshots compartilham dimensões e invalidam juntos")
+    func sizeSnapshotsAndExtentShareRevision() throws {
+        let model = BoardModel(store: makeStore(), seedIfEmpty: false)
+        let item = try #require(model.importText("Cartão"))
+        let freeText = model.createFreeText("Texto", at: BoardPoint(x: 1_000, y: 1_000))
+        let itemSize = try #require(model.rootItemSizes[item.id])
+        let freeTextSize = try #require(model.freeTextSizes[freeText.id])
+        let initialExtent = model.rootExtent
+        let expected = BoardSize(
+            width: max(item.position.x + itemSize.width, freeText.position.x + freeTextSize.width),
+            height: max(item.position.y + itemSize.height, freeText.position.y + freeTextSize.height))
+
+        #expect(initialExtent == expected)
+
+        let replacement = BoardSize(width: 320, height: 140)
+        #expect(model.resizeFreeText(freeText.id, to: replacement))
+        #expect(model.freeTextSizes[freeText.id] == replacement)
+        #expect(
+            model.rootExtent
+                == BoardSize(
+                    width: max(item.position.x + itemSize.width, freeText.position.x + replacement.width),
+                    height: max(item.position.y + itemSize.height, freeText.position.y + replacement.height)
+                )
+        )
+    }
+
     @Test("Cache de folding acompanha mudanças no texto")
     func foldedTextCacheInvalidatesAfterTextChange() throws {
         let model = BoardModel(store: makeStore(), seedIfEmpty: false)

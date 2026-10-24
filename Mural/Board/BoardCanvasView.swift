@@ -79,6 +79,10 @@ struct BoardCanvasView: View {
     var body: some View {
         let items = model.rootItems
         let freeTexts = model.freeTexts
+        // O culling, o desenho e a extensão usam os mesmos snapshots de tamanho quando a viewport
+        // já foi medida. Isso também deixa `rootExtent` aproveitar os mapas sem materializá-los duas vezes.
+        let itemSizes = displayedSizes(for: items, when: renderViewport)
+        let freeTextSizes = displayedSizes(for: freeTexts, when: renderViewport)
         let extent = model.rootExtent
         let viewport = zoom.viewport
         // Como num quadro branco: sempre uma tela de folga à direita e embaixo, para o
@@ -98,10 +102,6 @@ struct BoardCanvasView: View {
                 hoveredResizable?.freeTextID,
                 resizing?.target.freeTextID,
             ].compactMap { $0 })
-        // O culling e o desenho precisam da mesma geometria. Quando a viewport ainda não foi medida,
-        // não criamos um dicionário extra: o primeiro ciclo já desenha tudo e calcula cada tamanho uma vez.
-        let itemSizes = displayedSizes(for: items, when: renderViewport)
-        let freeTextSizes = displayedSizes(for: freeTexts, when: renderViewport)
         let renderedItems = CanvasRenderCulling.visibleItems(
             items,
             in: renderViewport,

@@ -147,28 +147,12 @@ public final class BoardModel {
     /// manter o derivado junto ao modelo evita repetir `BoardLayout.size(of:)` em
     /// cada ciclo sem carregar dimensões entre revisões diferentes.
     public var rootItemSizes: [UUID: BoardSize] {
-        let currentBoard = board
-        if let rootItemSizesCache { return rootItemSizesCache }
-        let sizes = Dictionary(
-            uniqueKeysWithValues: currentBoard.rootItems.map { item in
-                let size = BoardLayout.size(of: item)
-                return (item.id, BoardSize(width: size.width, height: size.height))
-            })
-        rootItemSizesCache = sizes
-        return sizes
+        materializeSizeSnapshots().rootItemSizes
     }
 
     /// Tamanhos dos textos livres do mural, memoizados enquanto o `board` não muda.
     public var freeTextSizes: [UUID: BoardSize] {
-        let currentBoard = board
-        if let freeTextSizesCache { return freeTextSizesCache }
-        let sizes = Dictionary(
-            uniqueKeysWithValues: currentBoard.freeTexts.map { freeText in
-                let size = BoardLayout.size(of: freeText)
-                return (freeText.id, BoardSize(width: size.width, height: size.height))
-            })
-        freeTextSizesCache = sizes
-        return sizes
+        materializeSizeSnapshots().freeTextSizes
     }
 
     /// Extensão ocupada pelo mural solto, memoizada enquanto o `board` não muda.
@@ -176,12 +160,77 @@ public final class BoardModel {
     public var rootExtent: BoardSize {
         let _ = board
         if let rootExtentCache { return rootExtentCache }
-        // Reutiliza os snapshots derivados que o canvas normalmente já pediu na mesma avaliação,
-        // sem perder a leitura observável de `board` acima.
-        let extent = BoardLayout.extent(of: rootItems, freeTexts: freeTexts)
-        let result = BoardSize(width: extent.width, height: extent.height)
+        let items = rootItems
+        let itemSizes = rootItemSizesCache
+        let extent: (width: Double, height: Double)
+        if let itemSizes, itemSizes.count == items.count {
+            extent = items.reduce((width: 0.0, height: 0.0)) { partial, item in
+                guard let size = itemSizes[item.id] else { return partial }
+                return (
+                    width: max(partial.width, item.position.x + size.width),
+                    height: max(partial.height, item.position.y + size.height)
+                )
+            }
+        } else {
+            extent = BoardLayout.extent(of: items)
+        }
+        let texts = freeTexts
+        let freeTextSizes = freeTextSizesCache
+        let fullExtent: (width: Double, height: Double)
+        if let freeTextSizes, freeTextSizes.count == texts.count {
+            fullExtent = texts.reduce(extent) { partial, freeText in
+                guard let size = freeTextSizes[freeText.id] else { return partial }
+                return (
+                    width: max(partial.width, freeText.position.x + size.width),
+                    height: max(partial.height, freeText.position.y + size.height)
+                )
+            }
+        } else {
+            fullExtent = texts.reduce(extent) { partial, freeText in
+                let size = BoardLayout.size(of: freeText)
+                return (
+                    width: max(partial.width, freeText.position.x + size.width),
+                    height: max(partial.height, freeText.position.y + size.height)
+                )
+            }
+        }
+        let result = BoardSize(width: fullExtent.width, height: fullExtent.height)
         rootExtentCache = result
         return result
+    }
+
+    /// Materializa os dois mapas de dimensões na mesma revisão do board.
+    /// IDs repetidos conservam a primeira dimensão observada, sem tornar a leitura fatal.
+    private func materializeSizeSnapshots() -> (
+        rootItemSizes: [UUID: BoardSize], freeTextSizes: [UUID: BoardSize]
+    ) {
+        if let rootItemSizesCache, let freeTextSizesCache {
+            return (rootItemSizesCache, freeTextSizesCache)
+        }
+
+        var itemSizes = rootItemSizesCache ?? [:]
+        if rootItemSizesCache == nil {
+            let items = rootItems
+            itemSizes.reserveCapacity(items.count)
+            for item in items where itemSizes[item.id] == nil {
+                let size = BoardLayout.size(of: item)
+                itemSizes[item.id] = BoardSize(width: size.width, height: size.height)
+            }
+        }
+
+        var textSizes = freeTextSizesCache ?? [:]
+        if freeTextSizesCache == nil {
+            let texts = freeTexts
+            textSizes.reserveCapacity(texts.count)
+            for freeText in texts where textSizes[freeText.id] == nil {
+                let size = BoardLayout.size(of: freeText)
+                textSizes[freeText.id] = BoardSize(width: size.width, height: size.height)
+            }
+        }
+
+        rootItemSizesCache = itemSizes
+        freeTextSizesCache = textSizes
+        return (itemSizes, textSizes)
     }
 
     public func children(of folderID: UUID) -> [BoardItem] {
