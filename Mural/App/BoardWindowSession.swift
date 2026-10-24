@@ -712,6 +712,12 @@ final class BoardWindowSession {
                     continue
                 }
                 receivedFiles.append(loaded.fileURL)
+                do {
+                    try PhotoImportCapacityPolicy.validate(fileAt: loaded.fileURL)
+                } catch let capacityError as PhotoImportCapacityError {
+                    failures.append(PhotoImportCapacityPolicy.message(for: capacityError))
+                    break
+                }
                 try Task.checkCancellation()
                 let stagedURL = try await PhotoImportStaging.copy(
                     loaded.fileURL,

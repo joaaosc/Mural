@@ -29,6 +29,66 @@ struct PhotoPickerFile: Transferable, Sendable {
     }
 }
 
+enum PhotoImportCapacityError: Error, Equatable, Sendable {
+    case fileSizeUnavailable
+    case capacityUnavailable
+    case invalidFileSize
+    case arithmeticOverflow
+    case insufficientCapacity(requiredBytes: Int64, availableBytes: Int64)
+}
+
+/// Bounds each PhotosPicker transfer by bytes, not by an arbitrary item count.
+/// Two copies are needed while a file moves from the provider to staging and
+/// then to `Items/`; one fifth of the observed free capacity remains reserved.
+enum PhotoImportCapacityPolicy {
+    typealias ResourceReader = @Sendable (URL) throws -> (fileSize: Int64?, availableCapacity: Int64?)
+
+    nonisolated static func validate(fileAt url: URL, reader: ResourceReader? = nil) throws {
+        let values = try (reader ?? readResourceValues)(url)
+        guard let fileSize = values.fileSize else { throw PhotoImportCapacityError.fileSizeUnavailable }
+        guard let availableCapacity = values.availableCapacity, availableCapacity >= 0 else {
+            throw PhotoImportCapacityError.capacityUnavailable
+        }
+        try validate(fileSize: fileSize, availableCapacity: availableCapacity)
+    }
+
+    nonisolated static func validate(fileSize: Int64, availableCapacity: Int64) throws {
+        guard fileSize >= 0 else { throw PhotoImportCapacityError.invalidFileSize }
+        guard availableCapacity >= 0 else { throw PhotoImportCapacityError.capacityUnavailable }
+        let (requiredBytes, overflow) = fileSize.multipliedReportingOverflow(by: 2)
+        guard !overflow else { throw PhotoImportCapacityError.arithmeticOverflow }
+        let reservedBytes = availableCapacity / 5
+        let usableCapacity = availableCapacity - reservedBytes
+        guard requiredBytes <= usableCapacity else {
+            throw PhotoImportCapacityError.insufficientCapacity(
+                requiredBytes: requiredBytes,
+                availableBytes: availableCapacity)
+        }
+    }
+
+    nonisolated static func message(for error: PhotoImportCapacityError) -> String {
+        switch error {
+        case .fileSizeUnavailable, .invalidFileSize:
+            "Não foi possível medir um arquivo selecionado em Fotos."
+        case .capacityUnavailable:
+            "Não foi possível verificar o espaço livre para continuar a importação de Fotos."
+        case .arithmeticOverflow, .insufficientCapacity:
+            "Não há espaço livre suficiente para continuar a importação de Fotos."
+        }
+    }
+
+    private nonisolated static func readResourceValues(for url: URL) throws -> (fileSize: Int64?, availableCapacity: Int64?) {
+        let values = try url.resourceValues(forKeys: [
+            .fileSizeKey,
+            .volumeAvailableCapacityForImportantUsageKey,
+        ])
+        return (
+            fileSize: values.fileSize.map(Int64.init),
+            availableCapacity: values.volumeAvailableCapacityForImportantUsage
+        )
+    }
+}
+
 enum PhotoImportStaging {
     static let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
         .appendingPathComponent("Mural/PhotoImportStaging", isDirectory: true)
