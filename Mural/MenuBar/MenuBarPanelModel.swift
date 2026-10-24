@@ -12,11 +12,13 @@ enum PasteStatus: Equatable, Sendable {
 }
 
 /// O estado do painel da barra de menus: os murais da vitrine, qual está no centro, a busca por letras, o último
-/// mural aberto por ali e o que há para colar nele.
+/// mural aberto por ali, o que há para colar nele, em que etapa está o teclado (``PanelStage``) e como formatar o texto
+/// copiado.
 ///
 /// Sem SwiftUI, para ser testado sem desenhar nada. Quem decide qual mural abre no centro e como a busca anda pela lista
 /// é `BoardPicker`; as capas são de `BoardCoverService`; a ordem em que elas são pedidas, de `CoverflowGeometry`; a
-/// leitura da área de transferência, de `ClipboardReader`; a entrega do que foi copiado, de `BoardDelivery`.
+/// leitura da área de transferência, de `ClipboardReader`; a entrega do que foi copiado, de `BoardDelivery`; as
+/// formatações do texto, de `PasteTextFormat`.
 @MainActor
 @Observable
 final class MenuBarPanelModel {
@@ -36,9 +38,17 @@ final class MenuBarPanelModel {
     private(set) var clipboardContent: ClipboardContent?
     /// As maneiras de colar o que está copiado, na ordem em que o painel as mostra.
     private(set) var options: [PasteOption] = []
-    /// O índice da opção escolhida em ``options``.
+    /// O índice da opção escolhida em ``options``. Começa na sugerida, que é a do ⌘V; a vitrine não a mostra como
+    /// escolhida, porque ali o teclado escolhe o mural.
     private(set) var selectedOption = 0
     private(set) var pasteStatus: PasteStatus = .idle
+
+    /// A etapa em que está o teclado. O painel abre na vitrine.
+    private(set) var stage: PanelStage = .boards
+    /// As formatações que o texto copiado aceita, na ordem do painel; vazio quando o que está copiado não é texto.
+    private(set) var formats: [PasteTextFormat] = []
+    /// A formatação escolhida; começa no texto como foi copiado.
+    private(set) var selectedFormat: PasteTextFormat = .original
 
     /// A chave, nas preferências, do último mural a que o painel levou: o `uuidString` do `BoardID`.
     static let lastDestinationKey = "menuBarLastBoardID"
@@ -163,6 +173,81 @@ final class MenuBarPanelModel {
         select(match)
     }
 
+    // MARK: Etapas
+
+    /// As etapas que o painel tem agora, na ordem do Tab: a vitrine sempre; as maneiras de colar quando há um mural no
+    /// centro e alguma opção de colar; a formatação quando, além disso, o que está copiado é texto.
+    var stages: [PanelStage] {
+        guard selectedEntry != nil, !options.isEmpty else { return [.boards] }
+        return formats.isEmpty ? [.boards, .paste] : [.boards, .paste, .format]
+    }
+
+    /// Tab: vai para a etapa seguinte e, depois da última, volta à vitrine.
+    /// - Returns: `false`, sem mudar nada, quando a vitrine é a única etapa.
+    @discardableResult
+    func advanceStage() -> Bool {
+        let available = stages
+        guard available.count > 1 else { return false }
+        let index = available.firstIndex(of: stage) ?? 0
+        stage = available[(index + 1) % available.count]
+        return true
+    }
+
+    /// ⇧Tab: volta uma etapa, parando na vitrine.
+    /// - Returns: `false`, sem mudar nada, já na vitrine.
+    @discardableResult
+    func retreatStage() -> Bool {
+        let available = stages
+        guard let index = available.firstIndex(of: stage), index > 0 else { return false }
+        stage = available[index - 1]
+        return true
+    }
+
+    /// Esc fora da vitrine: volta direto a ela.
+    /// - Returns: `false` já na vitrine, onde o Esc fecha o painel.
+    @discardableResult
+    func returnToBoards() -> Bool {
+        guard stage != .boards else { return false }
+        stage = .boards
+        return true
+    }
+
+    /// Uma etapa que deixou de existir (as opções mudaram depois de ler a área de transferência) dá lugar à anterior que
+    /// ainda existe.
+    private func keepStageAvailable() {
+        let available = stages
+        guard !available.contains(stage) else { return }
+        stage = stage == .format && available.contains(.paste) ? .paste : .boards
+    }
+
+    // MARK: Formatação
+
+    /// Anda `offset` formatações a partir da escolhida, parando nas pontas (sem dar a volta).
+    func moveFormat(by offset: Int) {
+        guard let index = formats.firstIndex(of: selectedFormat) else { return }
+        selectFormat(formats[min(max(index + offset, 0), formats.count - 1)])
+    }
+
+    /// Escolhe a formatação, se o texto copiado a aceita; senão não faz nada.
+    func selectFormat(_ format: PasteTextFormat) {
+        guard formats.contains(format) else { return }
+        selectedFormat = format
+    }
+
+    /// O texto copiado com a formatação, para a prévia; `nil` enquanto o texto não foi lido (o macOS só deixa ler num
+    /// colar pedido pela pessoa) e quando o que está copiado não é texto.
+    func formattedText(_ format: PasteTextFormat) -> String? {
+        guard case .pasted(.text(let text))? = clipboardContent else { return nil }
+        return Self.formatted(text, with: format)
+    }
+
+    /// O texto com a formatação; uma formatação que o deixaria vazio (só havia caracteres invisíveis) não vale, e o texto
+    /// fica como veio.
+    private static func formatted(_ text: String, with format: PasteTextFormat) -> String {
+        let result = format.apply(to: text)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : result
+    }
+
     // MARK: Abrir
 
     /// Guarda o mural como o último destino do painel: é o que fica no centro da próxima vez que o painel abrir.
@@ -219,7 +304,8 @@ final class MenuBarPanelModel {
     /// Se o conteúdo ainda não foi lido, lê agora. Sem nada para colar, o motivo fica em ``pasteStatus``.
     /// - Returns: `true` se pode seguir para ``paste()``. É `false` quando não há o que colar, quando já há uma entrega
     ///   em andamento ou feita (um Return a mais não cola duas vezes) e quando acabou de ler um texto com mais de um tipo
-    ///   de cartão possível: a pessoa escolhe o tipo e confirma com um segundo Return.
+    ///   de cartão possível: o painel passa às maneiras de colar, e a pessoa escolhe o tipo e confirma com um segundo
+    ///   Return.
     func readForPaste() -> Bool {
         guard !isBusy else { return false }
         pasteStatus = .idle
@@ -234,12 +320,16 @@ final class MenuBarPanelModel {
             pasteStatus = .failed(Self.message(for: clipboard))
             return false
         }
-        if case .pasted(.text) = content, options.count > 1 { return false }
+        if case .pasted(.text) = content, options.count > 1 {
+            stage = .paste
+            return false
+        }
         return true
     }
 
-    /// Entrega o que foi lido no mural do centro, no tipo de cartão da opção escolhida, e lembra o mural como o último
-    /// destino. Chamada depois de ``readForPaste()``; o resultado fica em ``pasteStatus``.
+    /// Entrega o que foi lido no mural do centro, no tipo de cartão da opção escolhida e, se for texto, com a formatação
+    /// escolhida, e lembra o mural como o último destino. Chamada depois de ``readForPaste()``; o resultado fica em
+    /// ``pasteStatus``.
     /// - Returns: `true` se o cartão entrou no mural.
     func paste() async -> Bool {
         guard !isBusy else { return false }
@@ -247,7 +337,7 @@ final class MenuBarPanelModel {
             pasteStatus = .failed(Self.noBoardMessage)
             return false
         }
-        guard let content = clipboardContent, options.indices.contains(selectedOption) else {
+        guard var content = clipboardContent, options.indices.contains(selectedOption) else {
             pasteStatus = .failed(Self.message(for: clipboard))
             return false
         }
@@ -256,6 +346,9 @@ final class MenuBarPanelModel {
             textKind = kind
         } else {
             textKind = nil
+        }
+        if case .pasted(.text(let text)) = content {
+            content = .pasted(.text(Self.formatted(text, with: selectedFormat)))
         }
 
         pasteStatus = .pasting
@@ -286,6 +379,14 @@ final class MenuBarPanelModel {
         clipboardContent = reading.content
         options = PasteOptions.options(for: clipboardKind)
         selectedOption = PasteOptions.suggestedIndex(in: options) ?? 0
+        // Texto ainda não lido também aceita formatação: ela vale para o que o colar ler.
+        if case .text = clipboardKind, !options.isEmpty {
+            formats = PasteTextFormat.allCases
+        } else {
+            formats = []
+        }
+        if !formats.contains(selectedFormat) { selectedFormat = .original }
+        keepStageAvailable()
     }
 
     /// Por que não há o que colar, conforme o que se sabe da área de transferência.

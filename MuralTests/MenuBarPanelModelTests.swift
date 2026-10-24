@@ -585,4 +585,130 @@ struct MenuBarPanelModelTests {
         #expect(PasteDescription.preview(of: nil) == nil)
         #expect(PasteDescription.preview(of: .pasted(.data(Data(), fileExtension: "png", kind: .image, title: "Imagem colada"))) == nil)
     }
+
+    // MARK: Etapas e formatação
+
+    @Test("O painel abre na vitrine; Tab mostra as maneiras de colar e depois a formatação, e volta à vitrine")
+    func tabWalksThroughTheStagesAndWrapsAround() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Notas"])
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("Comprar pão", forType: .string)
+        let model = workspace.makeModel(reader: workspace.makeReader(pasteboard, .alwaysAllow))
+
+        await model.load()
+
+        #expect(model.stage == .boards, "nenhuma maneira de colar fica escolhida ao abrir")
+        #expect(model.stages == [.boards, .paste, .format])
+        #expect(model.advanceStage())
+        #expect(model.stage == .paste)
+        #expect(model.advanceStage())
+        #expect(model.stage == .format)
+        #expect(model.advanceStage())
+        #expect(model.stage == .boards, "depois da última etapa, o Tab volta à vitrine")
+
+        await workspace.finish()
+    }
+
+    @Test("⇧Tab volta uma etapa e para na vitrine; Esc volta direto à vitrine")
+    func shiftTabAndEscapeGoBack() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Notas"])
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("Comprar pão", forType: .string)
+        let model = workspace.makeModel(reader: workspace.makeReader(pasteboard, .alwaysAllow))
+        await model.load()
+
+        #expect(!model.retreatStage(), "na vitrine não há para onde voltar")
+        #expect(!model.returnToBoards(), "na vitrine o Esc fecha o painel")
+        model.advanceStage()
+        model.advanceStage()
+        #expect(model.retreatStage())
+        #expect(model.stage == .paste)
+        model.advanceStage()
+        #expect(model.returnToBoards())
+        #expect(model.stage == .boards)
+
+        await workspace.finish()
+    }
+
+    @Test("Sem texto não há formatação, e sem nada para colar a vitrine é a única etapa")
+    func stagesDependOnTheClipboard() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Fotos"])
+        let image = workspace.makePasteboard()
+        image.setData(try TestImage.png(width: 8, height: 8), forType: .png)
+        let withImage = workspace.makeModel(reader: workspace.makeReader(image, .alwaysAllow))
+        await withImage.load()
+        #expect(withImage.formats.isEmpty)
+        #expect(withImage.stages == [.boards, .paste])
+        withImage.advanceStage()
+        #expect(withImage.advanceStage())
+        #expect(withImage.stage == .boards, "sem formatação, o segundo Tab já volta à vitrine")
+
+        let empty = workspace.makeModel(reader: workspace.makeReader(workspace.makePasteboard(), .alwaysAllow))
+        await empty.load()
+        #expect(empty.stages == [.boards])
+        #expect(!empty.advanceStage())
+        #expect(empty.stage == .boards)
+
+        await workspace.finish()
+    }
+
+    @Test("A formatação escolhida entra no cartão, e as setas param nas pontas da lista")
+    func chosenFormatShapesThePastedCard() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let compras = try workspace.boardID("Compras")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("ovos\nleite", forType: .string)
+        let model = workspace.makeModel(activeBoard: compras, reader: workspace.makeReader(pasteboard, .alwaysAllow))
+        await model.load()
+
+        #expect(model.formats == PasteTextFormat.allCases)
+        #expect(model.selectedFormat == .original)
+        model.moveFormat(by: -1)
+        #expect(model.selectedFormat == .original, "antes da primeira não há nada")
+        model.moveFormat(by: 99)
+        #expect(model.selectedFormat == .uppercase, "nem depois da última")
+        model.selectFormat(.taskList)
+        #expect(model.formattedText(.taskList) == "- [ ] ovos\n- [ ] leite")
+
+        // O texto vira uma nota (card de texto), com a formatação escolhida.
+        let note = try #require(model.options.firstIndex { $0.action == .text(.text) })
+        model.selectOption(note)
+        #expect(model.readForPaste())
+        #expect(await model.paste())
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        let card = try #require(board.items.first)
+        #expect(card.kind == .text)
+        #expect(card.text == "- [ ] ovos\n- [ ] leite")
+
+        await workspace.finish()
+    }
+
+    @Test("Com .ask o texto ainda não foi lido: a formatação aceita a escolha, e o colar lê e passa às maneiras de colar")
+    func unreadTextKeepsTheFormatAndAsksForTheCardKind() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Ideias"])
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("  Ideia   solta  ", forType: .string)
+        let model = workspace.makeModel(reader: workspace.makeReader(pasteboard, .ask))
+        await model.load()
+
+        #expect(model.clipboardContent == nil)
+        #expect(model.stages == [.boards, .paste, .format])
+        #expect(model.formattedText(.tidy) == nil, "sem ler, não há prévia")
+        model.advanceStage()
+        model.advanceStage()
+        model.selectFormat(.tidy)
+
+        #expect(!model.readForPaste(), "com o texto lido, a pessoa escolhe o tipo de cartão")
+        #expect(model.stage == .paste)
+        #expect(model.selectedFormat == .tidy, "a formatação escolhida antes de ler continua")
+        #expect(model.formattedText(.tidy) == "Ideia solta")
+
+        #expect(await model.paste())
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        #expect(board.items.first?.text == "Ideia solta")
+
+        await workspace.finish()
+    }
 }

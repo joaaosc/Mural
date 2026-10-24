@@ -1,12 +1,15 @@
 import AppKit
+import MuralKit
 import SwiftUI
 
 /// O conteúdo do painel da barra de menus: a vitrine de murais, a seção de colar o que foi copiado e, embaixo, a
 /// fileira de saídas.
 ///
-/// O teclado é do conteúdo (a vitrine e a seção de colar): ←/→ trocam de mural, ↑/↓ escolhem como colar, letras procuram
-/// pelo nome, Return cola o que está copiado (ou abre o mural, se não há o que colar), ⌘↩ abre e ⌘V cola. Os botões do
-/// rodapé são alvos de clique.
+/// O teclado é do conteúdo (a vitrine e a seção de colar) e anda por etapas (``PanelStage``). Em todas, ←/→ trocam de
+/// mural, letras procuram pelo nome, ⌘↩ abre o mural e ⌘V cola com a maneira e a formatação escolhidas (de início, as
+/// sugeridas). Na vitrine, onde o painel abre, Return abre o mural do centro. Tab mostra as maneiras de colar e, com
+/// texto, outro Tab mostra a formatação; nelas ↑/↓ escolhem e Return cola. ⇧Tab volta uma etapa, e Esc volta à vitrine
+/// ou, já nela, fecha o painel. Os botões do rodapé são alvos de clique.
 struct MenuBarPanelView: View {
     let tabs: MuralTabs
     let model: MenuBarPanelModel
@@ -29,15 +32,20 @@ struct MenuBarPanelView: View {
     private struct Layout: Equatable {
         let isLoaded: Bool
         let optionCount: Int
+        let formatCount: Int
+        let stage: PanelStage
         let clipboard: ClipboardState
         let pasteStatus: PasteStatus
     }
 
     private var layout: Layout {
         Layout(
-            isLoaded: model.isLoaded, optionCount: model.options.count, clipboard: model.clipboard,
-            pasteStatus: model.pasteStatus)
+            isLoaded: model.isLoaded, optionCount: model.options.count, formatCount: model.formats.count,
+            stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus)
     }
+
+    /// O ⇧Tab chega como o caractere de tabulação para trás do AppKit (`NSBackTabCharacter`).
+    private static let backTab = KeyEquivalent("\u{19}")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -69,7 +77,12 @@ struct MenuBarPanelView: View {
                 .padding(.top, PanelMetrics.contentPadding)
                 .padding(.bottom, PanelMetrics.contentSpacing)
             if showsPasteSection {
-                PasteSection(model: model, choose: { choose($0) })
+                PasteSection(
+                    model: model,
+                    choose: { choose($0) },
+                    chooseFormat: { chooseFormat($0) },
+                    advance: { model.advanceStage() },
+                    retreat: { model.retreatStage() })
             }
         }
         .focusable()
@@ -79,13 +92,14 @@ struct MenuBarPanelView: View {
         .onDisappear { pasteTask?.cancel() }
         .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in step(by: -1) }
         .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in step(by: 1) }
-        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in stepOption(by: -1) }
-        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in stepOption(by: 1) }
+        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in stepWithinStage(by: -1) }
+        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in stepWithinStage(by: 1) }
         .onKeyPress(.return, phases: .down) { press in confirm(press) }
+        .onKeyPress(keys: [.tab, Self.backTab], phases: .down) { press in tab(press) }
         .onKeyPress(characters: .alphanumerics, phases: .down) { press in type(press) }
         // O painel transforma o ⌘V em `paste:`, que chega aqui como um colar pedido pela pessoa.
         .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in pasteNow() }
-        .onExitCommand { close() }
+        .onExitCommand { escape() }
         .onChange(of: layout) { resize() }
     }
 
@@ -135,10 +149,16 @@ struct MenuBarPanelView: View {
         return .handled
     }
 
-    /// ↑/↓ andam pelas opções de colar; sem opções, a tecla segue adiante.
-    private func stepOption(by offset: Int) -> KeyPress.Result {
-        guard !model.options.isEmpty else { return .ignored }
-        model.moveOption(by: offset)
+    /// ↑/↓ andam pelas maneiras de colar ou pelas formatações, conforme a etapa; na vitrine, a tecla segue adiante.
+    private func stepWithinStage(by offset: Int) -> KeyPress.Result {
+        switch model.stage {
+        case .boards:
+            return .ignored
+        case .paste:
+            model.moveOption(by: offset)
+        case .format:
+            model.moveFormat(by: offset)
+        }
         return .handled
     }
 
@@ -148,18 +168,41 @@ struct MenuBarPanelView: View {
         return .handled
     }
 
-    /// Return cola o que está copiado, se há como colar; ⌘Return, e Return sem nada para colar, abrem o mural.
+    /// Na vitrine, Return abre o mural do centro; nas maneiras de colar e na formatação, cola. ⌘Return sempre abre.
     private func confirm(_ press: KeyPress) -> KeyPress.Result {
-        guard !press.modifiers.contains(.command), model.canPaste else { return openSelection() }
+        guard !press.modifiers.contains(.command), model.stage != .boards else { return openSelection() }
         pasteNow()
         return .handled
     }
 
+    /// Tab vai à etapa seguinte e ⇧Tab volta uma. A tecla é sempre tratada aqui: o painel não tem outro lugar para onde o
+    /// foco possa ir, e deixá-la seguir tiraria o teclado do conteúdo.
+    private func tab(_ press: KeyPress) -> KeyPress.Result {
+        if press.key == Self.backTab || press.modifiers.contains(.shift) {
+            model.retreatStage()
+        } else {
+            model.advanceStage()
+        }
+        return .handled
+    }
+
+    /// Esc volta à vitrine e, já nela, fecha o painel.
+    private func escape() {
+        guard !model.returnToBoards() else { return }
+        close()
+    }
+
     // MARK: Colar
 
-    /// Escolhe a opção da linha clicada e cola.
+    /// Escolhe a maneira de colar da linha clicada e cola.
     private func choose(_ index: Int) {
         model.selectOption(index)
+        pasteNow()
+    }
+
+    /// Escolhe a formatação da linha clicada e cola.
+    private func chooseFormat(_ format: PasteTextFormat) {
+        model.selectFormat(format)
         pasteNow()
     }
 

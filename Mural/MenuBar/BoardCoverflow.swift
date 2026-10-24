@@ -110,7 +110,7 @@ struct BoardCoverflow: View {
         let transform = geometry.transform(forOffset: d, reduceMotion: reduceMotion)
         let coverHeight = geometry.coverSize.height
         return VStack(spacing: Metrics.reflectionSpacing) {
-            face(of: item.entry)
+            face(of: item.entry, dimming: transform.dimming)
                 // O grupo vira uma imagem só antes da sombra: sem ele, o texto do quadro neutro ganha sombra própria.
                 .compositingGroup()
                 .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
@@ -122,7 +122,7 @@ struct BoardCoverflow: View {
                         onSelect(item.index)
                     }
                 }
-            reflection(of: item.entry)
+            reflection(of: item.entry, dimming: transform.dimming)
         }
         // As capas encolhem para o chão (o encontro da capa com o reflexo), e não para o meio, para ficarem todas
         // pousadas na mesma linha.
@@ -133,8 +133,9 @@ struct BoardCoverflow: View {
         .opacity(transform.opacity)
     }
 
-    /// A capa: a imagem preenchendo o quadro, ou um quadro neutro com o símbolo e o nome quando ainda não há imagem.
-    private func face(of entry: BoardLibraryEntry) -> some View {
+    /// A capa: a imagem preenchendo o quadro, ou um quadro neutro com o símbolo e o nome quando ainda não há imagem, sob
+    /// o véu escuro de `dimming` (zero na capa do centro).
+    private func face(of entry: BoardLibraryEntry, dimming: Double) -> some View {
         let shape = RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
         return ZStack {
             if let image = covers[entry.manifest.id] {
@@ -147,6 +148,7 @@ struct BoardCoverflow: View {
             }
         }
         .frame(width: geometry.coverSize.width, height: geometry.coverSize.height)
+        .overlay { Color.black.opacity(dimming) }
         .clipShape(shape)
         .overlay { shape.strokeBorder(.primary.opacity(0.08), lineWidth: 1) }
     }
@@ -168,8 +170,8 @@ struct BoardCoverflow: View {
     }
 
     /// A mesma capa de cabeça para baixo, só a faixa mais perto da capa, que esmaece até sumir.
-    private func reflection(of entry: BoardLibraryEntry) -> some View {
-        face(of: entry)
+    private func reflection(of entry: BoardLibraryEntry, dimming: Double) -> some View {
+        face(of: entry, dimming: dimming)
             .scaleEffect(y: -1)
             // Virada, a faixa de cima da cópia é a de baixo da capa.
             .frame(height: Self.reflectionHeight(for: geometry), alignment: .top)

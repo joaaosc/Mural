@@ -23,6 +23,8 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
     static let reducedMotionSideScale: CGFloat = 0.85
     /// Quanto de opacidade cada passo para fora da capa do meio tira.
     static let opacityFalloff = 0.15
+    /// O véu escuro sobre as capas laterais, de 0 a 1: bem fraco, só para a do meio se destacar como a escolhida.
+    static let sideDimming = 0.1
 
     /// Como uma capa é posta no palco.
     struct Transform: Equatable, Sendable {
@@ -34,12 +36,15 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
         /// A ordem de empilhamento: a capa do meio fica por cima, e cada lateral fica abaixo da anterior.
         var zIndex: Double
         var opacity: Double
+        /// O véu escuro sobre a capa, de 0 a 1: zero na do meio, ``CoverflowGeometry/sideDimming`` nas laterais.
+        var dimming: Double = 0
     }
 
     /// Onde e como desenhar a capa que está `d` posições da seleção.
     ///
     /// Além de `visibleSideCount` a capa já é transparente: mantém o deslocamento e a escala da regra, só some. Com
-    /// Reduzir Movimento as laterais não giram e usam ``reducedMotionSideScale``.
+    /// Reduzir Movimento as laterais não giram e usam ``reducedMotionSideScale``. As laterais ganham o véu de
+    /// ``sideDimming``, para a capa escolhida ser a única sem ele.
     func transform(forOffset d: Int, reduceMotion: Bool) -> Transform {
         let distance = abs(d)
         guard distance > 0 else {
@@ -52,7 +57,8 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
             angle: reduceMotion ? 0 : angle,
             scale: reduceMotion ? Self.reducedMotionSideScale : sideScale,
             zIndex: Double(visibleSideCount + 1 - distance),
-            opacity: distance > visibleSideCount ? 0 : 1 - Self.opacityFalloff * Double(distance - 1)
+            opacity: distance > visibleSideCount ? 0 : 1 - Self.opacityFalloff * Double(distance - 1),
+            dimming: Self.sideDimming
         )
     }
 
