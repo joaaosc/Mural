@@ -18,6 +18,8 @@ Uma regressão é sinalizada quando a mediana piora mais de 10%, o p95 mais de 1
 
 ## Observabilidade atual
 
+`BoardCoverLayout` calcula e conserva um snapshot de `BoardSize` por cartão e texto livre; a renderização da capa reutiliza esses tamanhos em vez de recalculá-los por elemento.
+
 `MuralSignposts` possui categorias para lançamento, leitura, persistência, importação, mídia, prévias e restauração. Os intervalos registram somente o nome da operação e valores agregados; não registram título de mural, texto, URL, caminho, nome de arquivo, contato, evento ou identificador externo.
 
 Os pontos de baixo risco já instrumentados incluem cópia de arquivos, cópia tipada do PhotosPicker, gravação de imagens, autosave, restauração de canvas, decode de miniatura, aplicação de prévias de links e gravação de artwork de música. O próximo passo é correlacionar esses intervalos com as fixtures, sem concluir desempenho a partir de uma única execução.

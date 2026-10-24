@@ -7,7 +7,11 @@ import Foundation
 public struct BoardCoverLayout: Equatable, Sendable {
     /// Cartões soltos desenhados, na ordem do mural.
     public let items: [BoardItem]
+    /// Tamanho desenhado de cada cartão, alinhado por índice com `items`.
+    public let itemSizes: [BoardSize]
     public let freeTexts: [BoardFreeText]
+    /// Tamanho desenhado de cada texto livre, alinhado por índice com `freeTexts`.
+    public let freeTextSizes: [BoardSize]
     /// Pontos da capa por ponto do mural.
     public let scale: Double
     /// Canto superior esquerdo do conteúdo (menor x e menor y entre cartões e textos), em pontos do mural.
@@ -32,22 +36,32 @@ public struct BoardCoverLayout: Equatable, Sendable {
         let items = mostRecent(board.rootItems, limit: maximumItems)
         let freeTexts = board.freeTexts
         guard !items.isEmpty || !freeTexts.isEmpty else {
-            return BoardCoverLayout(items: [], freeTexts: [], scale: maximumScale, contentOrigin: .zero, coverOrigin: .zero)
+            return BoardCoverLayout(
+                items: [], itemSizes: [], freeTexts: [], freeTextSizes: [], scale: maximumScale,
+                contentOrigin: .zero, coverOrigin: .zero)
         }
 
+        var itemSizes: [BoardSize] = []
+        itemSizes.reserveCapacity(items.count)
+        var freeTextSizes: [BoardSize] = []
+        freeTextSizes.reserveCapacity(freeTexts.count)
         var minX = Double.infinity
         var minY = Double.infinity
         var maxX = -Double.infinity
         var maxY = -Double.infinity
         for item in items {
-            let size = BoardLayout.size(of: item)
+            let rawSize = BoardLayout.size(of: item)
+            let size = BoardSize(width: rawSize.width, height: rawSize.height)
+            itemSizes.append(size)
             minX = min(minX, item.position.x)
             minY = min(minY, item.position.y)
             maxX = max(maxX, item.position.x + size.width)
             maxY = max(maxY, item.position.y + size.height)
         }
         for text in freeTexts {
-            let size = BoardLayout.size(of: text)
+            let rawSize = BoardLayout.size(of: text)
+            let size = BoardSize(width: rawSize.width, height: rawSize.height)
+            freeTextSizes.append(size)
             minX = min(minX, text.position.x)
             minY = min(minY, text.position.y)
             maxX = max(maxX, text.position.x + size.width)
@@ -61,7 +75,9 @@ public struct BoardCoverLayout: Equatable, Sendable {
         let scale = min(usableWidth / contentWidth, usableHeight / contentHeight, maximumScale)
         return BoardCoverLayout(
             items: items,
+            itemSizes: itemSizes,
             freeTexts: freeTexts,
+            freeTextSizes: freeTextSizes,
             scale: scale,
             contentOrigin: BoardPoint(x: minX, y: minY),
             coverOrigin: BoardPoint(x: (coverWidth - contentWidth * scale) / 2, y: (coverHeight - contentHeight * scale) / 2))

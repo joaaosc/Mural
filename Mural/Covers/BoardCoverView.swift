@@ -17,8 +17,9 @@ struct BoardCoverView: View {
         ZStack(alignment: .topLeading) {
             // Na janela o mural é vidro e mostra o que há atrás; a capa não tem nada atrás, então leva o cinza sólido.
             Theme.canvas
-            ForEach(layout.items) { item in
-                let size = BoardLayout.size(of: item)
+            ForEach(layout.items.indices, id: \.self) { index in
+                let item = layout.items[index]
+                let size = layout.itemSizes[index]
                 let origin = layout.coverPoint(for: item.position)
                 CardView(item: item, model: model)
                     // O post-it com tamanho escolhido leva a letra e a margem proporcionais, como no mural.
@@ -29,10 +30,11 @@ struct BoardCoverView: View {
                     .offset(x: origin.x, y: origin.y)
             }
             // Como no mural, os textos livres ficam por cima dos cartões.
-            ForEach(layout.freeTexts) { freeText in
+            ForEach(layout.freeTexts.indices, id: \.self) { index in
+                let freeText = layout.freeTexts[index]
                 let origin = layout.coverPoint(for: freeText.position)
-                let size = BoardLayout.size(of: freeText)
-                CoverFreeText(text: freeText.text, size: BoardSize(width: size.width, height: size.height))
+                let size = layout.freeTextSizes[index]
+                CoverFreeText(text: freeText.text, size: size)
                     .scaleEffect(layout.scale, anchor: .topLeading)
                     .offset(x: origin.x, y: origin.y)
             }

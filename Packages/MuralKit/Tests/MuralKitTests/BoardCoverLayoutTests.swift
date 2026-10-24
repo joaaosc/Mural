@@ -38,6 +38,7 @@ struct BoardCoverLayoutTests {
 
         #expect(result.isEmpty)
         #expect(result.items.isEmpty && result.freeTexts.isEmpty)
+        #expect(result.itemSizes.isEmpty && result.freeTextSizes.isEmpty)
         #expect(result.scale == 0.6)
         #expect(result.contentOrigin == .zero)
         #expect(result.coverOrigin == .zero)
@@ -68,6 +69,7 @@ struct BoardCoverLayoutTests {
 
         #expect(!result.isEmpty)
         #expect(result.items == [sticky])
+        #expect(result.itemSizes == [BoardSize(width: 110, height: 110)])
         #expect(result.scale == 0.6, "um mural pequeno não é ampliado")
         #expect(result.contentOrigin == .zero)
         #expect(isClose(result.coverOrigin, BoardPoint(x: 127, y: 67)))
@@ -131,12 +133,24 @@ struct BoardCoverLayoutTests {
 
         let result = layout(board)
 
+        #expect(result.itemSizes == [BoardSize(width: 160, height: 96), BoardSize(width: image.width, height: image.height)])
         // O conteúdo termina no canto inferior direito da imagem, que é o cartão mais distante.
         let contentWidth = 1_000 + image.width
         let contentHeight = 2_000 + image.height
         let scale = min(296 / contentWidth, 176 / contentHeight, 0.6)
         #expect(isClose(result.scale, scale))
         #expect(isClose(result.coverOrigin, BoardPoint(x: (320 - contentWidth * scale) / 2, y: (200 - contentHeight * scale) / 2)))
+    }
+
+    @Test("Os snapshots da capa usam os tamanhos normalizados, não o valor persistido inválido")
+    func snapshotsNormalizeStoredSizes() {
+        let item = BoardItem(kind: .sticky, title: "Grande", position: .zero, size: BoardSize(width: 5_000, height: 700))
+        let text = BoardFreeText(text: "Texto", position: BoardPoint(x: 600, y: 0), size: BoardSize(width: 5_000, height: 5_000))
+
+        let result = layout(Board(items: [item], freeTexts: [text]))
+
+        #expect(result.itemSizes == [BoardLayout.maximumStickySize])
+        #expect(result.freeTextSizes == [BoardLayout.maximumFreeTextSize])
     }
 
     @Test("A margem grande demais deixa 1 ponto de área útil, e a escala continua positiva")
@@ -170,6 +184,7 @@ struct BoardCoverLayoutTests {
         #expect(!result.isEmpty)
         #expect(result.items.isEmpty)
         #expect(result.freeTexts == [text])
+        #expect(result.freeTextSizes == [BoardSize(width: 180, height: 180)])
         #expect(result.scale == 0.6)
         #expect(result.contentOrigin == BoardPoint(x: 50, y: 70))
         #expect(isClose(result.coverOrigin, BoardPoint(x: 106, y: 46)))
@@ -193,6 +208,8 @@ struct BoardCoverLayoutTests {
         let scale = 176.0 / 380.0
 
         #expect(result.items == [sticky] && result.freeTexts == [text])
+        #expect(result.itemSizes == [BoardSize(width: 110, height: 110)])
+        #expect(result.freeTextSizes == [BoardSize(width: 180, height: 180)])
         #expect(result.contentOrigin == .zero)
         #expect(isClose(result.scale, scale))
         #expect(isClose(result.coverOrigin, BoardPoint(x: (320 - 480 * scale) / 2, y: 12)))
