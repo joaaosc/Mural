@@ -1,6 +1,7 @@
 import Foundation
 import MuralKit
 import SwiftUI
+import os
 
 extension EnvironmentValues {
     /// Coordenador das prévias de link da janela de mural aberta; `nil` fora de uma janela de mural e

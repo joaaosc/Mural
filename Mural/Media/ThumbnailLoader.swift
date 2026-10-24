@@ -2,6 +2,7 @@ import AVFoundation
 import ImageIO
 import MuralKit
 import PDFKit
+import os
 
 /// Gera imagens reduzidas de fotos, vídeos e PDFs fora da thread principal.
 enum ThumbnailLoader {
