@@ -7,6 +7,12 @@ enum ClipboardContent: Sendable {
     case pasted(PasteboardImporter.Content)
 }
 
+/// Nenhuma sessão de janela pôde ser obtida para o mural; `message` diz o motivo para a pessoa.
+struct SessionRoutingError: LocalizedError, Equatable, Sendable {
+    var message: String
+    var errorDescription: String? { message }
+}
+
 /// Entrega o que foi copiado na raiz de um mural escolhido, esteja ele aberto numa aba, numa aba de fundo ainda não
 /// carregada ou fechado.
 ///
@@ -18,6 +24,9 @@ enum ClipboardContent: Sendable {
 ///   enquanto isso, ela adota a sessão avulsa (`adoptDetachedSession(for:)`) e passa a ser a dona.
 ///
 /// As entregas correm numa fila serial, uma por vez, como as capas do `BoardCoverService`.
+///
+/// O roteamento acima está em `withSession(for:perform:)`, que também serve a quem precisa mexer num mural sem abrir uma
+/// segunda sessão dele (a sincronização com o iCloud): tudo o que passa por ali entra na mesma fila.
 @MainActor
 final class BoardDelivery {
     enum Outcome: Equatable, Sendable {
@@ -33,8 +42,8 @@ final class BoardDelivery {
     private let makeSession: @MainActor (BoardRoute) -> BoardWindowSession
     /// Sessões avulsas, de um mural que não tem aba: do carregamento até a gravação e o fechamento.
     private var detached: [BoardID: BoardWindowSession] = [:]
-    /// Fim da fila serial: a entrega mais recente, que a próxima espera terminar.
-    private var lane: Task<Outcome, Never>?
+    /// Fim da fila serial: o trabalho mais recente, que o próximo espera terminar.
+    private var lane: Task<Void, Never>?
 
     /// Quantas vezes se confere o estado do mural antes de desistir: ele muda se a aba fecha (ou reabre) durante a espera.
     private static let maximumAttempts = 3
@@ -66,15 +75,53 @@ final class BoardDelivery {
     /// Põe o que foi copiado na raiz do mural, no ponto que a pessoa estava olhando.
     /// - Parameter textKind: o tipo de cartão do texto colado; `nil` deixa o classificador escolher.
     func deliver(_ content: ClipboardContent, textKind: ItemKind?, to entry: BoardLibraryEntry) async -> Outcome {
-        let previous = lane
-        let task = Task { @MainActor [self] () -> Outcome in
-            _ = await previous?.value
-            return await perform(content, textKind: textKind, to: entry)
+        if case .pasted(.nothing) = content { return .failed(Self.nothingToPasteMessage) }
+        let boardID = entry.manifest.id
+        do {
+            return try await withSession(for: entry.route) { [self] session, isDetached in
+                await deliver(content, textKind: textKind, into: session, isDetached: isDetached, boardID: boardID)
+            }
+        } catch {
+            return .failed(error.localizedDescription)
         }
-        lane = task
-        let outcome = await task.value
-        if lane == task { lane = nil }
-        return outcome
+    }
+
+    /// Roda `body` com a única sessão de janela do mural, na fila serial das entregas: a da aba (carregada agora se preciso), a
+    /// avulsa de uma entrega que já a abriu, ou uma avulsa nova. A avulsa é fechada (gravando) depois de `body`, a não ser que
+    /// uma aba a tenha adotado no meio. Se o mural tem uma aba fechando, espera ela gravar e fechar antes.
+    ///
+    /// Quem chama nunca deve abrir uma `BoardWindowSession` por conta própria, nem gravar o mural pelo `BoardSessionRegistry`:
+    /// cada sessão grava o mural inteiro.
+    /// - Parameter body: recebe a sessão (com o modelo já carregado) e se ela é avulsa, caso em que a gravação final e o
+    ///   fechamento são de quem a abriu.
+    /// - Throws: `SessionRoutingError` se nenhuma sessão pôde ser obtida, ou o que `body` lançar. Em qualquer caso a sessão
+    ///   avulsa é fechada.
+    func withSession<Value: Sendable>(
+        for route: BoardRoute,
+        perform body: @escaping @MainActor (_ session: BoardWindowSession, _ isDetached: Bool) async throws -> Value
+    ) async throws -> Value {
+        let result = await serially { [self] () -> Result<Value, any Error> in
+            do {
+                return .success(try await routed(route, body))
+            } catch {
+                return .failure(error)
+            }
+        }
+        return try result.get()
+    }
+
+    /// Roda `work` depois de tudo o que entrou na fila antes e antes de tudo o que entrar depois. A fila é só desta instância.
+    func serially<Value: Sendable>(_ work: @escaping @MainActor () async -> Value) async -> Value {
+        let previous = lane
+        let task = Task { @MainActor () -> Value in
+            _ = await previous?.value
+            return await work()
+        }
+        let marker = Task { @MainActor in _ = await task.value }
+        lane = marker
+        let value = await task.value
+        if lane == marker { lane = nil }
+        return value
     }
 
     /// Chamado por `MuralTabs` ao criar a aba de um mural: se uma entrega está usando a sessão avulsa dele, a aba fica
@@ -91,70 +138,91 @@ final class BoardDelivery {
         detached[id]
     }
 
-    // MARK: Uma entrega
+    // MARK: Roteamento
 
-    private func perform(_ content: ClipboardContent, textKind: ItemKind?, to entry: BoardLibraryEntry) async -> Outcome {
-        if case .pasted(.nothing) = content { return .failed(Self.nothingToPasteMessage) }
-        let id = entry.manifest.id
+    /// Escolhe a sessão do mural e roda `body` nela. O `MuralTabs` tira a aba da lista antes de fechar a sessão: com uma aba
+    /// fechando, abrir outra sessão agora gravaria por cima da que ainda está gravando, então espera ela fechar e confere tudo de
+    /// novo, porque uma aba pode ter reaberto.
+    private func routed<Value: Sendable>(
+        _ route: BoardRoute,
+        _ body: @MainActor (BoardWindowSession, Bool) async throws -> Value
+    ) async throws -> Value {
+        guard let id = Self.boardID(of: route) else { throw SessionRoutingError(message: Self.unopenedMessage) }
         for _ in 0..<Self.maximumAttempts {
             if let tab = tabs?.tab(for: id) {
-                return await deliverToTab(content, textKind: textKind, session: tab.session)
+                return try await runInTab(tab.session, body)
             }
-            // O `MuralTabs` tira a aba da lista antes de fechar a sessão. Abrir outra agora gravaria por cima da que
-            // ainda está gravando: espera ela fechar e confere tudo de novo, porque uma aba pode ter reaberto.
             if let closing = closingSession(of: id) {
                 await closing.handleWindowWillClose()
                 continue
             }
-            return await deliverToDetachedSession(content, textKind: textKind, entry: entry)
+            return try await runInDetachedSession(route, boardID: id, body)
         }
-        return .failed(Self.busyMessage)
+        throw SessionRoutingError(message: Self.busyMessage)
     }
 
-    /// Mural com aba (na frente ou no fundo): entrega na sessão dela, que carrega agora se ainda não carregou.
-    private func deliverToTab(_ content: ClipboardContent, textKind: ItemKind?, session: BoardWindowSession) async -> Outcome {
+    /// Mural com aba (na frente ou no fundo): usa a sessão dela, que carrega agora se ainda não carregou.
+    private func runInTab<Value: Sendable>(
+        _ session: BoardWindowSession,
+        _ body: @MainActor (BoardWindowSession, Bool) async throws -> Value
+    ) async throws -> Value {
         await session.load()
-        guard let model = session.model else { return .failed(session.error ?? Self.unopenedMessage) }
-        return await apply(content, textKind: textKind, to: session, model: model)
+        guard session.model != nil else { throw SessionRoutingError(message: session.error ?? Self.unopenedMessage) }
+        return try await body(session, false)
     }
 
-    /// Mural sem aba: abre uma sessão avulsa, entrega, grava, refaz a capa e fecha.
+    /// Mural sem aba: abre uma sessão avulsa, roda `body` e fecha.
     ///
     /// A sessão fica em `detached` desde antes de carregar, para uma aba aberta nesse meio-tempo adotá-la. O mapa só
     /// muda de forma síncrona e a sessão só é fechada se ainda estiver nele: com a aba como dona, quem fecha é a aba.
-    private func deliverToDetachedSession(
-        _ content: ClipboardContent, textKind: ItemKind?, entry: BoardLibraryEntry
-    ) async -> Outcome {
-        let id = entry.manifest.id
-        let session = makeSession(entry.route)
-        detached[id] = session
+    private func runInDetachedSession<Value: Sendable>(
+        _ route: BoardRoute, boardID: BoardID,
+        _ body: @MainActor (BoardWindowSession, Bool) async throws -> Value
+    ) async throws -> Value {
+        let session = makeSession(route)
+        detached[boardID] = session
         await session.load()
-        guard let model = session.model else {
+        guard session.model != nil else {
             let message = session.error ?? Self.unopenedMessage
-            await closeIfStillDetached(session, boardID: id)
-            return .failed(message)
+            await closeIfStillDetached(session, boardID: boardID)
+            throw SessionRoutingError(message: message)
         }
-        var outcome = await apply(content, textKind: textKind, to: session, model: model)
-        // Sem cartão novo o mural não mudou: a capa gravada continua valendo.
-        if case .delivered = outcome {
-            await session.flushAndPrepareToLeave()
-            if session.isDirty {
-                // A gravação falhou: o cartão está na sessão de domínio, que o registry guarda (suja) até o mural ser
-                // aberto numa aba, que grava de novo ao mudar ou fechar. Sem isso, sair do app o perderia, e dizer
-                // "colado" esconderia esse risco.
-                outcome = .failed(Self.unsavedMessage)
-            } else {
-                await refreshCover(of: session, model: model, boardID: id)
-            }
+        do {
+            let value = try await body(session, true)
+            await closeIfStillDetached(session, boardID: boardID)
+            return value
+        } catch {
+            await closeIfStillDetached(session, boardID: boardID)
+            throw error
         }
-        await closeIfStillDetached(session, boardID: id)
-        return outcome
     }
 
     private func closeIfStillDetached(_ session: BoardWindowSession, boardID: BoardID) async {
         guard detached[boardID] === session else { return }
         detached[boardID] = nil
         await session.handleWindowWillClose()
+    }
+
+    // MARK: Uma entrega
+
+    /// O corpo de uma entrega, já com a sessão certa. Numa sessão avulsa, grava, refaz a capa e deixa o fechamento para o
+    /// roteamento. Sem cartão novo o mural não mudou: a capa gravada continua valendo.
+    private func deliver(
+        _ content: ClipboardContent, textKind: ItemKind?, into session: BoardWindowSession, isDetached: Bool, boardID: BoardID
+    ) async -> Outcome {
+        guard let model = session.model else { return .failed(session.error ?? Self.unopenedMessage) }
+        var outcome = await apply(content, textKind: textKind, to: session, model: model)
+        guard isDetached, case .delivered = outcome else { return outcome }
+        await session.flushAndPrepareToLeave()
+        if session.isDirty {
+            // A gravação falhou: o cartão está na sessão de domínio, que o registry guarda (suja) até o mural ser
+            // aberto numa aba, que grava de novo ao mudar ou fechar. Sem isso, sair do app o perderia, e dizer
+            // "colado" esconderia esse risco.
+            outcome = .failed(Self.unsavedMessage)
+        } else {
+            await refreshCover(of: session, model: model, boardID: boardID)
+        }
+        return outcome
     }
 
     /// Refaz a capa do mural com o que acabou de ser gravado, na revisão que ficou no disco.
