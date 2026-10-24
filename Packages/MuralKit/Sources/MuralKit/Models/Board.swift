@@ -298,7 +298,7 @@ public struct Board: Codable, Equatable, Sendable {
     /// - Returns: os cartões removidos, na ordem da lista (para apagar os arquivos guardados).
     @discardableResult
     public mutating func remove(id: UUID) -> [BoardItem] {
-        let doomed = Set(descendants(of: id).map(\.id)).union([id])
+        let doomed = removalIDs(startingAt: id)
         let removed = items.filter { doomed.contains($0.id) }
         guard !removed.isEmpty else { return [] }
         items.removeAll { doomed.contains($0.id) }
@@ -421,6 +421,29 @@ public struct Board: Codable, Equatable, Sendable {
             if let parentID = item.parentID { grouped[parentID, default: []].append(item) }
         }
         return grouped.mapValues { $0.sorted(by: Self.isCreatedBefore) }
+    }
+
+    /// IDs usados somente pela remoção. A ordem dos filhos não é observável nesse caminho:
+    /// `remove(id:)` devolve os cartões filtrados na ordem original de `items`. Evitar ordenar e
+    /// copiar `BoardItem` reduz o trabalho e as alocações ao apagar uma pasta grande.
+    private func removalIDs(startingAt id: UUID) -> Set<UUID> {
+        var childrenByParent: [UUID: [UUID]] = [:]
+        childrenByParent.reserveCapacity(items.count)
+        for item in items {
+            guard let parentID = item.parentID else { continue }
+            childrenByParent[parentID, default: []].append(item.id)
+        }
+
+        var doomed: Set<UUID> = [id]
+        var queue = childrenByParent[id] ?? []
+        var cursor = 0
+        while cursor < queue.count {
+            let childID = queue[cursor]
+            cursor += 1
+            guard doomed.insert(childID).inserted else { continue }
+            queue.append(contentsOf: childrenByParent[childID] ?? [])
+        }
+        return doomed
     }
 
     private func descendants(of folderID: UUID, byParent: [UUID: [BoardItem]]) -> [BoardItem] {

@@ -248,7 +248,12 @@ public final class BoardModel {
     public func children(of folderID: UUID) -> [BoardItem] {
         let currentBoard = board
         if let cached = childrenCache[folderID] { return cached }
-        let children = currentBoard.children(of: folderID)
+        let children: [BoardItem]
+        if let grouped = folderChildrenByParentCache {
+            children = grouped[folderID] ?? []
+        } else {
+            children = currentBoard.children(of: folderID)
+        }
         if childrenCache.count >= Self.derivedCacheEntryLimit, let evicted = childrenCacheOrder.first {
             childrenCache.removeValue(forKey: evicted)
             childrenCacheOrder.removeFirst()
@@ -372,7 +377,9 @@ public final class BoardModel {
     public func importFiles(_ urls: [URL], into parentID: UUID? = nil, at anchor: BoardPoint? = nil) -> [BoardItem] {
         guard !isReadOnly else { return refuseEdit([]) }
         var imported: [BoardItem] = []
+        imported.reserveCapacity(urls.count)
         var failures: [String] = []
+        failures.reserveCapacity(urls.count)
         for url in urls {
             do {
                 let item = try importer.importFile(at: url, parentID: parentID)

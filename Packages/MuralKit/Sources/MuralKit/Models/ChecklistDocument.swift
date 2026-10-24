@@ -14,8 +14,15 @@ public struct ChecklistDocument: Codable, Hashable, Sendable {
 
     /// Quantidade total de itens e quantos estão marcados.
     public var progress: (done: Int, total: Int) {
-        let all = sections.flatMap(\.entries)
-        return (all.filter(\.isDone).count, all.count)
+        var done = 0
+        var total = 0
+        for section in sections {
+            for entry in section.entries {
+                total += 1
+                if entry.isDone { done += 1 }
+            }
+        }
+        return (done, total)
     }
 
     public mutating func toggle(entryID: UUID) {
