@@ -219,7 +219,7 @@ private struct LoadedRootView: View {
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
             selectedPhotoItems = []
-            Task { await session.importPhotos(items, animation: importAnimation) }
+            session.startPhotoImport(items, animation: importAnimation)
         }
         .onChange(of: session.actions.request) { _, request in
             guard let request else { return }

@@ -135,6 +135,7 @@ final class BoardWindowSession {
     @ObservationIgnored private var windowCloseTask: Task<Void, Never>?
     @ObservationIgnored private var windowCloseHandled = false
     @ObservationIgnored private var exportTask: Task<Void, Never>?
+    @ObservationIgnored private var photoImportTask: Task<Void, Never>?
     @ObservationIgnored private let cleanupTransferOperation: @Sendable (URL) async throws -> Void
     @ObservationIgnored private var pendingSaveCopyResult: Result<URL, any Error>?
     @ObservationIgnored private(set) var restoreTarget: CGPoint?
@@ -603,7 +604,20 @@ final class BoardWindowSession {
     /// Invalidates callbacks belonging to a panel/session that is no longer
     /// current without coupling that decision to autosave revisions.
     func invalidatePresentation() {
+        photoImportTask?.cancel()
+        photoImportTask = nil
         presentationEpoch = UUID()
+    }
+
+    /// Keeps ownership of the PhotosPicker task in the session so a tab switch
+    /// or window close can cancel it before staging more files.
+    func startPhotoImport(_ items: [PhotosPickerItem], animation: Animation? = nil) {
+        photoImportTask?.cancel()
+        photoImportTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { photoImportTask = nil }
+            await importPhotos(items, animation: animation)
+        }
     }
 
     func importFiles(from urls: [URL]) async {
@@ -1587,6 +1601,8 @@ final class BoardWindowSession {
     /// Encerra as gravações desta janela: nenhum autosave, captura ou watchdog depois.
     private func markClosed() {
         isClosed = true
+        photoImportTask?.cancel()
+        photoImportTask = nil
         musicPlayback.stop(boardID: boardID)
         openSessions.unregister(self)
         pendingAutosaveDebounce?.cancel()
