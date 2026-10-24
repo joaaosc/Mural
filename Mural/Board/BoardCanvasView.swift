@@ -616,11 +616,13 @@ struct BoardCanvasView: View {
 
     /// Quadro de cada cartão solto, em pontos do mural, no tamanho mostrado; a pasta conta só o cartão, sem o leque.
     private func cardFrames(of items: [BoardItem], displayedSizes: [UUID: BoardSize] = [:]) -> [UUID: CGRect] {
-        Dictionary(
-            uniqueKeysWithValues: items.map { item in
-                let size = displayedSizes[item.id] ?? displayedSize(of: item)
-                return (item.id, CGRect(x: item.position.x, y: item.position.y, width: size.width, height: size.height))
-            })
+        var frames: [UUID: CGRect] = [:]
+        frames.reserveCapacity(items.count)
+        for item in items {
+            let size = displayedSizes[item.id] ?? displayedSize(of: item)
+            frames[item.id] = CGRect(x: item.position.x, y: item.position.y, width: size.width, height: size.height)
+        }
+        return frames
     }
 }
 
