@@ -399,6 +399,25 @@ struct CloudKitConversionTests {
         #expect(outcome.refused.isEmpty)
     }
 
+    @Test("Envio: falha passageira não é recusa, não vai ao coordenador e fica fora das zonas, para continuar na fila do motor")
+    func transientFailuresStayWithTheEngine() {
+        let offline = ckRecord(name: "11111111-2222-3333-4444-555555555555")
+        let busy = ckRecord(name: "22222222-2222-3333-4444-555555555555").recordID
+
+        let outcome = CloudKitMapping.sendOutcome(
+            savedRecords: [],
+            failedSaves: [(offline, CKError(.networkUnavailable))],
+            deletedRecordIDs: [],
+            failedDeletes: [busy: CKError(.zoneBusy)])
+
+        #expect(outcome.failures.isEmpty && outcome.refused.isEmpty && outcome.zones.isEmpty)
+        #expect(outcome.retriedByEngine == [.save(CloudRecordID(offline.recordID)), .delete(CloudRecordID(busy))])
+        for code in CloudKitMapping.transientErrorCodes {
+            #expect(CloudKitMapping.isTransient(CKError(code)), "código \(code.rawValue)")
+        }
+        #expect(!CloudKitMapping.isTransient(CKError(.quotaExceeded)) && !CloudKitMapping.isTransient(CKError(.permissionFailure)))
+    }
+
     @Test("Busca: o registro que não converte fica de fora da leva e os outros seguem; as zonas são as do que seguiu")
     func fetchOutcomeSkipsUnreadableRecords() throws {
         let good = ckRecord(name: "11111111-2222-3333-4444-555555555555")

@@ -41,8 +41,11 @@ enum CloudKitMapping {
         /// Os registros apagados; apagar o que já não existe (`unknownItem`) conta como apagado.
         var deleted: [CloudRecordID] = []
         var failures: [SyncSaveFailure] = []
+        /// O que falhou por um motivo passageiro (`CloudKitMapping.isTransient`): não vai ao coordenador como recusa e continua na fila
+        /// do motor, que tenta de novo com a própria espera. Fica fora de `zones`, para a troca de pendências não o tirar da fila.
+        var retriedByEngine: Set<PendingChange> = []
 
-        /// As zonas de tudo o que o evento trouxe.
+        /// As zonas do que o coordenador recebe do evento (aceitos, apagados e recusas).
         var zones: Set<CloudZoneID> {
             var zones = Set(saved.map(\.id.zone))
             zones.formUnion(deleted.map(\.zone))
@@ -84,16 +87,34 @@ enum CloudKitMapping {
         }
         outcome.deleted = deletedRecordIDs.map(CloudRecordID.init)
         for failure in failedSaves {
-            outcome.failures.append(saveFailure(for: failure.error, recordID: failure.record.recordID))
+            if isTransient(failure.error) {
+                outcome.retriedByEngine.insert(.save(CloudRecordID(failure.record.recordID)))
+            } else {
+                outcome.failures.append(saveFailure(for: failure.error, recordID: failure.record.recordID))
+            }
         }
         for (recordID, error) in failedDeletes.sorted(by: { isOrdered($0.key, $1.key) }) {
             if error.code == .unknownItem {
                 outcome.deleted.append(CloudRecordID(recordID))
+            } else if isTransient(error) {
+                outcome.retriedByEngine.insert(.delete(CloudRecordID(recordID)))
             } else {
                 outcome.failures.append(saveFailure(for: error, recordID: recordID))
             }
         }
         return outcome
+    }
+
+    /// Erros que passam sozinhos (sem rede, servidor ocupado ou fora do ar, limite de pedidos, resposta perdida, conta indisponível
+    /// por um momento, operação cancelada): reenviar depois resolve, então a mudança não é recusa nem sai da fila. Tratá-los como
+    /// recusa deixaria a mudança parada até a próxima gravação do mural.
+    static let transientErrorCodes: Set<CKError.Code> = [
+        .networkFailure, .networkUnavailable, .serviceUnavailable, .zoneBusy, .requestRateLimited, .serverResponseLost,
+        .notAuthenticated, .accountTemporarilyUnavailable, .operationCancelled,
+    ]
+
+    static func isTransient(_ error: CKError) -> Bool {
+        transientErrorCodes.contains(error.code)
     }
 
     /// A recusa do CloudKit no vocabulário do coordenador: conflito (com a versão do servidor), registro sumido, zona sumida, cota,
