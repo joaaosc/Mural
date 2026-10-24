@@ -17,7 +17,11 @@ public protocol BoardSyncHost: Sendable {
     /// (senão o que acabou de chegar pareceria mudança deste Mac e voltaria ao iCloud). O coordenador espera esta chamada terminar
     /// antes de tratar o próximo evento, então ela também não chama `handleSent`, `handleFetched`, `handleZoneDeleted`,
     /// `startTracking` nem `stopTracking`.
-    func applyRemote(_ id: BoardID, received: ReceivedChanges) async
+    ///
+    /// Só volta depois de o mural junto estar gravado em disco. Se a gravação falhar, lança: o coordenador mantém o estado antigo (o
+    /// que combina com o disco) e marca o mural para uma busca completa. Voltar sem gravar deixaria o disco antigo com a base nova, e
+    /// os cartões que chegaram pareceriam apagados aqui, com o apagamento subindo para todos.
+    func applyRemote(_ id: BoardID, received: ReceivedChanges) async throws
 
     /// O mural deixou de existir no iCloud para este Mac.
     func boardRemoved(_ id: BoardID, reason: BoardRemovalReason) async
@@ -76,6 +80,8 @@ public enum SyncIssue: Equatable, Sendable {
     case recordTooLarge(UUID)
     /// O mural foi gravado por um app mais novo: nada é enviado até este app ser atualizado.
     case needsNewerApp
+    /// O que chegou do iCloud não pôde ser gravado neste Mac; o mural será buscado de novo inteiro.
+    case localSaveFailed
     case other(String)
 }
 
@@ -108,6 +114,8 @@ public actor BoardSyncCoordinator {
     // O que segue só existe em memória.
     /// Os murais cuja versão do formato no iCloud passa da que esta build lê.
     private var newerAppBoards = Set<BoardID>()
+    /// Os murais marcados para busca completa (`BoardSyncState.needsFullFetch`), para `issues()`.
+    private var fullFetchBoards = Set<BoardID>()
     /// A recusa do iCloud na última tentativa de envio de cada mural; some quando um envio dele passa sem recusa.
     private var sendIssues: [BoardID: SyncIssue] = [:]
     /// Os cartões cujo registro estourou o limite, com o valor (forma compartilhada) que estourou.
@@ -264,6 +272,33 @@ public actor BoardSyncCoordinator {
         return pending
     }
 
+    /// As zonas dos murais marcados para busca completa (o host não conseguiu gravar o que chegou), como este Mac as vê: o motor
+    /// busca cada uma inteira e entrega a `handleFullFetch(_:records:)`.
+    public func zonesNeedingFullFetch() async throws -> [CloudZoneID] {
+        var zones: [CloudZoneID] = []
+        for id in try await store.boardIDs() {
+            guard let state = try await loadState(for: id), state.needsFullFetch else { continue }
+            zones.append(CloudZoneID(name: state.cloud.zoneName, ownerName: state.cloud.zoneOwnerName))
+        }
+        return zones
+    }
+
+    /// A zona inteira, buscada de novo: todos os registros que ela tem agora. O que este Mac conhecia e não veio foi apagado no
+    /// iCloud enquanto ele não conseguia gravar, então entra como apagado. Depois de juntar e gravar, a marca de busca completa sai.
+    /// - Returns: as pendências do mural com o estado novo, para o motor.
+    public func handleFullFetch(_ zone: CloudZoneID, records: [CloudRecord]) async throws -> Set<PendingChange> {
+        guard let id = CloudSchema.boardID(fromZoneName: zone.name) else { return [] }
+        await acquireEventLock()
+        defer { releaseEventLock() }
+        guard var state = try await loadState(for: id) else { return [] }
+
+        let inZone = records.filter { $0.id.zone.name == zone.name }
+        let present = Set(inZone.map(\.id.name))
+        let missing = Self.knownRecordNames(in: state).subtracting(present).sorted().map { CloudRecordID(zone: zone, name: $0) }
+        try await receive(inZone, deleted: missing, into: &state, for: id, completesFullFetch: true)
+        return await pendingChanges(for: id, state: state)
+    }
+
     /// A zona do mural deixou de existir para este Mac: apaga o estado guardado e avisa o host.
     public func handleZoneDeleted(_ zone: CloudZoneID, reason: BoardRemovalReason) async throws {
         guard let id = CloudSchema.boardID(fromZoneName: zone.name) else { return }
@@ -273,10 +308,11 @@ public actor BoardSyncCoordinator {
         try await remove(id, reason: reason)
     }
 
-    /// O que está impedindo cada mural de sincronizar, um por mural. Havendo vários, vale o mais grave: app mais novo, a recusa do
-    /// iCloud, o cartão grande demais e, por último, os registros ilegíveis.
+    /// O que está impedindo cada mural de sincronizar, um por mural. Havendo vários, vale o mais grave: app mais novo, a gravação
+    /// que falhou neste Mac, a recusa do iCloud, o cartão grande demais e, por último, os registros ilegíveis.
     public func issues() -> [BoardID: SyncIssue] {
         var boards = newerAppBoards
+        boards.formUnion(fullFetchBoards)
         boards.formUnion(sendIssues.keys)
         boards.formUnion(oversizedCards.keys)
         boards.formUnion(unreadableRecords.keys)
@@ -317,15 +353,40 @@ public actor BoardSyncCoordinator {
     }
 
     /// Incorpora o que chegou, na ordem descrita no tipo: estado novo numa cópia, o host junta e só então o estado é gravado.
+    ///
+    /// Se o host não consegue gravar, o estado antigo fica (é ele que combina com o disco) e o mural é marcado para busca completa:
+    /// o motor já passou dessas mudanças e não as traria de novo. O erro não sobe, para os outros murais do evento seguirem.
     private func receive(
-        _ saved: [CloudRecord], deleted: [CloudRecordID], into state: inout BoardSyncState, for id: BoardID
+        _ saved: [CloudRecord], deleted: [CloudRecordID], into state: inout BoardSyncState, for id: BoardID,
+        completesFullFetch: Bool = false
     ) async throws {
         var updated = state
         let received = try SyncCore.receive(saved: saved, deleted: deleted, into: &updated)
-        if !received.isEmpty { await host.applyRemote(id, received: received) }
+        if !received.isEmpty {
+            do {
+                try await host.applyRemote(id, received: received)
+            } catch {
+                state.needsFullFetch = true
+                try await commit(state, for: id)
+                return
+            }
+        }
+        if completesFullFetch { updated.needsFullFetch = false }
         try await commit(updated, for: id)
         state = updated
         noteUnreadable(received.skippedRecordNames, arrived: saved, deleted: deleted, for: id)
+    }
+
+    /// Todos os registros de que o estado sabe: cartões e textos livres da base, o mural, os arquivos enviados, os de app mais novo e
+    /// os que têm campos de sistema guardados.
+    private static func knownRecordNames(in state: BoardSyncState) -> Set<String> {
+        var names = Set(state.systemFields.keys)
+        names.formUnion(state.base.items.map(\.id.uuidString))
+        names.formUnion(state.base.freeTexts.map(\.id.uuidString))
+        names.formUnion(state.uploadedFiles)
+        names.formUnion(state.unsupportedRecordNames)
+        if state.baseName != nil { names.insert(CloudSchema.muralRecordName) }
+        return names
     }
 
     private func remove(_ id: BoardID, reason: BoardRemovalReason) async throws {
@@ -373,6 +434,11 @@ public actor BoardSyncCoordinator {
         } else {
             newerAppBoards.remove(id)
         }
+        if state.needsFullFetch {
+            fullFetchBoards.insert(id)
+        } else {
+            fullFetchBoards.remove(id)
+        }
     }
 
     /// Anota o resultado de um envio: a recusa vira aviso, e um lote em que o iCloud aceitou algo sem recusar nada limpa o aviso.
@@ -404,6 +470,7 @@ public actor BoardSyncCoordinator {
 
     private func forgetInMemory(_ id: BoardID) {
         newerAppBoards.remove(id)
+        fullFetchBoards.remove(id)
         sendIssues[id] = nil
         oversizedCards[id] = nil
         unreadableRecords[id] = nil
@@ -411,6 +478,7 @@ public actor BoardSyncCoordinator {
 
     private func issue(for id: BoardID) -> SyncIssue? {
         if newerAppBoards.contains(id) { return .needsNewerApp }
+        if fullFetchBoards.contains(id) { return .localSaveFailed }
         if let issue = sendIssues[id] { return issue }
         if let itemID = oversizedCards[id]?.keys.min(by: { $0.uuidString < $1.uuidString }) { return .recordTooLarge(itemID) }
         if let names = unreadableRecords[id], !names.isEmpty {

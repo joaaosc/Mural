@@ -34,6 +34,9 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
     public var mediaOwners: [String: UUID]
     /// Registros de um app mais novo, que este Mac não entende e nunca apaga nem regrava.
     public var unsupportedRecordNames: Set<String>
+    /// O que chegou do iCloud não pôde ser gravado neste Mac: o estado ficou o de antes (o que combina com o disco) e a zona precisa
+    /// ser buscada de novo inteira, porque o motor já passou daquelas mudanças. Só vai ao disco quando ligado.
+    public var needsFullFetch: Bool
 
     public init(
         cloud: BoardCloudInfo,
@@ -44,7 +47,8 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         systemFields: [String: Data] = [:],
         uploadedFiles: Set<String> = [],
         mediaOwners: [String: UUID] = [:],
-        unsupportedRecordNames: Set<String> = []
+        unsupportedRecordNames: Set<String> = [],
+        needsFullFetch: Bool = false
     ) {
         self.cloud = cloud
         self.base = base
@@ -55,10 +59,12 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         self.uploadedFiles = uploadedFiles
         self.mediaOwners = mediaOwners
         self.unsupportedRecordNames = unsupportedRecordNames
+        self.needsFullFetch = needsFullFetch
     }
 
     private enum CodingKeys: String, CodingKey {
         case cloud, base, baseName, baseBoardFormatVersion, layers, systemFields, uploadedFiles, mediaOwners, unsupportedRecordNames
+        case needsFullFetch
     }
 
     public init(from decoder: any Decoder) throws {
@@ -81,6 +87,7 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         systemFields = try container.decode([String: Data].self, forKey: .systemFields)
         uploadedFiles = Set(try container.decode([String].self, forKey: .uploadedFiles))
         unsupportedRecordNames = Set(try container.decode([String].self, forKey: .unsupportedRecordNames))
+        needsFullFetch = try container.decodeIfPresent(Bool.self, forKey: .needsFullFetch) ?? false
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -94,6 +101,8 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         try container.encode(uploadedFiles.sorted(), forKey: .uploadedFiles)
         try container.encode(mediaOwners, forKey: .mediaOwners)
         try container.encode(unsupportedRecordNames.sorted(), forKey: .unsupportedRecordNames)
+        // Desligado não vai ao disco: o estado comum continua com os mesmos bytes de antes do campo.
+        if needsFullFetch { try container.encode(true, forKey: .needsFullFetch) }
     }
 }
 

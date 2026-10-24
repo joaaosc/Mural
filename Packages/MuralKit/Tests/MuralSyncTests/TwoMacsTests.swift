@@ -55,6 +55,37 @@ struct TwoMacsTests {
         Set(board.items.map(\.title))
     }
 
+    // MARK: Gravação que falha
+
+    @Test("Gravação que falha no Mac da convidada: nada se perde nem é apagado, e a busca completa a põe em dia, com o apagamento de lá")
+    func failedLocalSaveRecoversThroughAFullFetch() async throws {
+        let first = note("Primeira", x: 10)
+        let second = note("Segunda", x: 200)
+        let macs = try await TwoMacs.make(board: board(first, second))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+
+        let arrived = note("Nova do dono", x: 400)
+        try await macs.owner.edit { board in
+            board.add(arrived)
+            _ = board.remove(id: second.id)
+        }
+        try await macs.owner.engine.sendChanges()
+        let cloudBefore = await macs.cloudRecords()
+
+        await macs.guest.host.failNextApply()
+        try await macs.guest.engine.fetchChanges()
+
+        #expect(await macs.guest.coordinator.issues()[macs.guest.boardID] == .localSaveFailed)
+        #expect(Set(await macs.guest.board.items.map(\.id)) == [first.id, second.id], "o Mac dela continua como estava")
+        try await macs.guest.engine.sendChanges()
+        #expect(await macs.cloudRecords() == cloudBefore, "nada subiu do Mac dela, nem o apagamento do que chegou")
+
+        try await macs.settle()
+        await macs.expectConverged()
+        #expect(Set(await macs.guest.board.items.map(\.id)) == [first.id, arrived.id])
+    }
+
     // MARK: O que chega
 
     @Test("O dono põe o mural e o convidado recebe tudo: cartões, pasta, tamanhos, textos livres, nome e a mídia em Items/")

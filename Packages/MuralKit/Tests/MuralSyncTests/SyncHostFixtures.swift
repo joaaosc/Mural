@@ -47,6 +47,7 @@ actor SyncTestHost: BoardSyncHost {
 
     private var entries: [BoardID: Entry] = [:]
     private var gate: SyncTestGate?
+    private var failuresLeft = 0
 
     /// Cada chamada de `applyRemote`, na ordem em que foi concluída.
     private(set) var received: [ReceivedChanges] = []
@@ -73,6 +74,11 @@ actor SyncTestHost: BoardSyncHost {
         entries[id]?.name = name
     }
 
+    /// As próximas `count` chamadas de `applyRemote` falham como uma gravação em disco que não deu certo: o mural fica como estava.
+    func failNextApply(_ count: Int = 1) {
+        failuresLeft = count
+    }
+
     /// A próxima chamada de `applyRemote` espera o teste liberar `gate`, antes de mexer no mural.
     func hold(_ gate: SyncTestGate) {
         self.gate = gate
@@ -84,10 +90,14 @@ actor SyncTestHost: BoardSyncHost {
         entries[id].map { LocalBoardSnapshot(name: $0.name, board: $0.board, itemsDirectory: $0.itemsDirectory) }
     }
 
-    func applyRemote(_ id: BoardID, received changes: ReceivedChanges) async {
+    func applyRemote(_ id: BoardID, received changes: ReceivedChanges) async throws {
         if let gate {
             self.gate = nil
             await gate.hold()
+        }
+        if failuresLeft > 0 {
+            failuresLeft -= 1
+            throw CocoaError(.fileWriteOutOfSpace)
         }
         received.append(changes)
         guard var entry = entries[id] else { return }

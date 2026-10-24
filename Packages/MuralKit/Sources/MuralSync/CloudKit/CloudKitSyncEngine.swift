@@ -119,9 +119,13 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         try await requireEngine().sendChanges()
     }
 
-    /// Busca agora o que mudou no iCloud, sem esperar a agenda do motor. Fora de `handleEvent`, como a Apple pede.
+    /// Busca agora o que mudou no iCloud, sem esperar a agenda do motor. Antes, busca inteira cada zona marcada para busca completa
+    /// (`BoardSyncCoordinator.zonesNeedingFullFetch`: o app não conseguiu gravar o que chegou, e o motor já passou daquelas
+    /// mudanças). Fora de `handleEvent`, como a Apple pede.
     public func fetchNow() async throws {
-        try await requireEngine().fetchChanges()
+        let engine = try requireEngine()
+        await fullFetchMarkedZones(engine: engine)
+        try await engine.fetchChanges()
     }
 
     // MARK: CKSyncEngineDelegate
@@ -276,6 +280,67 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         } catch {
             Logger.sync.error("Envio não tratado: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    // MARK: Busca completa
+
+    private func fullFetchMarkedZones(engine: CKSyncEngine) async {
+        let zones: [CloudZoneID]
+        do {
+            zones = try await coordinator.zonesNeedingFullFetch()
+        } catch {
+            Logger.sync.error("Zonas para busca completa não listadas: \(String(describing: error), privacy: .public)")
+            return
+        }
+        for zone in zones {
+            let scratch = FileManager.default.temporaryDirectory
+                .appendingPathComponent("MuralFullFetch-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: scratch) }
+            do {
+                let records = try await Self.allRecords(in: zone.ckZoneID, database: engine.database, copyingAssetsTo: scratch)
+                let remaining = try await coordinator.handleFullFetch(zone, records: records)
+                Self.replacePending(in: [zone], with: remaining, engine: engine)
+            } catch let error as CKError where error.code == .zoneNotFound || error.code == .userDeletedZone {
+                Self.replacePending(in: [zone], with: [], engine: engine)
+                do {
+                    try await coordinator.handleZoneDeleted(zone, reason: scope == .private ? .zoneDeleted : .accessRevoked)
+                } catch {
+                    Logger.sync.error("Zona \(zone.name, privacy: .public) não tratada: \(String(describing: error), privacy: .public)")
+                }
+            } catch {
+                // A marca continua: a próxima chamada de `fetchNow()` tenta de novo.
+                Logger.sync.error(
+                    "Busca completa da zona \(zone.name, privacy: .public) falhou: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Todos os registros que a zona tem agora: as mudanças desde o começo (`since: nil`), página a página. Um registro que falha ou
+    /// não converte interrompe tudo (lança), porque na busca completa o que não vem conta como apagado. Os arquivos (`CKAsset`) são
+    /// copiados para `directory` na hora: o arquivo do CloudKit pode sumir quando a operação termina.
+    private static func allRecords(
+        in zoneID: CKRecordZone.ID, database: CKDatabase, copyingAssetsTo directory: URL
+    ) async throws -> [CloudRecord] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var records: [CloudRecord] = []
+        var token: CKServerChangeToken?
+        var moreComing = true
+        while moreComing {
+            let page = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
+            for (_, result) in page.modificationResultsByID {
+                var record = try CloudRecord(try result.get().record)
+                for (key, value) in record.fields {
+                    guard case .asset(let source) = value else { continue }
+                    let copy = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+                    try FileManager.default.copyItem(at: source, to: copy)
+                    record.fields[key] = .asset(copy)
+                }
+                records.append(record)
+            }
+            token = page.changeToken
+            moreComing = page.moreComing
+        }
+        return records
     }
 
     // MARK: Interno

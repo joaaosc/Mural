@@ -406,6 +406,58 @@ struct BoardSyncCoordinatorTests {
 
     // MARK: O que chegou
 
+    @Test("Gravação que falha ao juntar: o estado antigo fica, nada vira apagamento, o aviso aparece e a busca completa recupera tudo")
+    func failedLocalSaveIsRecoveredByAFullFetch() async throws {
+        let kept = makeNote("Fica", x: 10)
+        let removed = makeNote("Sai", x: 20)
+        let setup = try await syncedSetup(board: Board(items: [kept, removed]))
+        defer { cleanUp(setup) }
+        let before = try await storedState(setup)
+        let top = (before.layers.values.max() ?? 0) + 1
+
+        // Chega um cartão novo e o app não consegue gravar.
+        let arrived = makeNote("Chegou", x: 30)
+        await setup.host.failNextApply()
+        let pending = try await setup.coordinator.handleFetched(
+            saved: [try serverCard(arrived, layer: top, mark: "s-1", in: setup)], deleted: [])
+
+        #expect(pending.isEmpty, "o mural daqui e o estado antigo combinam: nada a enviar, nem o apagamento do que chegou")
+        let failed = try await storedState(setup)
+        #expect(failed.base == before.base && failed.layers == before.layers && failed.needsFullFetch)
+        #expect(await setup.coordinator.issues()[setup.boardID] == .localSaveFailed)
+        #expect(try await setup.coordinator.zonesNeedingFullFetch() == [setup.zone])
+        #expect(await setup.host.board(setup.boardID).items.map(\.id) == [kept.id, removed.id])
+
+        // Enquanto isso, outra pessoa apagou um cartão. A busca completa traz tudo o que a zona tem agora; o que não veio saiu.
+        let zoneNow = [
+            try serverCard(kept, layer: try #require(before.layers[kept.id]), mark: "v1", in: setup),
+            try serverCard(arrived, layer: top, mark: "s-1", in: setup),
+            serverBoard(name: "Casa", formatVersion: try #require(before.baseBoardFormatVersion), mark: "m-1", in: setup),
+        ]
+        let afterFull = try await setup.coordinator.handleFullFetch(setup.zone, records: zoneNow)
+
+        #expect(afterFull.isEmpty)
+        let recovered = await setup.host.board(setup.boardID)
+        #expect(Set(recovered.items.map(\.id)) == [kept.id, arrived.id])
+        let done = try await storedState(setup)
+        #expect(!done.needsFullFetch && Set(done.base.items.map(\.id)) == [kept.id, arrived.id] && done.baseName == "Casa")
+        #expect(await setup.coordinator.issues()[setup.boardID] == nil)
+        #expect(try await setup.coordinator.zonesNeedingFullFetch().isEmpty)
+    }
+
+    @Test("A marca de busca completa vai ao disco só quando ligada, e o estado gravado sem ela abre desligado")
+    func fullFetchMarkIsStoredOnlyWhenSet() throws {
+        let cloud = BoardCloudInfo(
+            database: .private, zoneName: CloudSchema.zoneName(for: BoardID()), zoneOwnerName: CloudZoneID.defaultOwnerName,
+            permission: .owner)
+        let plain = try JSONEncoder().encode(BoardSyncState(cloud: cloud))
+        #expect(!String(decoding: plain, as: UTF8.self).contains("needsFullFetch"))
+        #expect(try JSONDecoder().decode(BoardSyncState.self, from: plain).needsFullFetch == false)
+
+        let marked = try JSONEncoder().encode(BoardSyncState(cloud: cloud, needsFullFetch: true))
+        #expect(try JSONDecoder().decode(BoardSyncState.self, from: marked).needsFullFetch)
+    }
+
     @Test("Mural de app mais novo: o que chega é entregue ao host, nada é enviado nem montado, e o aviso some quando a versão couber")
     func boardFromANewerAppBlocksSending() async throws {
         let note = makeNote()

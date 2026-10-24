@@ -115,8 +115,11 @@ public actor InMemorySyncEngine {
     /// Busca em cada zona conhecida o que mudou desde o contador dela e entrega a `handleFetched`. São as zonas dos murais que o
     /// coordenador acompanha (no banco privado, as do dono; no compartilhado, as que outras pessoas deram a esta) e as que já foram
     /// buscadas. Zona que sumiu vira `handleZoneDeleted`: `.zoneDeleted` se foi apagada e `.accessRevoked` se só o convite acabou.
+    /// Zona de mural marcado para busca completa (`zonesNeedingFullFetch`) é buscada inteira, desde o começo, e vai a
+    /// `handleFullFetch`.
     public func fetchChanges() async throws {
         let tracked = Set(try await coordinator.boardIDs())
+        let fullFetch = Set(try await coordinator.zonesNeedingFullFetch().map(\.name))
         var zones = Set(tokens.keys)
         for zone in await cloud.zones(for: user, scope: scope) {
             if let id = CloudSchema.boardID(fromZoneName: zone.name), tracked.contains(id) { zones.insert(zone) }
@@ -127,9 +130,10 @@ public actor InMemorySyncEngine {
                 forget(zone)
                 continue
             }
+            let isFull = fullFetch.contains(zone.name)
             let changes: InMemoryCloud.FetchedChanges
             do {
-                changes = try await cloud.fetchChanges(zone: zone, since: tokens[zone] ?? 0, as: user)
+                changes = try await cloud.fetchChanges(zone: zone, since: isFull ? 0 : tokens[zone] ?? 0, as: user)
             } catch InMemoryCloudError.zoneDeleted {
                 forget(zone)
                 try await coordinator.handleZoneDeleted(zone, reason: .zoneDeleted)
@@ -139,7 +143,11 @@ public actor InMemorySyncEngine {
                 try await coordinator.handleZoneDeleted(zone, reason: .accessRevoked)
                 continue
             }
-            if !changes.saved.isEmpty || !changes.deleted.isEmpty {
+            if isFull {
+                // Desde o começo, os registros mudados são todos os que a zona tem agora.
+                let remaining = try await coordinator.handleFullFetch(zone, records: changes.saved)
+                pending = pending.filter { $0.recordID.zone != zone }.union(remaining)
+            } else if !changes.saved.isEmpty || !changes.deleted.isEmpty {
                 let remaining = try await coordinator.handleFetched(saved: changes.saved, deleted: changes.deleted)
                 // O coordenador calcula as pendências do mural com o estado novo: vale o que ele disse.
                 pending = pending.filter { $0.recordID.zone != zone }.union(remaining)
