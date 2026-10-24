@@ -33,8 +33,21 @@ nonisolated struct GalleryArrangement {
     ///   - lanes: faixa de cada cartão, na ordem de exibição.
     ///   - heightForWidth: altura do cartão de índice `i` para uma largura de coluna.
     init(width: CGFloat, lanes: [GalleryLane], metrics: Metrics = .init(), heightForWidth: (Int, CGFloat) -> CGFloat) {
-        let mediaIndices = lanes.indices.filter { lanes[$0] == .media }
-        let noteIndices = lanes.indices.filter { lanes[$0] == .notes }
+        // Partition in one pass. The arrangement is rebuilt while the collection
+        // layout cache is invalidated, so avoid the two closure-based traversals
+        // and temporary intermediate storage created by `filter`.
+        var mediaIndices: [Int] = []
+        var noteIndices: [Int] = []
+        mediaIndices.reserveCapacity(lanes.count / 2)
+        noteIndices.reserveCapacity(lanes.count / 2)
+        for index in lanes.indices {
+            switch lanes[index] {
+            case .media:
+                mediaIndices.append(index)
+            case .notes:
+                noteIndices.append(index)
+            }
+        }
         let hasBothLanes = !mediaIndices.isEmpty && !noteIndices.isEmpty
 
         let mediaColumns = min(mediaIndices.count, hasBothLanes ? metrics.maxMediaColumns : metrics.maxColumnsAlone)
@@ -74,7 +87,7 @@ nonisolated struct GalleryArrangement {
         var heights = Array(repeating: CGFloat.zero, count: columns)
         for index in indices {
             var column = 0
-            if heights.count > 1 {
+            if columns > 1 {
                 for candidate in 1..<heights.count where heights[candidate] < heights[column] {
                     column = candidate
                 }
