@@ -583,4 +583,32 @@ struct CloudKitConversionTests {
         #expect(PendingChange.save(id).engineChange == .saveRecord(id.ckRecordID))
         #expect(PendingChange.delete(id).engineChange == .deleteRecord(id.ckRecordID))
     }
+
+    // MARK: Adoção
+
+    @Test("Zona nova: no banco privado o mural é do dono; no compartilhado, só ver até o convite; zona que não é de mural fica de fora")
+    func adoptionInfoDependsOnTheDatabase() {
+        let boardZone = CloudZoneID(name: CloudSchema.zoneName(for: BoardID()), ownerName: "_dono")
+        let ownZone = CloudZoneID(name: CloudSchema.zoneName(for: BoardID()))
+
+        let own = CloudKitMapping.adoptionInfo(for: ownZone, scope: .private)
+        #expect(own?.database == .private && own?.permission == .owner && own?.zoneOwnerName == CloudZoneID.defaultOwnerName)
+        let received = CloudKitMapping.adoptionInfo(for: boardZone, scope: .shared)
+        #expect(received?.database == .shared && received?.permission == .readOnly && received?.zoneOwnerName == "_dono")
+        #expect(CloudKitMapping.adoptionInfo(for: CloudZoneID(name: "_defaultZone"), scope: .private) == nil)
+        #expect(CloudKitMapping.adoptionInfo(for: CloudZoneID(name: "outra-zona"), scope: .shared) == nil)
+    }
+
+    @Test("Busca sem as zonas recusadas: todas viram todas menos elas, a lista de exclusão soma, e a lista explícita perde as recusadas")
+    func fetchScopeLeavesDeclinedZonesOut() {
+        let a = CKRecordZone.ID(zoneName: "mural-A", ownerName: CKCurrentUserDefaultName)
+        let b = CKRecordZone.ID(zoneName: "mural-B", ownerName: CKCurrentUserDefaultName)
+        let c = CKRecordZone.ID(zoneName: "mural-C", ownerName: CKCurrentUserDefaultName)
+
+        #expect(CloudKitMapping.fetchScope(.all, excluding: []) == .all)
+        #expect(CloudKitMapping.fetchScope(.all, excluding: [b, a]) == .allExcluding([a, b]))
+        #expect(CloudKitMapping.fetchScope(.allExcluding([c]), excluding: [a]) == .allExcluding([a, c]))
+        #expect(CloudKitMapping.fetchScope(.zoneIDs([a, b, c]), excluding: [b]) == .zoneIDs([a, c]))
+    }
+
 }

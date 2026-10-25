@@ -273,6 +273,40 @@ enum CloudKitMapping {
         return outcome
     }
 
+    // MARK: Adoção
+
+    /// O `cloud` com que uma zona nova é adotada, ou `nil` se ela não é de mural (a zona padrão, por exemplo). No banco privado o
+    /// mural é desta pessoa; no compartilhado, só ver até o convite trazer a permissão de verdade (adotar como "editar" deixaria quem
+    /// só pode ver acumular edições que nunca sobem).
+    static func adoptionInfo(for zone: CloudZoneID, scope: CloudDatabaseScope) -> BoardCloudInfo? {
+        guard CloudSchema.boardID(fromZoneName: zone.name) != nil else { return nil }
+        switch scope {
+        case .private:
+            return BoardCloudInfo(database: .private, zoneName: zone.name, zoneOwnerName: zone.ownerName, permission: .owner)
+        case .shared:
+            return BoardCloudInfo(database: .shared, zoneName: zone.name, zoneOwnerName: zone.ownerName, permission: .readOnly)
+        }
+    }
+
+    /// O escopo de busca do motor sem as zonas recusadas, em ordem fixa (pelo nome da zona e do dono).
+    static func fetchScope(
+        _ scope: CKSyncEngine.FetchChangesOptions.Scope, excluding declined: Set<CKRecordZone.ID>
+    ) -> CKSyncEngine.FetchChangesOptions.Scope {
+        func ordered(_ zones: Set<CKRecordZone.ID>) -> [CKRecordZone.ID] {
+            zones.sorted { ($0.zoneName, $0.ownerName) < ($1.zoneName, $1.ownerName) }
+        }
+        switch scope {
+        case .all:
+            return declined.isEmpty ? .all : .allExcluding(ordered(declined))
+        case .allExcluding(let excluded):
+            return .allExcluding(ordered(Set(excluded).union(declined)))
+        case .zoneIDs(let zones):
+            return .zoneIDs(zones.filter { !declined.contains($0) })
+        @unknown default:
+            return scope
+        }
+    }
+
     // MARK: Convite
 
     /// Separa os convites dos registros do mural. O convite tem tipo próprio (`CKRecord.SystemType.share`) e vem na mesma leva, na

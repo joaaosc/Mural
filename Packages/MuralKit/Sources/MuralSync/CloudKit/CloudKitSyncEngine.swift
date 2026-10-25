@@ -81,6 +81,54 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         }
         let database = scope == .private ? container.privateCloudDatabase : container.sharedCloudDatabase
         syncEngine = CKSyncEngine(CKSyncEngine.Configuration(database: database, stateSerialization: serialization, delegate: self))
+        await adoptExistingZones(in: database)
+    }
+
+    /// Varredura de todas as zonas do banco, uma vez por execução: adota o mural cuja zona este Mac ainda não acompanha. Cobre o que
+    /// a adoção dentro do evento não vê — zona que já existia antes desta versão (o motor já tinha passado dela e descartado os
+    /// registros), convite aceito em outro Mac, adoção que falhou. A busca completa delas fica para `fetchNow()`, que o app chama
+    /// depois de ligar os motores. Sem rede, nada muda: a próxima execução tenta de novo.
+    private func adoptExistingZones(in database: CKDatabase) async {
+        do {
+            let zones = try await database.allRecordZones()
+            _ = await adopt(zones.map { CloudZoneID($0.zoneID) })
+        } catch {
+            Logger.sync.error(
+                "Varredura das zonas do banco \(self.scope.rawValue, privacy: .public) falhou: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    /// Adota as zonas de mural que este Mac não acompanha (`BoardSyncCoordinator.adoptZone`), com a permissão de partida de
+    /// `CloudKitMapping.adoptionInfo`. Zona recusada, já acompanhada ou que não é de mural fica como está.
+    /// - Returns: se alguma zona foi adotada (e precisa da busca completa).
+    private func adopt(_ zones: [CloudZoneID]) async -> Bool {
+        var adoptedAny = false
+        for zone in zones {
+            guard let cloud = CloudKitMapping.adoptionInfo(for: zone, scope: scope) else { continue }
+            do {
+                if try await coordinator.adoptZone(zone, cloud: cloud, name: nil) == .adopted {
+                    adoptedAny = true
+                    Logger.sync.notice("Zona adotada: \(zone.name, privacy: .public) no banco \(self.scope.rawValue, privacy: .public)")
+                }
+            } catch {
+                Logger.sync.error("Zona \(zone.name, privacy: .public) não adotada: \(String(describing: error), privacy: .public)")
+            }
+        }
+        return adoptedAny
+    }
+
+    /// A busca completa das zonas adotadas durante um evento, pedida depois dele. A Apple pede que `handleEvent` não chame
+    /// `fetchChanges`: a tarefa não é aguardada, e a espera curta a deixa começar depois que o evento termina.
+    private func scheduleFetchAfterAdoption() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            do {
+                try await self?.fetchNow()
+            } catch {
+                Logger.sync.error("Busca depois da adoção falhou: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     // MARK: Entrada pública
@@ -150,10 +198,9 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
             await handleAccountChange(change.changeType)
         case .fetchedDatabaseChanges(let changes):
             await handleZoneDeletions(changes.deletions, engine: syncEngine)
-            if !changes.modifications.isEmpty {
-                // Zona nova no banco compartilhado (convite aceito) fica para a Fase 3.
-                note("fetchedDatabaseChanges (zonas novas ou alteradas: \(changes.modifications.count))")
-            }
+            // Zona nova (convite aceito, mural do dono vindo de outro Mac dele): adotada aqui, antes de o motor buscar os registros
+            // dela. A busca completa garante o que o motor já tenha deixado passar.
+            if await adopt(changes.modifications.map { CloudZoneID($0.zoneID) }) { scheduleFetchAfterAdoption() }
         case .fetchedRecordZoneChanges(let changes):
             await handleFetched(changes, engine: syncEngine)
         case .sentRecordZoneChanges(let sent):
@@ -180,6 +227,18 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         case .didSendChanges: note("didSendChanges")
         @unknown default: note("evento desconhecido")
         }
+    }
+
+    /// As opções da próxima busca: as do motor, sem as zonas recusadas por este Mac (excluídas, abandonadas ou tiradas do iCloud),
+    /// até o servidor confirmar o apagamento delas. Sem isso, a próxima mudança numa zona abandonada a traria de volta.
+    public func nextFetchChangesOptions(
+        _ context: CKSyncEngine.FetchChangesContext, syncEngine: CKSyncEngine
+    ) async -> CKSyncEngine.FetchChangesOptions {
+        var options = context.options
+        let declined = (try? await coordinator.declinedZones()) ?? []
+        guard !declined.isEmpty else { return options }
+        options.scope = CloudKitMapping.fetchScope(options.scope, excluding: Set(declined.map(\.ckZoneID)))
+        return options
     }
 
     /// O lote de envio: as pendências do escopo pedido, no máximo `maximumBatchSize`, em ordem fixa. Cada registro é pedido ao
