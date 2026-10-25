@@ -20,6 +20,13 @@ struct SyncStatusIndicatorTests {
         #expect(display.isWarning)
     }
 
+    @Test func awaitingFirstFetchIsInformativeNotAWarning() {
+        let display = SyncStatusDisplay(issue: .awaitingFirstFetch)
+        #expect(display.symbolName == "icloud.and.arrow.down")
+        #expect(display.text == "Baixando do iCloud…")
+        #expect(!display.isWarning)
+    }
+
     @Test func readOnlyIsNotAWarning() {
         let display = SyncStatusDisplay(issue: .readOnly)
         #expect(display.symbolName == "icloud")
@@ -40,7 +47,7 @@ struct SyncStatusIndicatorTests {
 
     @Test func eachIssueHasItsOwnText() {
         let issues: [SyncIssue?] = [
-            nil, .quotaExceeded, .readOnly, .recordTooLarge(UUID()), .needsNewerApp, .localSaveFailed, .other("x"),
+            nil, .quotaExceeded, .readOnly, .recordTooLarge(UUID()), .needsNewerApp, .localSaveFailed, .awaitingFirstFetch, .other("x"),
         ]
         let texts = issues.map { SyncStatusDisplay(issue: $0).text }
         #expect(Set(texts).count == issues.count)

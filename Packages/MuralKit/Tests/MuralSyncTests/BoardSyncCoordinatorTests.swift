@@ -41,8 +41,10 @@ struct BoardSyncCoordinatorTests {
         }
     }
 
+    /// - Parameter hasLocalBoard: `false` deixa o Mac sem o pacote do mural, para o coordenador adotar a zona; o host o cria em `Items/`.
     private func makeSetup(
-        board: Board = Board(), name: String = "Casa", files: [String] = [], scope: CloudDatabaseScope = .private
+        board: Board = Board(), name: String = "Casa", files: [String] = [], scope: CloudDatabaseScope = .private,
+        hasLocalBoard: Bool = true
     ) async throws -> Setup {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MuralSyncCoordinator-\(UUID().uuidString)", isDirectory: true)
@@ -50,8 +52,8 @@ struct BoardSyncCoordinatorTests {
         try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
         for file in files { try Data("conteúdo de \(file)".utf8).write(to: items.appendingPathComponent(file)) }
         let boardID = BoardID()
-        let host = SyncTestHost()
-        await host.add(boardID, name: name, board: board, itemsDirectory: items)
+        let host = SyncTestHost(adoptedItemsDirectory: items)
+        if hasLocalBoard { await host.add(boardID, name: name, board: board, itemsDirectory: items) }
         let store = SyncMetadataStore(directory: root.appendingPathComponent("Sync", isDirectory: true))
         return Setup(
             root: root, boardID: boardID, zone: CloudZoneID(name: CloudSchema.zoneName(for: boardID)), host: host, store: store,
@@ -602,5 +604,277 @@ struct BoardSyncCoordinatorTests {
         #expect(try await setup.coordinator.pendingChanges(for: setup.boardID) == setup.saves([huge.id.uuidString]))
         #expect(try await setup.coordinator.record(for: hugeID) != nil)
         #expect(await setup.coordinator.issues().isEmpty)
+    }
+
+    // MARK: Zona nova
+
+    /// Um Mac sem o mural, cujo coordenador acabou de adotar a zona.
+    private func adoptedSetup(name: String? = nil) async throws -> Setup {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        let result = try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: name)
+        try #require(result == .adopted, "a adoção devolveu \(result)")
+        return setup
+    }
+
+    @Test("Adotar a zona nova: o host cria o mural vazio, o estado nasce esperando a primeira busca e o aviso é só informativo")
+    func adoptingCreatesTheBoardAwaitingTheFirstFetch() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+        #expect(try await setup.coordinator.isTracking(setup.boardID) == false)
+
+        let result = try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil)
+
+        #expect(result == .adopted)
+        #expect(await setup.host.adoptions == [SyncTestHost.Adoption(board: setup.boardID, cloud: setup.cloud, name: nil)])
+        #expect(await setup.host.name(setup.boardID) == SyncTestHost.adoptedDefaultName)
+        #expect(await setup.host.board(setup.boardID) == Board())
+        let state = try await storedState(setup)
+        #expect(state.isAwaitingFirstFetch && !state.needsFullFetch && state.cloud == setup.cloud)
+        #expect(try await setup.coordinator.isTracking(setup.boardID))
+        #expect(try await setup.coordinator.boardIDs() == [setup.boardID])
+        #expect(try await setup.coordinator.zonesNeedingFullFetch() == [setup.zone])
+        #expect(try await setup.coordinator.pendingChanges(for: setup.boardID).isEmpty)
+        #expect(await setup.coordinator.issues() == [setup.boardID: .awaitingFirstFetch])
+    }
+
+    @Test("O nome provisório que o coordenador passa é o do pacote criado pelo host")
+    func adoptedNameReachesTheHost() async throws {
+        let setup = try await adoptedSetup(name: "Mural da Ana")
+        defer { cleanUp(setup) }
+
+        #expect(await setup.host.name(setup.boardID) == "Mural da Ana")
+        #expect(await setup.host.adoptions.first?.name == "Mural da Ana")
+    }
+
+    @Test("Esperando a primeira busca nada sobe: nem o nome provisório, nem o que se escreveu no pacote provisório, nem após startTracking")
+    func awaitingBoardNeverSends() async throws {
+        let setup = try await adoptedSetup(name: "Provisório")
+        defer { cleanUp(setup) }
+        let note = makeNote()
+        await edit(setup) { $0.items.append(note) }
+        await setup.host.rename("Outro provisório", for: setup.boardID)
+
+        #expect(try await setup.coordinator.pendingChanges(for: setup.boardID).isEmpty)
+        #expect(try await setup.coordinator.record(for: setup.recordID(CloudSchema.muralRecordName)) == nil)
+        #expect(try await setup.coordinator.record(for: setup.recordID(note)) == nil)
+
+        // A permissão nova chega por startTracking, que não encerra a espera.
+        var granted = setup.cloud
+        granted.permission = .readWrite
+        #expect(try await setup.coordinator.startTracking(setup.boardID, cloud: granted).isEmpty)
+        let state = try await storedState(setup)
+        #expect(state.isAwaitingFirstFetch && state.cloud.permission == .readWrite)
+        #expect(await setup.coordinator.issues()[setup.boardID] == .awaitingFirstFetch)
+    }
+
+    @Test("A busca completa traz o conteúdo e o nome, desliga a espera e não deixa nada a enviar: o nome provisório nunca sobe")
+    func fullFetchBringsTheContentAndEndsTheWait() async throws {
+        let setup = try await adoptedSetup(name: "Provisório")
+        defer { cleanUp(setup) }
+        let note = makeNote("Do iCloud")
+        let cloudBoard = Board(items: [note])
+        let records = [
+            try serverCard(note, layer: 1, mark: "s-1", in: setup),
+            serverBoard(name: "Casa da Ana", formatVersion: cloudBoard.requiredFormatVersion, mark: "m-1", in: setup),
+        ]
+
+        let pending = try await setup.coordinator.handleFullFetch(setup.zone, records: records)
+
+        #expect(pending.isEmpty, "o conteúdo e o nome daqui são os do iCloud")
+        #expect(await setup.host.name(setup.boardID) == "Casa da Ana")
+        #expect(await setup.host.board(setup.boardID).items.map(\.id) == [note.id])
+        let state = try await storedState(setup)
+        #expect(!state.isAwaitingFirstFetch && !state.needsFullFetch && state.baseName == "Casa da Ana")
+        #expect(await setup.coordinator.issues().isEmpty)
+        #expect(try await setup.coordinator.zonesNeedingFullFetch().isEmpty)
+        #expect(try await setup.coordinator.record(for: setup.recordID(CloudSchema.muralRecordName)) != nil, "agora o mural pode subir")
+    }
+
+    @Test("Só a busca completa encerra a espera, e a gravação que falha antes dela vale mais como aviso que a espera")
+    func onlyAFullFetchEndsTheWait() async throws {
+        let setup = try await adoptedSetup()
+        defer { cleanUp(setup) }
+        let arrived = makeNote("Chegou")
+        let other = makeNote("Outro", x: 50)
+        let card = try serverCard(arrived, layer: 1, mark: "s-1", in: setup)
+        let second = try serverCard(other, layer: 2, mark: "s-2", in: setup)
+
+        // Uma busca comum traz o cartão e o host grava, mas a espera continua.
+        _ = try await setup.coordinator.handleFetched(saved: [card], deleted: [])
+        #expect(await setup.host.board(setup.boardID).items.map(\.id) == [arrived.id])
+        #expect(try await storedState(setup).isAwaitingFirstFetch)
+        #expect(await setup.coordinator.issues()[setup.boardID] == .awaitingFirstFetch)
+
+        // Se o host não consegue gravar, o aviso de gravação vale mais que a espera.
+        await setup.host.failNextApply()
+        _ = try await setup.coordinator.handleFetched(saved: [second], deleted: [])
+        let failed = try await storedState(setup)
+        #expect(failed.isAwaitingFirstFetch && failed.needsFullFetch)
+        #expect(await setup.coordinator.issues()[setup.boardID] == .localSaveFailed)
+
+        // A busca completa que dá certo apaga as duas marcas.
+        let cloudBoard = Board(items: [arrived, other])
+        let records = [
+            card, second, serverBoard(name: "Casa", formatVersion: cloudBoard.requiredFormatVersion, mark: "m-1", in: setup),
+        ]
+        _ = try await setup.coordinator.handleFullFetch(setup.zone, records: records)
+        let done = try await storedState(setup)
+        #expect(!done.isAwaitingFirstFetch && !done.needsFullFetch)
+        #expect(await setup.coordinator.issues().isEmpty)
+    }
+
+    @Test("Adotar de novo, durante a espera ou depois dela, não cria nada: a zona já é acompanhada")
+    func adoptingTwiceIsAlreadyTracked() async throws {
+        let setup = try await adoptedSetup()
+        defer { cleanUp(setup) }
+
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: "Outro") == .alreadyTracked)
+
+        _ = try await setup.coordinator.handleFullFetch(setup.zone, records: [])
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: "Outro") == .alreadyTracked)
+        #expect(await setup.host.adoptions.count == 1, "o host só foi chamado na primeira vez")
+        #expect(await setup.host.name(setup.boardID) == SyncTestHost.adoptedDefaultName)
+    }
+
+    @Test("Zona recusada neste banco não é adotada, qualquer que seja o dono nela, e o host nem é chamado")
+    func declinedZoneIsNotAdopted() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+        try await setup.store.saveDeclinedZones([CloudZoneID(name: setup.zone.name, ownerName: "_outro")], for: .private)
+
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil) == .declined)
+
+        #expect(await setup.host.adoptions.isEmpty)
+        #expect(try await setup.store.state(for: setup.boardID) == nil)
+        #expect(try await setup.coordinator.zonesNeedingFullFetch().isEmpty)
+
+        // A recusa é do banco: no outro banco a mesma zona não está recusada.
+        let sharedInfo = BoardCloudInfo(
+            database: .shared, zoneName: setup.zone.name, zoneOwnerName: "_dono", ownerDisplayName: "Ana", permission: .readOnly)
+        let shared = BoardSyncCoordinator(scope: .shared, store: setup.store, host: setup.host)
+        let sharedZone = CloudZoneID(name: setup.zone.name, ownerName: "_dono")
+        #expect(try await shared.adoptZone(sharedZone, cloud: sharedInfo, name: nil) == .adopted)
+    }
+
+    @Test("Recusar o mural guarda a zona do estado; depois de parar de acompanhar, a zona não é adotada de novo")
+    func decliningKeepsTheZoneOfTheState() async throws {
+        let setup = try await syncedSetup(board: Board(items: [makeNote()]))
+        defer { cleanUp(setup) }
+        #expect(try await setup.coordinator.declinedZones().isEmpty)
+
+        try await setup.coordinator.declineZone(of: setup.boardID)
+        try await setup.coordinator.declineZone(of: BoardID())
+        try await setup.coordinator.stopTracking(setup.boardID)
+
+        #expect(try await setup.coordinator.declinedZones() == [setup.zone], "o mural desconhecido não guarda nada")
+        #expect(try await setup.store.declinedZones(for: .private) == [setup.zone])
+        #expect(try await setup.store.declinedZones(for: .shared).isEmpty)
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil) == .declined)
+        #expect(try await setup.coordinator.isTracking(setup.boardID) == false)
+    }
+
+    @Test("O servidor confirma o apagamento: a zona sai das recusadas, mesmo sem estado guardado, e só ela")
+    func zoneDeletionEndsTheDecline() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+        let other = CloudZoneID(name: CloudSchema.zoneName(for: BoardID()))
+        try await setup.store.saveDeclinedZones([setup.zone, other], for: .private)
+        try await setup.store.saveDeclinedZones([setup.zone], for: .shared)
+
+        try await setup.coordinator.handleZoneDeleted(setup.zone, reason: .zoneDeleted)
+
+        #expect(try await setup.coordinator.declinedZones() == [other])
+        #expect(try await setup.store.declinedZones(for: .shared) == [setup.zone], "o outro banco não é tocado")
+        #expect(await setup.host.removals.isEmpty, "não havia mural acompanhado: nada a avisar ao host")
+
+        // Uma zona que não é de mural não mexe na lista.
+        try await setup.coordinator.handleZoneDeleted(CloudZoneID(name: "Outra"), reason: .zoneDeleted)
+        #expect(try await setup.coordinator.declinedZones() == [other])
+    }
+
+    @Test("Apagar a zona de um mural acompanhado e recusado remove o mural e a recusa")
+    func zoneDeletionRemovesTheBoardAndTheDecline() async throws {
+        let setup = try await syncedSetup(board: Board(items: [makeNote()]))
+        defer { cleanUp(setup) }
+        try await setup.coordinator.declineZone(of: setup.boardID)
+
+        try await setup.coordinator.handleZoneDeleted(setup.zone, reason: .accessRevoked)
+
+        #expect(await setup.host.removals == [SyncTestHost.Removal(board: setup.boardID, reason: .accessRevoked)])
+        #expect(try await setup.coordinator.boardIDs().isEmpty)
+        #expect(try await setup.coordinator.declinedZones().isEmpty)
+    }
+
+    @Test("O mesmo id acompanhado no outro banco é conflito, e o estado dele não é tocado")
+    func sameIDInTheOtherDatabaseIsAConflict() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+        let sharedInfo = BoardCloudInfo(
+            database: .shared, zoneName: setup.zone.name, zoneOwnerName: "_dono", ownerDisplayName: "Ana", permission: .readWrite)
+        let sharedState = BoardSyncState(cloud: sharedInfo, baseName: "Do outro banco")
+        try await setup.store.save(sharedState, for: setup.boardID)
+
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil) == .conflict)
+
+        #expect(await setup.host.adoptions.isEmpty)
+        #expect(try await setup.store.state(for: setup.boardID) == sharedState)
+        #expect(try await setup.coordinator.isTracking(setup.boardID) == false, "o banco privado continua sem acompanhar")
+    }
+
+    @Test("Já existe um pacote com o mesmo id no host: conflito, sem estado novo")
+    func existingLocalBoardIsAConflict() async throws {
+        let setup = try await makeSetup(board: Board(items: [makeNote()]))
+        defer { cleanUp(setup) }
+
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil) == .conflict)
+
+        #expect(await setup.host.adoptions.count == 1, "o host foi perguntado e recusou")
+        #expect(try await setup.store.state(for: setup.boardID) == nil)
+        #expect(await setup.host.board(setup.boardID).items.count == 1, "o mural daqui fica como estava")
+        #expect(await setup.coordinator.issues().isEmpty)
+    }
+
+    @Test("Zona que não é de mural, ou banco errado: nada é criado")
+    func notABoardZoneAndWrongDatabase() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+
+        let stranger = CloudZoneID(name: "Outra")
+        #expect(try await setup.coordinator.adoptZone(stranger, cloud: setup.cloud, name: nil) == .notABoardZone)
+
+        var sharedInfo = setup.cloud
+        sharedInfo.database = .shared
+        await #expect(throws: BoardSyncCoordinatorError.wrongDatabase(setup.boardID)) {
+            _ = try await setup.coordinator.adoptZone(setup.zone, cloud: sharedInfo, name: nil)
+        }
+        #expect(await setup.host.adoptions.isEmpty)
+        #expect(try await setup.store.boardIDs().isEmpty)
+    }
+
+    @Test("Host que não adota zonas: a adoção falha com erro próprio e nada é gravado")
+    func hostWithoutAdoptionIsUnsupported() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+        let coordinator = BoardSyncCoordinator(scope: .private, store: setup.store, host: SyncHostWithoutAdoption())
+
+        await #expect(throws: BoardSyncAdoptionError.unsupported) {
+            _ = try await coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil)
+        }
+
+        #expect(try await setup.store.state(for: setup.boardID) == nil)
+    }
+
+    @Test("Reabrir o app: o estado guardado volta esperando a primeira busca, com o aviso e a zona para buscar inteira")
+    func awaitingStateSurvivesARestart() async throws {
+        let setup = try await adoptedSetup()
+        defer { cleanUp(setup) }
+
+        let restarted = BoardSyncCoordinator(scope: .private, store: SyncMetadataStore(directory: setup.syncDirectory), host: setup.host)
+        #expect(await restarted.issues().isEmpty, "nada foi lido ainda")
+        #expect(try await restarted.boardIDs() == [setup.boardID])
+
+        #expect(await restarted.issues() == [setup.boardID: .awaitingFirstFetch])
+        #expect(try await restarted.zonesNeedingFullFetch() == [setup.zone])
+        #expect(try await restarted.pendingChanges(for: setup.boardID).isEmpty)
     }
 }

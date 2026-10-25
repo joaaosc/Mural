@@ -82,6 +82,9 @@ public enum SyncCore {
     ///
     /// Um registro de app mais novo (`unsupportedRecordNames`, ou o mural com versão do formato que esta build não lê) nunca é
     /// gravado nem apagado, para não perder o que o app novo guardou.
+    ///
+    /// Vazio enquanto o mural espera a primeira busca (`BoardSyncState.isAwaitingFirstFetch`): o pacote daqui é provisório e vazio,
+    /// com um nome que não é o do mural. Enviá-lo gravaria esse nome no registro do mural e o renomearia para todos.
     public static func pendingChanges(
         state: BoardSyncState,
         local: Board,
@@ -89,6 +92,7 @@ public enum SyncCore {
         itemsDirectory: URL,
         fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
     ) -> Set<PendingChange> {
+        guard !state.isAwaitingFirstFetch else { return [] }
         let zone = zoneID(of: state)
         var pending = Set<PendingChange>()
         func save(_ recordName: String) {
@@ -135,13 +139,16 @@ public enum SyncCore {
     /// O registro a enviar para `id`, com os valores atuais deste Mac e os campos de sistema que o iCloud deu da última vez.
     ///
     /// O tipo vem de quem o nome representa aqui: o registro `mural`, um cartão, um texto livre ou um arquivo de `Items/`. Não gera
-    /// registro o cartão de app mais novo (`unsupportedRecordNames`) nem o mural cuja versão do formato esta build não lê.
-    /// - Returns: `nil` se o que o registro representa não existe mais aqui (a mudança some) ou se é de app mais novo.
+    /// registro o cartão de app mais novo (`unsupportedRecordNames`) nem o mural cuja versão do formato esta build não lê. Tampouco
+    /// gera registro enquanto o mural espera a primeira busca (`BoardSyncState.isAwaitingFirstFetch`): o pacote é provisório, e o
+    /// nome dele não pode chegar ao registro do mural no iCloud.
+    /// - Returns: `nil` se o que o registro representa não existe mais aqui (a mudança some), se é de app mais novo ou se o mural
+    ///   espera a primeira busca.
     /// - Throws: `CardRecordMappingError.recordTooLarge` se os campos do cartão passam do limite do iCloud.
     public static func record(
         for id: CloudRecordID, state: BoardSyncState, local: Board, name: String, itemsDirectory: URL
     ) throws -> CloudRecord? {
-        guard !state.unsupportedRecordNames.contains(id.name) else { return nil }
+        guard !state.isAwaitingFirstFetch, !state.unsupportedRecordNames.contains(id.name) else { return nil }
         func build(_ type: CloudSchema.RecordType, _ fields: [String: CloudValue]) -> CloudRecord {
             CloudRecord(id: id, type: type.rawValue, fields: fields, systemFields: state.systemFields[id.name])
         }

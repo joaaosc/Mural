@@ -24,6 +24,8 @@ public actor InMemorySyncEngine {
 
     /// O contador de cada zona conhecida, para a próxima busca trazer só o que mudou.
     private var tokens: [CloudZoneID: Int] = [:]
+    /// As zonas do banco compartilhado adotadas cuja permissão real ainda não foi aplicada: isso acontece na primeira busca completa.
+    private var zonesAwaitingPermission = Set<CloudZoneID>()
     /// O que este Mac ainda precisa enviar, como o `CKSyncEngine` o guarda: o coordenador diz o que é pendente, o motor decide quando
     /// enviar.
     public private(set) var pending = Set<PendingChange>()
@@ -53,6 +55,25 @@ public actor InMemorySyncEngine {
         await cloud.createZone(zone.name, owner: user)
         tokens[zone] = tokens[zone] ?? 0
         return zone
+    }
+
+    /// Apaga do iCloud a zona do mural, com tudo o que há nela, para o dono e para quem a recebeu, e esquece o que este motor tinha
+    /// para enviar a ela. Só o dono, no banco privado. Quem chama faz antes `BoardSyncCoordinator.declineZone(of:)` e `stopTracking`,
+    /// como com o `CloudKitSyncEngine`: assim a busca que mostrar a zona apagada não tira o pacote daqui.
+    /// - Throws: `InMemorySyncEngineError.notOwner` no banco compartilhado.
+    public func deleteZone(for boardID: BoardID) async throws {
+        guard scope == .private else { throw InMemorySyncEngineError.notOwner }
+        let zone = CloudZoneID(name: CloudSchema.zoneName(for: boardID))
+        await cloud.deleteZone(zone.name, owner: user)
+        forget(zone)
+    }
+
+    /// O convidado deixa o mural: revoga o próprio acesso no iCloud, e a zona some para ele, sem afetar o dono. Quem chama faz antes
+    /// `declineZone(of:)` e `stopTracking`. Só vale no banco compartilhado; sair de uma zona que já não existe não é erro.
+    public func leaveZone(_ zone: CloudZoneID) async {
+        guard scope == .shared else { return }
+        try? await cloud.revoke(zone: zone.name, owner: zone.ownerName, from: user)
+        forget(zone)
     }
 
     // MARK: Enviar
@@ -117,16 +138,28 @@ public actor InMemorySyncEngine {
     /// buscadas. Zona que sumiu vira `handleZoneDeleted`: `.zoneDeleted` se foi apagada e `.accessRevoked` se só o convite acabou.
     /// Zona de mural marcado para busca completa (`zonesNeedingFullFetch`) é buscada inteira, desde o começo, e vai a
     /// `handleFullFetch`.
+    ///
+    /// **Zonas novas**: antes da busca, a zona que esta pessoa vê e o coordenador não acompanha nem recusou é adotada
+    /// (`BoardSyncCoordinator.adoptZone`), como o motor de verdade fará com a zona nova que o CloudKit mostra. Ela entra na busca
+    /// completa, por esperar a primeira busca. No banco compartilhado a adoção parte de só leitura (no CloudKit a permissão só chega
+    /// com o convite) e, depois da primeira busca, passa a ser a que o iCloud falso deu à pessoa. Zona recusada (`declinedZones()`)
+    /// fica fora da busca, e a recusa de uma zona que já não existe é desfeita (`handleZoneDeleted`): o servidor confirmou o apagamento.
     public func fetchChanges() async throws {
+        let visible = await cloud.zones(for: user, scope: scope)
+        let declined = try await coordinator.declinedZones()
+        try await confirmGoneDeclinedZones(declined, visible: visible)
+        try await adoptNewZones(among: visible, declined: declined)
+
+        let declinedNames = Set(declined.map(\.name))
         let tracked = Set(try await coordinator.boardIDs())
         let fullFetch = Set(try await coordinator.zonesNeedingFullFetch().map(\.name))
         var zones = Set(tokens.keys)
-        for zone in await cloud.zones(for: user, scope: scope) {
+        for zone in visible {
             if let id = CloudSchema.boardID(fromZoneName: zone.name), tracked.contains(id) { zones.insert(zone) }
         }
 
         for zone in zones.sorted(by: { ($0.ownerName, $0.name) < ($1.ownerName, $1.name) }) {
-            guard let id = CloudSchema.boardID(fromZoneName: zone.name), tracked.contains(id) else {
+            guard let id = CloudSchema.boardID(fromZoneName: zone.name), tracked.contains(id), !declinedNames.contains(zone.name) else {
                 forget(zone)
                 continue
             }
@@ -147,6 +180,7 @@ public actor InMemorySyncEngine {
                 // Desde o começo, os registros mudados são todos os que a zona tem agora.
                 let remaining = try await coordinator.handleFullFetch(zone, records: changes.saved)
                 pending = pending.filter { $0.recordID.zone != zone }.union(remaining)
+                try await applyGrantedPermission(for: zone, id: id)
             } else if !changes.saved.isEmpty || !changes.deleted.isEmpty {
                 let remaining = try await coordinator.handleFetched(saved: changes.saved, deleted: changes.deleted)
                 // O coordenador calcula as pendências do mural com o estado novo: vale o que ele disse.
@@ -161,6 +195,59 @@ public actor InMemorySyncEngine {
     private func forget(_ zone: CloudZoneID) {
         tokens[zone] = nil
         pending = pending.filter { $0.recordID.zone != zone }
+        zonesAwaitingPermission.remove(zone)
+    }
+
+    /// Adota as zonas que esta pessoa vê e o coordenador não acompanha nem recusou. Um host que não cria pacotes de murais do iCloud
+    /// (`BoardSyncAdoptionError.unsupported`) deixa a zona sem acompanhar, como era antes da adoção; as outras respostas (conflito de
+    /// id, por exemplo) também a deixam de fora.
+    private func adoptNewZones(among visible: [CloudZoneID], declined: Set<CloudZoneID>) async throws {
+        let declinedNames = Set(declined.map(\.name))
+        let tracked = Set(try await coordinator.boardIDs())
+        for zone in visible {
+            guard let id = CloudSchema.boardID(fromZoneName: zone.name), !tracked.contains(id), !declinedNames.contains(zone.name) else {
+                continue
+            }
+            do {
+                let result = try await coordinator.adoptZone(zone, cloud: adoptionInfo(for: zone), name: nil)
+                if result == .adopted && scope == .shared { zonesAwaitingPermission.insert(zone) }
+            } catch BoardSyncAdoptionError.unsupported {
+                continue
+            }
+        }
+    }
+
+    /// Onde o mural adotado vive e o que esta pessoa pode fazer nele até a primeira busca: no banco privado ela é a dona; no
+    /// compartilhado a permissão só chegaria com o convite, então vale o menos que se pode dar.
+    private func adoptionInfo(for zone: CloudZoneID) -> BoardCloudInfo {
+        switch scope {
+        case .private:
+            BoardCloudInfo(database: .private, zoneName: zone.name, zoneOwnerName: zone.ownerName, permission: .owner)
+        case .shared:
+            BoardCloudInfo(database: .shared, zoneName: zone.name, zoneOwnerName: zone.ownerName, permission: .readOnly)
+        }
+    }
+
+    /// Depois da primeira busca de uma zona adotada no banco compartilhado, passa a valer a permissão que o iCloud falso deu a esta
+    /// pessoa (`InMemoryCloud.guestPermission`), pelo mesmo caminho que o app usa: `startTracking` com a permissão nova.
+    private func applyGrantedPermission(for zone: CloudZoneID, id: BoardID) async throws {
+        guard zonesAwaitingPermission.contains(zone),
+            let granted = await cloud.guestPermission(of: user, inZone: zone.name, owner: zone.ownerName)
+        else { return }
+        let permission: BoardCloudInfo.Permission = granted == .readWrite ? .readWrite : .readOnly
+        let info = BoardCloudInfo(database: .shared, zoneName: zone.name, zoneOwnerName: zone.ownerName, permission: permission)
+        let resumed = try await coordinator.startTracking(id, cloud: info)
+        pending = pending.filter { $0.recordID.zone != zone }.union(resumed)
+        zonesAwaitingPermission.remove(zone)
+    }
+
+    /// A recusa de uma zona que esta pessoa já não vê foi confirmada pelo servidor: a zona foi apagada, ou o acesso acabou.
+    private func confirmGoneDeclinedZones(_ declined: Set<CloudZoneID>, visible: [CloudZoneID]) async throws {
+        let visibleNames = Set(visible.map(\.name))
+        for zone in declined.sorted(by: { ($0.ownerName, $0.name) < ($1.ownerName, $1.name) }) where !visibleNames.contains(zone.name) {
+            forget(zone)
+            try await coordinator.handleZoneDeleted(zone, reason: scope == .private ? .zoneDeleted : .accessRevoked)
+        }
     }
 
     /// Ordem fixa: por zona, gravações antes de apagamentos e depois pelo nome do registro.

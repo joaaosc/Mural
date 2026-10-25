@@ -30,16 +30,18 @@ struct TestMac {
         get async { await host.name(boardID) }
     }
 
+    /// - Parameter hasLocalBoard: `false` deixa o Mac sem o pacote do mural, como um Mac que ainda não o recebeu: o host o cria em
+    ///   `Items/` quando o coordenador adota a zona.
     static func make(
         user: String, scope: CloudDatabaseScope, cloud: InMemoryCloud, boardID: BoardID, name: String, board: Board = Board(),
-        files: [String] = []
+        files: [String] = [], hasLocalBoard: Bool = true
     ) async throws -> TestMac {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("MuralTwoMacs-\(UUID().uuidString)", isDirectory: true)
         let items = root.appendingPathComponent("Items", isDirectory: true)
         try FileManager.default.createDirectory(at: items, withIntermediateDirectories: true)
         for file in files { try Data("conteúdo de \(file)".utf8).write(to: items.appendingPathComponent(file)) }
-        let host = SyncTestHost()
-        await host.add(boardID, name: name, board: board, itemsDirectory: items)
+        let host = SyncTestHost(adoptedItemsDirectory: items)
+        if hasLocalBoard { await host.add(boardID, name: name, board: board, itemsDirectory: items) }
         let store = SyncMetadataStore(directory: root.appendingPathComponent("Sync", isDirectory: true))
         let coordinator = BoardSyncCoordinator(scope: scope, store: store, host: host)
         let engine = InMemorySyncEngine(user: user, scope: scope, cloud: cloud, coordinator: coordinator)
@@ -92,11 +94,14 @@ struct TwoMacs {
     ///   - guestTracksAs: a permissão que o coordenador do convidado conhece; diferente da anterior é uma permissão desatualizada.
     ///   - guestSendsInitialPending: se o motor do convidado recebe as pendências que `startTracking` devolveu (o registro do mural,
     ///     com o mural ainda vazio). Sem elas o convidado só recebe, até a primeira edição.
+    ///   - guestAdopts: o Mac do convidado não tem o pacote do mural nem o acompanha, só foi convidado: o motor dele adota a zona
+    ///     na primeira busca. `guestTracksAs` e `guestSendsInitialPending` não valem.
     static func make(
         board: Board = Board(), name: String = "Casa", files: [String] = [],
         guestPermission: InMemoryCloud.GuestPermission = .readWrite,
         guestTracksAs: BoardCloudInfo.Permission = .readWrite,
-        guestSendsInitialPending: Bool = true
+        guestSendsInitialPending: Bool = true,
+        guestAdopts: Bool = false
     ) async throws -> TwoMacs {
         let cloud = InMemoryCloud()
         let boardID = BoardID()
@@ -110,12 +115,22 @@ struct TwoMacs {
         await owner.engine.add(try await owner.coordinator.startTracking(boardID, cloud: ownerInfo))
 
         try await cloud.share(zone: zoneName, owner: ownerUser, with: guestUser, permission: guestPermission)
-        let guest = try await TestMac.make(user: guestUser, scope: .shared, cloud: cloud, boardID: boardID, name: name)
-        let guestInfo = BoardCloudInfo(
-            database: .shared, zoneName: zoneName, zoneOwnerName: ownerUser, ownerDisplayName: "Ana", permission: guestTracksAs)
-        let guestPending = try await guest.coordinator.startTracking(boardID, cloud: guestInfo)
-        if guestSendsInitialPending { await guest.engine.add(guestPending) }
+        let guest = try await TestMac.make(
+            user: guestUser, scope: .shared, cloud: cloud, boardID: boardID, name: name, hasLocalBoard: !guestAdopts)
+        if !guestAdopts {
+            let guestInfo = BoardCloudInfo(
+                database: .shared, zoneName: zoneName, zoneOwnerName: ownerUser, ownerDisplayName: "Ana", permission: guestTracksAs)
+            let guestPending = try await guest.coordinator.startTracking(boardID, cloud: guestInfo)
+            if guestSendsInitialPending { await guest.engine.add(guestPending) }
+        }
         return TwoMacs(cloud: cloud, boardID: boardID, owner: owner, guest: guest)
+    }
+
+    /// Um segundo Mac do dono: o mesmo usuário e o mesmo banco privado, sem o pacote do mural e sem acompanhá-lo. O motor dele adota
+    /// a zona na primeira busca. Quem chama apaga `root`.
+    func makeSecondOwnerMac() async throws -> TestMac {
+        try await TestMac.make(
+            user: Self.ownerUser, scope: .private, cloud: cloud, boardID: boardID, name: "", hasLocalBoard: false)
     }
 
     func cleanUp() {
@@ -142,12 +157,16 @@ struct TwoMacs {
         var guestName: String
         var ownerPending: Set<PendingChange>
         var guestPending: Set<PendingChange>
+        var extraBoard: Board?
+        var extraName: String?
+        var extraPending: Set<PendingChange>?
     }
 
-    private func snapshot() async -> Snapshot {
+    private func snapshot(including extra: TestMac? = nil) async -> Snapshot {
         Snapshot(
             cloud: await cloudRecords(), ownerBoard: await owner.board, ownerName: await owner.name, guestBoard: await guest.board,
-            guestName: await guest.name, ownerPending: await owner.engine.pending, guestPending: await guest.engine.pending)
+            guestName: await guest.name, ownerPending: await owner.engine.pending, guestPending: await guest.engine.pending,
+            extraBoard: await extra?.board, extraName: await extra?.name, extraPending: await extra?.engine.pending)
     }
 
     /// Uma rodada: os dois enviam e depois os dois buscam.
@@ -167,6 +186,22 @@ struct TwoMacs {
             let before = await snapshot()
             try await round()
             if await snapshot() == before { return number }
+        }
+        throw EchoError(rounds: maximumRounds)
+    }
+
+    /// Como `settle()`, com um Mac a mais (o segundo Mac do dono, `makeSecondOwnerMac()`): os três enviam e depois os três buscam.
+    @discardableResult
+    func settle(including extra: TestMac, maximumRounds: Int = 10) async throws -> Int {
+        for number in 1...maximumRounds {
+            let before = await snapshot(including: extra)
+            try await owner.engine.sendChanges()
+            try await guest.engine.sendChanges()
+            try await extra.engine.sendChanges()
+            try await owner.engine.fetchChanges()
+            try await guest.engine.fetchChanges()
+            try await extra.engine.fetchChanges()
+            if await snapshot(including: extra) == before { return number }
         }
         throw EchoError(rounds: maximumRounds)
     }

@@ -37,6 +37,11 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
     /// O que chegou do iCloud não pôde ser gravado neste Mac: o estado ficou o de antes (o que combina com o disco) e a zona precisa
     /// ser buscada de novo inteira, porque o motor já passou daquelas mudanças. Só vai ao disco quando ligado.
     public var needsFullFetch: Bool
+    /// O mural foi adotado do iCloud (a zona é nova neste Mac) e a primeira busca completa ainda não terminou: o pacote local é
+    /// provisório, vazio e com um nome que não é o do mural. Enquanto ligado, nada é enviado (`SyncCore.pendingChanges` e
+    /// `SyncCore.record(for:state:local:name:itemsDirectory:)`), senão o nome provisório subiria ao iCloud e renomearia o mural de
+    /// todos. Só vai ao disco quando ligado.
+    public var isAwaitingFirstFetch: Bool
 
     public init(
         cloud: BoardCloudInfo,
@@ -48,7 +53,8 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         uploadedFiles: Set<String> = [],
         mediaOwners: [String: UUID] = [:],
         unsupportedRecordNames: Set<String> = [],
-        needsFullFetch: Bool = false
+        needsFullFetch: Bool = false,
+        isAwaitingFirstFetch: Bool = false
     ) {
         self.cloud = cloud
         self.base = base
@@ -60,11 +66,12 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         self.mediaOwners = mediaOwners
         self.unsupportedRecordNames = unsupportedRecordNames
         self.needsFullFetch = needsFullFetch
+        self.isAwaitingFirstFetch = isAwaitingFirstFetch
     }
 
     private enum CodingKeys: String, CodingKey {
         case cloud, base, baseName, baseBoardFormatVersion, layers, systemFields, uploadedFiles, mediaOwners, unsupportedRecordNames
-        case needsFullFetch
+        case needsFullFetch, isAwaitingFirstFetch
     }
 
     public init(from decoder: any Decoder) throws {
@@ -88,6 +95,7 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         uploadedFiles = Set(try container.decode([String].self, forKey: .uploadedFiles))
         unsupportedRecordNames = Set(try container.decode([String].self, forKey: .unsupportedRecordNames))
         needsFullFetch = try container.decodeIfPresent(Bool.self, forKey: .needsFullFetch) ?? false
+        isAwaitingFirstFetch = try container.decodeIfPresent(Bool.self, forKey: .isAwaitingFirstFetch) ?? false
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -103,6 +111,7 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         try container.encode(unsupportedRecordNames.sorted(), forKey: .unsupportedRecordNames)
         // Desligado não vai ao disco: o estado comum continua com os mesmos bytes de antes do campo.
         if needsFullFetch { try container.encode(true, forKey: .needsFullFetch) }
+        if isAwaitingFirstFetch { try container.encode(true, forKey: .isAwaitingFirstFetch) }
     }
 }
 
@@ -114,8 +123,9 @@ public enum SyncMetadataStoreError: Error, Equatable, Sendable {
 /// O que este Mac sabe do iCloud, guardado em disco fora dos pacotes dos murais (em `Application Support/Mural/Sync/`, como as
 /// prévias de link e as capas): quem chama passa a pasta.
 ///
-/// Um arquivo por mural em `boards/<UUID>.json` e um por banco em `engine-private.data` e `engine-shared.data`, este com o estado
-/// opaco do motor de sincronização. Toda gravação é atômica: uma queda no meio deixa o arquivo antigo, nunca metade de um novo.
+/// Um arquivo por mural em `boards/<UUID>.json` e, por banco, um em `engine-private.data` e `engine-shared.data`, com o estado opaco
+/// do motor de sincronização, e outro em `declined-private.json` e `declined-shared.json`, com as zonas recusadas. Toda gravação é
+/// atômica: uma queda no meio deixa o arquivo antigo, nunca metade de um novo.
 public actor SyncMetadataStore {
     private let directory: URL
 
@@ -183,6 +193,28 @@ public actor SyncMetadataStore {
         try data.write(to: engineURL(for: scope), options: .atomic)
     }
 
+    // MARK: Zonas recusadas
+
+    /// As zonas do banco que este Mac excluiu, abandonou ou tirou do iCloud: o coordenador não as adota de novo até o servidor
+    /// confirmar o apagamento. Vazio se nenhuma foi recusada.
+    /// - Throws: `SyncMetadataStoreError.corrupted` se o arquivo existe e não pode ser lido.
+    public func declinedZones(for scope: CloudDatabaseScope) throws -> Set<CloudZoneID> {
+        let url = declinedURL(for: scope)
+        guard let data = try readIfPresent(url) else { return [] }
+        do {
+            return Set(try SyncJSON.decode([CloudZoneID].self, from: data))
+        } catch {
+            throw SyncMetadataStoreError.corrupted("\(url.lastPathComponent): \(error)")
+        }
+    }
+
+    /// Troca a lista de zonas recusadas do banco. Vai em lista ordenada, para o mesmo conjunto dar sempre os mesmos bytes.
+    public func saveDeclinedZones(_ zones: Set<CloudZoneID>, for scope: CloudDatabaseScope) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ordered = zones.sorted { ($0.ownerName, $0.name) < ($1.ownerName, $1.name) }
+        try SyncJSON.encode(ordered).write(to: declinedURL(for: scope), options: .atomic)
+    }
+
     // MARK: Interno
 
     private var boardsDirectory: URL {
@@ -195,6 +227,10 @@ public actor SyncMetadataStore {
 
     private func engineURL(for scope: CloudDatabaseScope) -> URL {
         directory.appendingPathComponent("engine-\(scope.rawValue).data", isDirectory: false)
+    }
+
+    private func declinedURL(for scope: CloudDatabaseScope) -> URL {
+        directory.appendingPathComponent("declined-\(scope.rawValue).json", isDirectory: false)
     }
 
     private func readIfPresent(_ url: URL) throws -> Data? {

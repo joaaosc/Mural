@@ -25,6 +25,8 @@ nonisolated struct SyncStatusDisplay: Equatable {
                 "exclamationmark.icloud", "Este mural pede uma versão mais nova do Mural. Atualize o app para sincronizar", isWarning: true)
         case .localSaveFailed:
             self.init("exclamationmark.icloud", "Não foi possível gravar neste Mac o que veio do iCloud", isWarning: true)
+        case .awaitingFirstFetch:
+            self.init("icloud.and.arrow.down", "Baixando do iCloud…", isWarning: false)
         case .other:
             self.init("exclamationmark.icloud", "Não foi possível sincronizar com o iCloud", isWarning: true)
         }
@@ -67,7 +69,7 @@ struct SyncStatusIndicator: View {
 /// Os estados lado a lado, com o texto, para conferir símbolo e cor no claro e no escuro.
 private struct SyncStatusIndicatorGallery: View {
     private let issues: [SyncIssue?] = [
-        nil, .readOnly, .quotaExceeded, .recordTooLarge(UUID()), .needsNewerApp, .localSaveFailed, .other("x"),
+        nil, .awaitingFirstFetch, .readOnly, .quotaExceeded, .recordTooLarge(UUID()), .needsNewerApp, .localSaveFailed, .other("x"),
     ]
 
     var body: some View {

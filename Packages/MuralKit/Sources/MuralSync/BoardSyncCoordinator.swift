@@ -25,6 +25,25 @@ public protocol BoardSyncHost: Sendable {
 
     /// O mural deixou de existir no iCloud para este Mac.
     func boardRemoved(_ id: BoardID, reason: BoardRemovalReason) async
+
+    /// Cria o pacote local de um mural que já existe no iCloud e este Mac ainda não tem (`BoardSyncCoordinator.adoptZone`): o que
+    /// outra pessoa compartilhou, ou o do próprio dono vindo de outro Mac dele. O pacote nasce vazio e provisório, com este `id` e
+    /// `cloud` já gravado: o conteúdo e o nome verdadeiros chegam na primeira busca completa, por `applyRemote`.
+    /// - Parameter name: o nome provisório; `nil` deixa o host escolher um.
+    /// - Returns: `false` se já existe pacote com o `id`, sem tocar nele.
+    func adoptBoard(_ id: BoardID, cloud: BoardCloudInfo, name: String?) async throws -> Bool
+}
+
+public enum BoardSyncAdoptionError: Error, Equatable, Sendable {
+    /// O host não cria pacotes de murais que vieram do iCloud.
+    case unsupported
+}
+
+extension BoardSyncHost {
+    /// Para quem ainda não adota zonas novas: a adoção falha com `BoardSyncAdoptionError.unsupported`, e a zona fica sem acompanhar.
+    public func adoptBoard(_ id: BoardID, cloud: BoardCloudInfo, name: String?) async throws -> Bool {
+        throw BoardSyncAdoptionError.unsupported
+    }
 }
 
 /// O mural como o app o tem agora.
@@ -82,6 +101,9 @@ public enum SyncIssue: Equatable, Sendable {
     case needsNewerApp
     /// O que chegou do iCloud não pôde ser gravado neste Mac; o mural será buscado de novo inteiro.
     case localSaveFailed
+    /// O mural acabou de ser adotado do iCloud e baixa pela primeira vez. É informativo, não um problema: some sozinho quando a
+    /// busca completa termina, e até lá nada é enviado.
+    case awaitingFirstFetch
     case other(String)
 }
 
@@ -103,10 +125,29 @@ public enum BoardSyncCoordinatorError: Error, Equatable, Sendable {
 /// iria como `.delete` ao iCloud. Se o app cair entre juntar e gravar, o pior caso é reenviar valores iguais aos do iCloud, que o
 /// conflito resolve.
 ///
+/// **Zonas novas**: a zona de um mural que este Mac ainda não tem (outra pessoa o compartilhou, ou o dono o criou em outro Mac dele)
+/// entra por `adoptZone(_:cloud:name:)`. O host cria o pacote local provisório e o estado nasce `isAwaitingFirstFetch`: nada é
+/// enviado até a busca completa trazer o conteúdo e o nome verdadeiros. O que este Mac excluiu, abandonou ou tirou do iCloud fica em
+/// `declinedZones()` e não é adotado de novo até o servidor confirmar o apagamento (`handleZoneDeleted`).
+///
 /// **Um evento de cada vez**: como a espera pelo host abre espaço para outro evento ler o mesmo estado antigo e gravar por cima do
-/// primeiro, os que mudam o estado (`startTracking`, `stopTracking`, `handleSent`, `handleFetched`, `handleZoneDeleted`) rodam um
-/// por vez, na ordem de chegada. `pendingChanges(for:)` e `record(for:)` só leem e não esperam.
+/// primeiro, os que mudam o estado (`startTracking`, `stopTracking`, `adoptZone`, `declineZone`, `handleSent`, `handleFetched`,
+/// `handleZoneDeleted`) rodam um por vez, na ordem de chegada. `pendingChanges(for:)` e `record(for:)` só leem e não esperam.
 public actor BoardSyncCoordinator {
+    /// O resultado de `adoptZone(_:cloud:name:)`.
+    public enum AdoptionResult: Equatable, Sendable {
+        /// O host criou o pacote local e o mural passou a ser acompanhado, esperando a primeira busca completa.
+        case adopted
+        /// Este banco já acompanha o mural nessa zona: nada mudou.
+        case alreadyTracked
+        /// Este Mac recusou a zona e o servidor ainda não confirmou o apagamento dela.
+        case declined
+        /// Já existe um mural com o mesmo id neste Mac (acompanhado em outro banco, ou um pacote local): nada foi tocado.
+        case conflict
+        /// O nome da zona não é o de uma zona de mural.
+        case notABoardZone
+    }
+
     private let scope: CloudDatabaseScope
     private let store: SyncMetadataStore
     private let host: any BoardSyncHost
@@ -116,6 +157,8 @@ public actor BoardSyncCoordinator {
     private var newerAppBoards = Set<BoardID>()
     /// Os murais marcados para busca completa (`BoardSyncState.needsFullFetch`), para `issues()`.
     private var fullFetchBoards = Set<BoardID>()
+    /// Os murais que esperam a primeira busca (`BoardSyncState.isAwaitingFirstFetch`), para `issues()`.
+    private var awaitingFirstFetchBoards = Set<BoardID>()
     /// A recusa do iCloud na última tentativa de envio de cada mural; some quando um envio dele passa sem recusa.
     private var sendIssues: [BoardID: SyncIssue] = [:]
     /// Os cartões cujo registro estourou o limite, com o valor (forma compartilhada) que estourou.
@@ -173,6 +216,64 @@ public actor BoardSyncCoordinator {
         guard try await loadState(for: id) != nil else { return }
         try await store.remove(id)
         forgetInMemory(id)
+    }
+
+    /// Este banco acompanha o mural: há estado guardado dele aqui.
+    public func isTracking(_ id: BoardID) async throws -> Bool {
+        try await loadState(for: id) != nil
+    }
+
+    // MARK: Zonas novas
+
+    /// Adota a zona de um mural que este Mac ainda não tem: a que outra pessoa compartilhou, ou a do próprio dono vinda de outro Mac
+    /// dele. O host cria o pacote local (`BoardSyncHost.adoptBoard`) e o estado nasce com `isAwaitingFirstFetch`: o pacote é
+    /// provisório e vazio, então nada é enviado até a busca completa (`zonesNeedingFullFetch()`) trazer o conteúdo e o nome
+    /// verdadeiros.
+    ///
+    /// Confere nesta ordem: o nome da zona (`.notABoardZone`), as zonas recusadas deste banco, pelo nome (`.declined`), o estado
+    /// guardado deste banco na mesma zona (`.alreadyTracked`) e o estado do mesmo id em qualquer banco, ou um pacote local com esse
+    /// id (`.conflict`).
+    /// - Parameters:
+    ///   - zone: a zona como este Mac a vê; o id do mural vem do nome dela.
+    ///   - cloud: onde o mural vive e o que esta pessoa pode fazer nele; descreve a mesma zona. No banco compartilhado a permissão só
+    ///     chega com o convite, então quem adota pode começar com `.readOnly` e corrigi-la depois por `startTracking`.
+    ///   - name: o nome provisório do pacote; `nil` deixa o host escolher.
+    /// - Throws: `BoardSyncCoordinatorError.wrongDatabase` se `cloud.database` não é o banco deste coordenador;
+    ///   `BoardSyncAdoptionError.unsupported` se o host não cria pacotes de murais do iCloud.
+    public func adoptZone(_ zone: CloudZoneID, cloud: BoardCloudInfo, name: String?) async throws -> AdoptionResult {
+        guard let id = CloudSchema.boardID(fromZoneName: zone.name) else { return .notABoardZone }
+        guard cloud.database.rawValue == scope.rawValue else { throw BoardSyncCoordinatorError.wrongDatabase(id) }
+        await acquireEventLock()
+        defer { releaseEventLock() }
+
+        if try await store.declinedZones(for: scope).contains(where: { $0.name == zone.name }) { return .declined }
+        // Sem o filtro de banco: o mesmo id acompanhado no outro banco também é conflito.
+        if let existing = try await store.state(for: id) {
+            let isHere = existing.cloud.database.rawValue == scope.rawValue
+            let isSameZone = existing.cloud.zoneName == zone.name && existing.cloud.zoneOwnerName == zone.ownerName
+            return isHere && isSameZone ? .alreadyTracked : .conflict
+        }
+        guard try await host.adoptBoard(id, cloud: cloud, name: name) else { return .conflict }
+        try await commit(BoardSyncState(cloud: cloud, isAwaitingFirstFetch: true), for: id)
+        return .adopted
+    }
+
+    /// Guarda a zona do mural na lista de recusadas: este Mac excluiu, abandonou ou tirou o mural do iCloud, e a zona, que ainda
+    /// existe no servidor, não pode ser adotada de novo (`adoptZone` devolve `.declined`) até o servidor confirmar o apagamento
+    /// (`handleZoneDeleted`). Quem chama para de acompanhar o mural depois (`stopTracking`). Sem estado guardado do mural neste
+    /// banco não há zona a guardar, e nada acontece.
+    public func declineZone(of id: BoardID) async throws {
+        await acquireEventLock()
+        defer { releaseEventLock() }
+        guard let state = try await loadState(for: id) else { return }
+        var declined = try await store.declinedZones(for: scope)
+        declined.insert(CloudZoneID(name: state.cloud.zoneName, ownerName: state.cloud.zoneOwnerName))
+        try await store.saveDeclinedZones(declined, for: scope)
+    }
+
+    /// As zonas recusadas deste banco: não são adotadas até o servidor confirmar o apagamento.
+    public func declinedZones() async throws -> Set<CloudZoneID> {
+        try await store.declinedZones(for: scope)
     }
 
     // MARK: O que enviar
@@ -272,19 +373,21 @@ public actor BoardSyncCoordinator {
         return pending
     }
 
-    /// As zonas dos murais marcados para busca completa (o host não conseguiu gravar o que chegou), como este Mac as vê: o motor
-    /// busca cada uma inteira e entrega a `handleFullFetch(_:records:)`.
+    /// As zonas dos murais que precisam de busca completa, como este Mac as vê: os marcados porque o host não conseguiu gravar o que
+    /// chegou e os adotados que esperam a primeira busca (`BoardSyncState.isAwaitingFirstFetch`). O motor busca cada uma inteira e
+    /// entrega a `handleFullFetch(_:records:)`.
     public func zonesNeedingFullFetch() async throws -> [CloudZoneID] {
         var zones: [CloudZoneID] = []
         for id in try await store.boardIDs() {
-            guard let state = try await loadState(for: id), state.needsFullFetch else { continue }
+            guard let state = try await loadState(for: id), state.needsFullFetch || state.isAwaitingFirstFetch else { continue }
             zones.append(CloudZoneID(name: state.cloud.zoneName, ownerName: state.cloud.zoneOwnerName))
         }
         return zones
     }
 
     /// A zona inteira, buscada de novo: todos os registros que ela tem agora. O que este Mac conhecia e não veio foi apagado no
-    /// iCloud enquanto ele não conseguia gravar, então entra como apagado. Depois de juntar e gravar, a marca de busca completa sai.
+    /// iCloud enquanto ele não conseguia gravar, então entra como apagado. Depois de juntar e gravar, as marcas de busca completa e
+    /// de espera pela primeira busca saem.
     /// - Returns: as pendências do mural com o estado novo, para o motor.
     public func handleFullFetch(_ zone: CloudZoneID, records: [CloudRecord]) async throws -> Set<PendingChange> {
         guard let id = CloudSchema.boardID(fromZoneName: zone.name) else { return [] }
@@ -299,20 +402,26 @@ public actor BoardSyncCoordinator {
         return await pendingChanges(for: id, state: state)
     }
 
-    /// A zona do mural deixou de existir para este Mac: apaga o estado guardado e avisa o host.
+    /// A zona do mural deixou de existir para este Mac: apaga o estado guardado e avisa o host. O servidor confirmou o apagamento,
+    /// então a zona também sai da lista de recusadas (`declinedZones()`), mesmo sem estado guardado do mural: a recusa só vale
+    /// enquanto a zona ainda existe lá. A lista fica por último, para um arquivo dela ilegível não impedir a saída do mural.
     public func handleZoneDeleted(_ zone: CloudZoneID, reason: BoardRemovalReason) async throws {
         guard let id = CloudSchema.boardID(fromZoneName: zone.name) else { return }
         await acquireEventLock()
         defer { releaseEventLock() }
-        guard try await loadState(for: id) != nil else { return }
-        try await remove(id, reason: reason)
+        if try await loadState(for: id) != nil { try await remove(id, reason: reason) }
+        let declined = try await store.declinedZones(for: scope)
+        let remaining = declined.filter { $0.name != zone.name }
+        if remaining.count != declined.count { try await store.saveDeclinedZones(remaining, for: scope) }
     }
 
     /// O que está impedindo cada mural de sincronizar, um por mural. Havendo vários, vale o mais grave: app mais novo, a gravação
-    /// que falhou neste Mac, a recusa do iCloud, o cartão grande demais e, por último, os registros ilegíveis.
+    /// que falhou neste Mac, a espera pela primeira busca (`SyncIssue.awaitingFirstFetch`, só informativa), a recusa do iCloud, o
+    /// cartão grande demais e, por último, os registros ilegíveis.
     public func issues() -> [BoardID: SyncIssue] {
         var boards = newerAppBoards
         boards.formUnion(fullFetchBoards)
+        boards.formUnion(awaitingFirstFetchBoards)
         boards.formUnion(sendIssues.keys)
         boards.formUnion(oversizedCards.keys)
         boards.formUnion(unreadableRecords.keys)
@@ -371,7 +480,10 @@ public actor BoardSyncCoordinator {
                 return
             }
         }
-        if completesFullFetch { updated.needsFullFetch = false }
+        if completesFullFetch {
+            updated.needsFullFetch = false
+            updated.isAwaitingFirstFetch = false
+        }
         try await commit(updated, for: id)
         state = updated
         noteUnreadable(received.skippedRecordNames, arrived: saved, deleted: deleted, for: id)
@@ -439,6 +551,11 @@ public actor BoardSyncCoordinator {
         } else {
             fullFetchBoards.remove(id)
         }
+        if state.isAwaitingFirstFetch {
+            awaitingFirstFetchBoards.insert(id)
+        } else {
+            awaitingFirstFetchBoards.remove(id)
+        }
     }
 
     /// Anota o resultado de um envio: a recusa vira aviso, e um lote em que o iCloud aceitou algo sem recusar nada limpa o aviso.
@@ -471,6 +588,7 @@ public actor BoardSyncCoordinator {
     private func forgetInMemory(_ id: BoardID) {
         newerAppBoards.remove(id)
         fullFetchBoards.remove(id)
+        awaitingFirstFetchBoards.remove(id)
         sendIssues[id] = nil
         oversizedCards[id] = nil
         unreadableRecords[id] = nil
@@ -479,6 +597,7 @@ public actor BoardSyncCoordinator {
     private func issue(for id: BoardID) -> SyncIssue? {
         if newerAppBoards.contains(id) { return .needsNewerApp }
         if fullFetchBoards.contains(id) { return .localSaveFailed }
+        if awaitingFirstFetchBoards.contains(id) { return .awaitingFirstFetch }
         if let issue = sendIssues[id] { return issue }
         if let itemID = oversizedCards[id]?.keys.min(by: { $0.uuidString < $1.uuidString }) { return .recordTooLarge(itemID) }
         if let names = unreadableRecords[id], !names.isEmpty {

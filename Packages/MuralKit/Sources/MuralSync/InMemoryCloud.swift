@@ -148,6 +148,12 @@ public actor InMemoryCloud {
         return visible.sorted { ($0.ownerName, $0.name) < ($1.ownerName, $1.name) }
     }
 
+    /// O que o dono permitiu a `user` na zona, ou `nil` se `user` não é convidado dela ou a zona não existe. No CloudKit de verdade
+    /// essa permissão só chega com o convite; aqui ela é consultada para o motor corrigir a de uma zona que acabou de adotar.
+    public func guestPermission(of user: String, inZone name: String, owner: String) -> GuestPermission? {
+        zones[ZoneKey(owner: owner, name: name)]?.guests[user]
+    }
+
     // MARK: Enviar
 
     /// Grava e apaga registros em nome de `user`, um por um, com as regras do tipo. A zona de cada registro é a que `user` vê.

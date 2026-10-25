@@ -39,9 +39,7 @@ extension InMemorySyncEngine: CloudSyncEngine {
     /// O motor falso não tem agenda nem estado a restaurar: nada a ligar.
     func start() async throws {}
 
-    /// Sem efeito: o motor falso não deixa o `InMemoryCloud` ao alcance do app para apagar a zona. Nenhum teste precisa disso
-    /// hoje; quem montar o ambiente e precisar apaga pelo `InMemoryCloud.deleteZone`.
-    func deleteZone(for boardID: BoardID) async throws {}
+    // `deleteZone(for:)` é do próprio motor falso (apaga a zona no `InMemoryCloud`), e já cumpre o protocolo: não há adaptador.
 
     func send() async throws {
         try await sendChanges()

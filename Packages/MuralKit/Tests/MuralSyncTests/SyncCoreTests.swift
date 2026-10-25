@@ -640,6 +640,32 @@ struct SyncCoreTests {
                 == nil)
     }
 
+    // MARK: Mural adotado, esperando a primeira busca
+
+    @Test("Mural que espera a primeira busca: nada a enviar e nenhum registro montado, nem o do mural com o nome provisório")
+    func awaitingFirstFetchSendsNothing() throws {
+        let items = try makeItemsDirectory(files: [])
+        defer { cleanUp(items) }
+        let local = Self.board()
+        let note = try #require(local.items.first)
+        var state = BoardSyncState(cloud: Self.cloud, isAwaitingFirstFetch: true)
+
+        let waiting = SyncCore.pendingChanges(state: state, local: local, name: "Provisório", itemsDirectory: items)
+        #expect(waiting.isEmpty)
+        for name in [CloudSchema.muralRecordName, note.id.uuidString] {
+            let record = try SyncCore.record(for: recordID(name), state: state, local: local, name: "Provisório", itemsDirectory: items)
+            #expect(record == nil, "\(name) não pode subir enquanto o pacote é provisório")
+        }
+
+        // Acabada a espera, o mesmo mural passa a ter o que enviar, a começar pelo registro do mural.
+        state.isAwaitingFirstFetch = false
+        let ready = SyncCore.pendingChanges(state: state, local: local, name: "Provisório", itemsDirectory: items)
+        #expect(ready.contains(.save(recordID(CloudSchema.muralRecordName))) && ready.contains(.save(cardID(note))))
+        let board = try SyncCore.record(
+            for: recordID(CloudSchema.muralRecordName), state: state, local: local, name: "Provisório", itemsDirectory: items)
+        #expect(board != nil)
+    }
+
     // MARK: Registro de app mais novo
 
     @Test("Registro de app mais novo: vai para os não suportados, nunca é regravado nem apagado e sai de lá quando apagado no iCloud")
