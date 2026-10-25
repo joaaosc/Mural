@@ -226,6 +226,23 @@ public actor BoardLibrary {
         return .saved(id)
     }
 
+    /// Cria o pacote de um mural que já tem identidade fora deste Mac, como o do iCloud trazido por convite ou vindo de outro Mac do
+    /// dono: o `id` não pode mudar, senão a zona dele no iCloud deixaria de casar com o pacote. O mural nasce vazio e já com o `cloud`
+    /// no manifesto (schema 2); o conteúdo e o nome verdadeiros chegam depois, pela sincronização.
+    /// - Returns: a rota do mural novo, ou `nil`, sem tocar em nada, se já existe um pacote com esse `id`.
+    public func createBoard(id: BoardID, name: String, cloud: BoardCloudInfo?) async throws -> BoardRoute? {
+        _ = try await bootstrap()
+        let package = await savedRepository.packageURL(for: id)
+        guard !FileManager.default.fileExists(atPath: package.path) else { return nil }
+        let snapshot = BoardRepositorySnapshot(
+            manifest: BoardManifest(id: id, name: name, cloud: cloud),
+            board: Board(),
+            workspace: .default
+        )
+        try await savedRepository.save(snapshot)
+        return .saved(id)
+    }
+
     public func open(_ route: BoardRoute) async throws -> BoardRepositorySnapshot? {
         switch route {
         case .library:

@@ -1,5 +1,6 @@
 import Foundation
 import MuralSync
+import Synchronization
 import Testing
 
 @testable import MuralKit
@@ -69,6 +70,18 @@ struct TestMac {
     func fileContents(_ name: String) -> String? {
         (try? Data(contentsOf: items.appendingPathComponent(name))).flatMap { String(data: $0, encoding: .utf8) }
     }
+}
+
+/// Os convites que um motor falso entregou, uma lista por entrega, na ordem em que vieram. O fecho do motor é `@Sendable`, então o
+/// registro tem trava.
+final class ShareLog: Sendable {
+    private let batches = Mutex<[[ShareSummary]]>([])
+
+    func record(_ shares: [ShareSummary]) {
+        batches.withLock { $0.append(shares) }
+    }
+
+    var all: [[ShareSummary]] { batches.withLock { $0 } }
 }
 
 /// O dono e um convidado no mesmo mural, cada um com o seu coordenador e o seu motor falso, sobre um só iCloud falso.

@@ -265,6 +265,38 @@ struct BoardCloudManifestTests {
         #expect(local.manifest.cloud == nil && local.manifest.schemaVersion == 1)
     }
 
+    @Test("createBoard: nasce com o id e o cloud dados (manifest 2), e repetir o id devolve nil sem tocar em nada")
+    func createBoardKeepsTheIDAndStoresTheCloud() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = BoardLibrary(rootDirectory: root)
+        let id = BoardID()
+
+        let route = try #require(try await library.createBoard(id: id, name: "Do iCloud", cloud: Self.receivedInfo))
+
+        #expect(route == .saved(id))
+        let created = try #require(await library.open(route))
+        #expect(created.manifest.id == id && created.manifest.name == "Do iCloud")
+        #expect(created.manifest.cloud == Self.receivedInfo && created.manifest.schemaVersion == 2)
+        #expect(created.board.items.isEmpty)
+        let stored = try await storedManifest(id, in: library.repository(for: route))
+        #expect(stored["schemaVersion"] as? Int == 2)
+        #expect(stored["cloud"] != nil)
+
+        // Já existe um pacote com este id: nem o nome nem o cloud do que está no disco mudam.
+        let again = try await library.createBoard(id: id, name: "Outro nome", cloud: Self.ownInfo)
+        #expect(again == nil)
+        #expect(try #require(await library.open(route)).manifest == created.manifest)
+
+        // Sem cloud o mural é só deste Mac, como o de `createNamedBoard`.
+        let localID = BoardID()
+        let local = try #require(try await library.createBoard(id: localID, name: "Local", cloud: nil))
+        let localManifest = try #require(await library.open(local)).manifest
+        #expect(localManifest.cloud == nil && localManifest.schemaVersion == 1)
+        let listed = try await library.listSavedReport().entries.map(\.manifest.id)
+        #expect(Set(listed) == [id, localID])
+    }
+
     @Test("Mudar só a permissão, sem revisão nova, é gravado")
     func permissionChangeWithoutRevisionIsSaved() async throws {
         let root = try temporaryRoot()

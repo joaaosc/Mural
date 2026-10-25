@@ -154,6 +154,12 @@ public actor InMemoryCloud {
         zones[ZoneKey(owner: owner, name: name)]?.guests[user]
     }
 
+    /// Os convidados da zona e o que o dono permitiu a cada um; vazio se não há nenhum ou a zona não existe. No CloudKit de verdade
+    /// essa lista chega no convite (`CKShare`), e o motor falso a lê daqui para montar o dele.
+    public func guests(inZone name: String, owner: String) -> [String: GuestPermission] {
+        zones[ZoneKey(owner: owner, name: name)]?.guests ?? [:]
+    }
+
     // MARK: Enviar
 
     /// Grava e apaga registros em nome de `user`, um por um, com as regras do tipo. A zona de cada registro é a que `user` vê.

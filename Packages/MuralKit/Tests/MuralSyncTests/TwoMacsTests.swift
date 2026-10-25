@@ -765,6 +765,63 @@ struct TwoMacsTests {
         #expect(try await store.boardIDs().isEmpty)
     }
 
+    // MARK: Convites
+
+    @Test("Convites do motor falso: o convidado recebe a permissão do dono e o nome dele, e o dono recebe os convidados")
+    func fakeEngineDeliversTheShares() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), guestPermission: .readOnly, guestTracksAs: .readOnly)
+        defer { macs.cleanUp() }
+        let ownerLog = ShareLog()
+        let guestLog = ShareLog()
+        await macs.owner.engine.setShareHandler { ownerLog.record($0) }
+        await macs.guest.engine.setShareHandler { guestLog.record($0) }
+
+        try await macs.owner.engine.sendChanges()
+        try await macs.owner.engine.fetchChanges()
+        try await macs.guest.engine.fetchChanges()
+
+        let guest = ShareSummary.Participant(
+            displayName: TwoMacs.guestUser, userRecordName: TwoMacs.guestUser, permission: .readOnly, isAccepted: true)
+        #expect(
+            ownerLog.all == [
+                [
+                    ShareSummary(
+                        zone: macs.ownerZone, currentUserPermission: .owner, ownerDisplayName: TwoMacs.ownerUser, participants: [guest])
+                ]
+            ])
+        #expect(
+            guestLog.all == [
+                [ShareSummary(zone: macs.guestZone, currentUserPermission: .readOnly, ownerDisplayName: TwoMacs.ownerUser)]
+            ])
+
+        // O dono passa o convidado a editar: o convite seguinte já traz a permissão nova, para os dois.
+        try await macs.cloud.share(zone: macs.zoneName, owner: TwoMacs.ownerUser, with: TwoMacs.guestUser, permission: .readWrite)
+        try await macs.guest.engine.fetchChanges()
+        try await macs.owner.engine.fetchChanges()
+
+        #expect(guestLog.all.last?.first?.currentUserPermission == .readWrite)
+        #expect(ownerLog.all.last?.first?.participants.map(\.permission) == [.readWrite])
+    }
+
+    @Test("Convites do motor falso: a zona do dono sem convidado sai como apagada, e quem perdeu o acesso não recebe mais convite")
+    func fakeEngineReportsAZoneWithoutGuestsAsDeleted() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let ownerLog = ShareLog()
+        let guestLog = ShareLog()
+        await macs.owner.engine.setShareHandler { ownerLog.record($0) }
+        await macs.guest.engine.setShareHandler { guestLog.record($0) }
+
+        try await macs.cloud.revoke(zone: macs.zoneName, owner: TwoMacs.ownerUser, from: TwoMacs.guestUser)
+        try await macs.owner.engine.fetchChanges()
+        try await macs.guest.engine.fetchChanges()
+
+        #expect(ownerLog.all == [[ShareSummary(zone: macs.ownerZone, isDeleted: true)]])
+        #expect(guestLog.all.isEmpty, "a zona já não aparece para o convidado")
+        #expect(await macs.guest.host.removals == [SyncTestHost.Removal(board: macs.boardID, reason: .accessRevoked)])
+    }
+
     // MARK: Envio confirmado só em parte
 
     /// O que o iCloud falso recusa de propósito na primeira tentativa.
