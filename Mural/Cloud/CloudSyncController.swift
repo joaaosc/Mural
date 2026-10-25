@@ -36,6 +36,9 @@ final class CloudSyncController {
     /// O nome do usuário no iCloud falso dos testes.
     nonisolated static let testUser = "ui-test"
 
+    /// O nome do convidado de teste no iCloud falso (`inviteTestGuest(to:)`).
+    nonisolated static let testGuest = "convidado-teste"
+
     private static let log = Logger(subsystem: "com.joaocosta.Mural", category: "Sincronização")
     private static let scopes: [CloudDatabaseScope] = [.private, .shared]
 
@@ -58,6 +61,15 @@ final class CloudSyncController {
     /// apagado (o dono parou de compartilhar) ou mural que saiu do iCloud neste Mac sai daqui. A interface de compartilhamento o usa.
     private(set) var shareStates: [BoardID: ShareSummary] = [:]
 
+    /// Há conta do iCloud neste Mac; sem ela a interface explica por que não dá para compartilhar. Com o iCloud falso é sempre `true`.
+    /// Com o de verdade vem de `CKContainer.accountStatus()` ao ligar e a cada `CKAccountChanged`, e só `.available` conta. Começa
+    /// `true` até a primeira resposta (e não muda se a leitura falha): um "entre no iCloud" errado seria pior que o silêncio.
+    private(set) var accountAvailable = true
+
+    /// Os murais que o controlador está enviando agora (`sendPending`): entram quando o envio começa e saem quando ele volta, com os
+    /// avisos já relidos. A interface mostra "Enviando ao iCloud…" enquanto o mural está aqui.
+    private(set) var sendingBoards = Set<BoardID>()
+
     /// O controlador do app, para quem não tem como recebê-lo pelo construtor (o delegado do app). `nil` com a sincronização
     /// desligada; só `MuralApp` o define.
     static var current: CloudSyncController?
@@ -77,6 +89,11 @@ final class CloudSyncController {
     @ObservationIgnored private var shareChain: Task<Void, Never>?
     /// O envio agendado de cada mural; uma nova gravação o cancela e agenda outro (a espera recomeça).
     @ObservationIgnored private var sendTasks: [BoardID: Task<Void, Never>] = [:]
+    /// Quantos `sendPending` de cada mural estão em andamento: um envio lento pode ainda estar rodando quando o seguinte começa, e o
+    /// mural só sai de `sendingBoards` quando o último volta.
+    @ObservationIgnored private var sendsInFlight: [BoardID: Int] = [:]
+    /// O iCloud falso e o usuário deste Mac nele; só com `.inMemory`. O convite de teste (`inviteTestGuest(to:)`) mexe nele direto.
+    @ObservationIgnored private let fakeCloud: (cloud: InMemoryCloud, user: String)?
     /// Os murais que esperam a primeira busca, como o último `refreshIssues` os leu dos coordenadores. A sessão que se abre depois
     /// recebe daqui.
     @ObservationIgnored private var awaitingFirstFetch = Set<BoardID>()
@@ -111,6 +128,7 @@ final class CloudSyncController {
         self.delivery = delivery
         self.openSessions = openSessions
         self.sendDelay = sendDelay
+        self.fakeCloud = effective == .inMemory ? (cloud, user) : nil
         guard effective != .off else { return }
 
         let store = SyncMetadataStore(directory: directory)
@@ -130,7 +148,10 @@ final class CloudSyncController {
             }
             channels[scope] = Channel(coordinator: coordinator, engine: engine)
         }
-        if let container { observeSystemSharing(in: container) }
+        if let container {
+            observeSystemSharing(in: container)
+            observeAccount(of: container)
+        }
 
         // Toda sessão de janela, a que já existe e as que vierem, avisa o controlador de cada gravação local. A sessão não conhece
         // o controlador: só entrega o aviso a este fecho.
@@ -310,9 +331,12 @@ final class CloudSyncController {
     }
 
     /// Pede ao coordenador o que falta enviar do mural (lê o que está gravado, não a janela), entrega ao motor e envia. Mural que
-    /// nenhum banco acompanha não tem pendência e não faz nada.
+    /// nenhum banco acompanha não tem pendência e não faz nada. O mural fica em `sendingBoards` até os avisos serem relidos, para a
+    /// interface passar de "Enviando…" direto ao estado final.
     private func sendPending(for id: BoardID) async {
         await startTask?.value
+        beginSending(id)
+        defer { endSending(id) }
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
             do {
@@ -326,6 +350,23 @@ final class CloudSyncController {
             }
         }
         await refreshIssues()
+    }
+
+    /// Só toca em `sendingBoards` quando o mural entra no primeiro envio em andamento, para a interface não ser avisada à toa.
+    private func beginSending(_ id: BoardID) {
+        let running = sendsInFlight[id, default: 0]
+        sendsInFlight[id] = running + 1
+        if running == 0 { sendingBoards.insert(id) }
+    }
+
+    private func endSending(_ id: BoardID) {
+        let remaining = (sendsInFlight[id] ?? 1) - 1
+        guard remaining <= 0 else {
+            sendsInFlight[id] = remaining
+            return
+        }
+        sendsInFlight[id] = nil
+        sendingBoards.remove(id)
     }
 
     // MARK: Avisos
@@ -507,6 +548,52 @@ final class CloudSyncController {
         await refreshIssues()
     }
 
+    // MARK: Convite de teste
+
+    /// **Só do iCloud falso** (`.inMemory`, os testes de interface): convida o `testGuest` para editar o mural, para esses testes terem
+    /// um mural compartilhado sem o CloudKit. Mural ainda só deste Mac é posto no iCloud antes (`putInCloud`). Depois busca de novo,
+    /// e `shareStates` passa a ter o convite. Chamar de novo não muda nada.
+    /// - Throws: `CloudSyncControllerError.testOnly` fora do iCloud falso, `.notASavedBoard` para o rascunho de exemplo, `.notOwner`
+    ///   para mural recebido de outra pessoa, ou o que `putInCloud` e o iCloud falso lançarem.
+    func inviteTestGuest(to route: BoardRoute) async throws {
+        guard let fakeCloud, isEnabled else { throw CloudSyncControllerError.testOnly }
+        guard case .saved(let id) = route else { throw CloudSyncControllerError.notASavedBoard }
+        await startTask?.value
+        guard let snapshot = try await registry.library.open(route) else { throw BoardLibraryError.unavailableRoute(route) }
+        if let cloud = snapshot.manifest.cloud {
+            guard cloud.database == .private else { throw CloudSyncControllerError.notOwner }
+        } else {
+            try await putInCloud(route)
+        }
+        try await fakeCloud.cloud.share(
+            zone: CloudSchema.zoneName(for: id), owner: fakeCloud.user, with: Self.testGuest, permission: .readWrite)
+        await fetch()
+    }
+
+    // MARK: Conta do iCloud
+
+    /// Lê a conta agora e de novo a cada `CKAccountChanged` (entrar ou sair do iCloud nos Ajustes do Sistema). O fim do controlador
+    /// encerra o laço na notificação seguinte: a tarefa só segura o controlador por um instante, a cada leitura.
+    private func observeAccount(of container: CKContainer) {
+        Task { @MainActor [weak self] in
+            let changes = NotificationCenter.default.notifications(named: .CKAccountChanged)
+            await self?.refreshAccount(of: container)
+            for await _ in changes {
+                guard let self else { return }
+                await self.refreshAccount(of: container)
+            }
+        }
+    }
+
+    private func refreshAccount(of container: CKContainer) async {
+        do {
+            let available = try await container.accountStatus() == .available
+            if accountAvailable != available { accountAvailable = available }
+        } catch {
+            Self.log.error("Conta do iCloud não lida: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     // MARK: Compartilhamento do sistema
 
     /// A interface de compartilhamento do sistema grava e apaga o convite (`CKShare`) por conta própria, sem passar pelo motor: o
@@ -638,6 +725,8 @@ enum CloudSyncControllerError: LocalizedError, Equatable {
     case notOwner
     /// A ação é de quem recebeu o convite (banco compartilhado), e este mural é do dono.
     case notGuest
+    /// O convidado de teste só existe no iCloud falso dos testes de interface.
+    case testOnly
 
     /// O texto que o alerta da janela mostra.
     var errorDescription: String? {
@@ -648,6 +737,7 @@ enum CloudSyncControllerError: LocalizedError, Equatable {
         case .notInCloud: "Este mural não está no iCloud."
         case .notOwner: "Só quem criou o mural pode fazer isso."
         case .notGuest: "Este mural é seu, e não um convite recebido."
+        case .testOnly: "O convidado de teste só existe no iCloud falso dos testes."
         }
     }
 }

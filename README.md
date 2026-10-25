@@ -194,8 +194,7 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   dá para juntar vira uma cópia de conflito, sem perder o que cada pessoa escreveu.
 - **Só leitura**: quem só pode ver recebe as mudanças das outras pessoas, mas nada do que faz muda o
   mural compartilhado. Frases curtas, prévias de link e capas de música continuam de cada Mac.
-- Hoje, só em Debug, Arquivo › **Pôr Este Mural no iCloud** envia o mural da aba ao banco privado, e a
-  barra da janela mostra o estado da sincronização. Falta o convite para outra pessoa, o segundo Mac
+- Hoje a barra da janela mostra o estado da sincronização. Falta o convite para outra pessoa, o segundo Mac
   adotar um mural criado no primeiro e o modo só leitura na interface.
 - Os testes usam um iCloud em memória; o app aberto só para hospedar os testes não sincroniza.
 

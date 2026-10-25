@@ -24,10 +24,8 @@ struct BoardTab: Identifiable {
 enum MuralWindowRequest: Equatable, Sendable {
     case newBoard
     case openPackage
-    #if DEBUG
-    /// Depuração: pôr o mural no iCloud. A janela faz o pedido ao controlador e mostra o erro, se houver.
-    case putInCloud(BoardRoute)
-    #endif
+    /// Abre o popover do botão Compartilhar para o mural da aba (Arquivo › Compartilhar…).
+    case share(BoardRoute)
 }
 
 /// Pedido de excluir um mural, à espera da confirmação na janela.
@@ -356,14 +354,24 @@ final class MuralTabs {
         showWindow()
     }
 
-    #if DEBUG
-    /// Arquivo › Pôr Este Mural no iCloud (só em Debug): o mural da aba ativa.
-    func requestPutSelectedInCloud() {
-        guard let selected else { return }
-        request = .putInCloud(selected.route)
+    /// A aba ativa e o controlador, quando o mural dela pode ser compartilhado: um mural salvo (não o rascunho de exemplo) e a
+    /// sincronização ligada. O botão Compartilhar da barra, a largura da faixa de abas e o item do menu seguem esta regra.
+    var shareTarget: (tab: BoardTab, sync: CloudSyncController)? {
+        guard let sync = cloudSync(), sync.isEnabled, let tab = selected, case .saved = tab.route else { return nil }
+        return (tab, sync)
+    }
+
+    /// O botão Compartilhar da aba ativa está habilitado: o mural já carregou, e só então se sabe se está no iCloud e com quem.
+    var canShareSelected: Bool {
+        shareTarget?.tab.session.model != nil
+    }
+
+    /// Arquivo › Compartilhar…: abre o popover de compartilhamento do mural da aba ativa.
+    func requestShareSelected() {
+        guard canShareSelected, let selected else { return }
+        request = .share(selected.route)
         showWindow()
     }
-    #endif
 
     // MARK: Biblioteca
 

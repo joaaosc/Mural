@@ -23,6 +23,8 @@ struct MuralWindowView: View {
     @State private var isNewBoardPresented = false
     @State private var boardNameDraft = ""
     @State private var isPackageImporterPresented = false
+    /// O popover do botão Compartilhar está aberto (pelo botão ou por Arquivo › Compartilhar…).
+    @State private var isSharePresented = false
     @State private var alert: WindowAlert?
 
     private enum WindowRole {
@@ -30,15 +32,10 @@ struct MuralWindowView: View {
     }
 
     /// Largura do item da faixa na barra da janela: tudo menos os semáforos e o botão da barra lateral à
-    /// esquerda e o "+" à direita. Um item da barra não estica sozinho; ele usa a largura pedida.
+    /// esquerda, o botão Compartilhar (quando o mural da aba pode ser compartilhado) e o "+" à direita. Um item
+    /// da barra não estica sozinho; ele usa a largura pedida.
     private var stripItemWidth: CGFloat {
-        max(0, windowWidth - 150 - 70 - (syncedSession == nil ? 0 : SyncStatusIndicator.toolbarWidth))
-    }
-
-    /// A sessão da aba ativa quando o mural dela está no iCloud: só ela ganha o indicador de sincronização.
-    private var syncedSession: BoardWindowSession? {
-        guard let session = tabs.selected?.session, session.cloud != nil else { return nil }
-        return session
+        max(0, windowWidth - 150 - 70 - (tabs.shareTarget == nil ? 0 : ShareToolbarControl.toolbarWidth))
     }
 
     /// Com a barra lateral aberta, as abas começam depois dela (e da linha divisória), como no Safari. A conta
@@ -105,10 +102,12 @@ struct MuralWindowView: View {
             }
             // O vidro do sistema cobriria também o recuo sobre a barra lateral: a faixa desenha o próprio vidro.
             .sharedBackgroundVisibility(.hidden)
-            if let session = syncedSession {
+            // O botão Compartilhar tem a cápsula de vidro própria: o espaço fixo o separa da cápsula do "+".
+            if let target = tabs.shareTarget {
                 ToolbarItem(placement: .primaryAction) {
-                    SyncStatusIndicator(issue: CloudSyncController.current?.issues[session.boardID])
+                    ShareToolbarControl(tab: target.tab, tabs: tabs, sync: target.sync, isPresented: $isSharePresented)
                 }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
@@ -153,6 +152,9 @@ struct MuralWindowView: View {
             Text(request.message)
         }
         .onChange(of: tabs.request) { _, _ in consumeRequest() }
+        // O popover é do mural da aba: trocar de aba, ou o botão perder o sentido (mural excluído, ainda carregando), o fecha.
+        .onChange(of: tabs.selectedID) { _, _ in isSharePresented = false }
+        .onChange(of: tabs.canShareSelected) { _, canShare in if !canShare { isSharePresented = false } }
         // Os avisos de murais que saíram do iCloud usam o alerta da janela, um de cada vez.
         .onChange(of: CloudSyncController.current?.notices, initial: true) { _, _ in presentNextNotice() }
         .onChange(of: alert?.id) { _, id in if id == nil { presentNextNotice() } }
@@ -216,10 +218,9 @@ struct MuralWindowView: View {
             isNewBoardPresented = true
         case .openPackage:
             isPackageImporterPresented = true
-        #if DEBUG
-        case .putInCloud(let route):
-            putInCloud(route)
-        #endif
+        case .share(let route):
+            // O pedido vale para a aba que estava ativa ao pedir; quem trocou de aba nesse meio-tempo não vê o popover de outro mural.
+            isSharePresented = tabs.selected?.route == route && tabs.canShareSelected
         }
     }
 
@@ -228,20 +229,6 @@ struct MuralWindowView: View {
         guard alert == nil, let notice = CloudSyncController.current?.notices.first else { return }
         alert = WindowAlert(title: "Mural fora do iCloud", message: notice.message, noticeID: notice.id)
     }
-
-    #if DEBUG
-    /// Depuração: pede ao controlador que ponha o mural no iCloud e mostra o erro, se houver.
-    private func putInCloud(_ route: BoardRoute) {
-        guard let sync = CloudSyncController.current else { return }
-        Task {
-            do {
-                try await sync.putInCloud(route)
-            } catch {
-                alert = WindowAlert(title: "Não foi possível pôr o mural no iCloud", message: error.localizedDescription)
-            }
-        }
-    }
-    #endif
 
     private func createBoard() {
         isNewBoardPresented = false

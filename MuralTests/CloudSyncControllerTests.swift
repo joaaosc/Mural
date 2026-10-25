@@ -1,6 +1,7 @@
 import Foundation
 import MuralKit
 import MuralSync
+import Observation
 import Testing
 
 @testable import Mural
@@ -232,6 +233,32 @@ struct CloudSyncControllerTests {
         await env.finish()
     }
 
+    @Test("Enviar: o mural entra em sendingBoards enquanto é enviado e sai quando o envio volta")
+    func sendingBoardsFollowsTheSend() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(items: [Self.note("um")])
+        let remote = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let model = try #require(tab.session.model)
+        #expect(env.controller.sendingBoards.isEmpty)
+        let recorder = SendingRecorder(env.controller)
+        let added = try #require(model.importText("escrito aqui", as: .text))
+
+        tab.session.captureBoardIfNeeded()
+        await tab.session.flushAndPrepareToLeave()
+
+        await waitUntil("o envio começar e voltar") { recorder.valuesBeforeChange.count >= 2 }
+        #expect(Array(recorder.valuesBeforeChange.prefix(2)) == [[], [id]], "entrou com a lista vazia e saiu com o mural nela")
+        await waitUntil("o mural sair de sendingBoards") { env.controller.sendingBoards.isEmpty }
+        await waitUntil("o segundo Mac receber a edição") {
+            _ = try? await remote.engine.fetchChanges()
+            return await remote.host.board.item(id: added.id) != nil
+        }
+        await env.finish()
+    }
+
     @Test("Junção pura: o que chegou do iCloud não volta como envio")
     func pureMergeSendsNothing() async throws {
         let env = try SyncEnvironment()
@@ -347,6 +374,47 @@ struct CloudSyncControllerTests {
             try await env.controller.putInCloud(.welcomeDraft(BoardID()))
         }
         await env.finish()
+    }
+
+    // MARK: Conta e convite de teste
+
+    @Test("O iCloud falso sempre tem conta")
+    func fakeCloudAlwaysHasAnAccount() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        #expect(env.controller.accountAvailable)
+
+        await env.controller.start()
+
+        #expect(env.controller.accountAvailable)
+    }
+
+    @Test("Convite de teste: põe o mural no iCloud se preciso e compartilha a zona no iCloud falso com o convidado de teste")
+    func testGuestInvitationSharesTheFakeCloudZone() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(name: "Para convidar", items: [Self.note("um")])
+        let zone = CloudSchema.zoneName(for: id)
+        await env.controller.start()
+
+        try await env.controller.inviteTestGuest(to: .saved(id))
+
+        #expect(try await env.diskManifest(id).cloud == SyncEnvironment.cloudInfo(database: .private, for: id), "o mural foi para o iCloud")
+        let expected = [CloudSyncController.testGuest: InMemoryCloud.GuestPermission.readWrite]
+        #expect(await env.cloud.guests(inZone: zone, owner: CloudSyncController.testUser) == expected)
+        let share = try #require(env.controller.shareStates[id], "o convite chegou a shareStates")
+        #expect(share.participants.map(\.displayName) == [CloudSyncController.testGuest])
+        #expect(share.participants.map(\.permission) == [.readWrite])
+
+        // Convidar de novo, com o mural já no iCloud, não muda nada.
+        try await env.controller.inviteTestGuest(to: .saved(id))
+        #expect(await env.cloud.guests(inZone: zone, owner: CloudSyncController.testUser) == expected)
+
+        let received = try await env.seed(name: "Recebido", items: [], database: .shared)
+        await #expect(throws: CloudSyncControllerError.notOwner) { try await env.controller.inviteTestGuest(to: .saved(received)) }
+        await #expect(throws: CloudSyncControllerError.notASavedBoard) {
+            try await env.controller.inviteTestGuest(to: .welcomeDraft(BoardID()))
+        }
     }
 
     // MARK: Mural novo no iCloud
@@ -1010,6 +1078,7 @@ struct CloudSyncControllerTests {
         await #expect(throws: CloudSyncControllerError.disabled) { try await controller.deleteEverywhere(id) }
         await #expect(throws: CloudSyncControllerError.disabled) { try await controller.leaveShared(id) }
         await #expect(throws: CloudSyncControllerError.disabled) { try await controller.removeFromICloud(id) }
+        await #expect(throws: CloudSyncControllerError.testOnly) { try await controller.inviteTestGuest(to: .saved(id)) }
     }
 
     @Test(
@@ -1140,6 +1209,31 @@ struct CloudSyncControllerTests {
 @MainActor
 private final class PersistRecorder {
     var fileExistedWhenCardWasSaved: [Bool] = []
+}
+
+/// Anota o que `CloudSyncController.sendingBoards` valia antes de cada mudança, para provar que o mural entrou e saiu dele sem depender
+/// de olhar no instante certo. O `onChange` do Observation roda antes da mudança, no Main Actor, e aqui se arma de novo na hora para não
+/// perder a seguinte.
+@MainActor
+private final class SendingRecorder {
+    private(set) var valuesBeforeChange: [Set<BoardID>] = []
+    private let controller: CloudSyncController
+
+    init(_ controller: CloudSyncController) {
+        self.controller = controller
+        watch()
+    }
+
+    private func watch() {
+        withObservationTracking {
+            _ = controller.sendingBoards
+        } onChange: { [self] in
+            MainActor.assumeIsolated {
+                valuesBeforeChange.append(controller.sendingBoards)
+                watch()
+            }
+        }
+    }
 }
 
 /// Biblioteca temporária, abas, entrega e controlador, ligados como no app, com o iCloud falso.
