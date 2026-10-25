@@ -461,4 +461,17 @@ struct SyncMetadataStoreTests {
             #expect(try Data(contentsOf: url) == bytes)
         }
     }
+
+    @Test("A marca de mural adotado só vai ao disco quando ligada, e o estado gravado sem ela abre desligado")
+    func adoptedMarkIsStoredOnlyWhenSet() throws {
+        let cloud = BoardCloudInfo(
+            database: .private, zoneName: CloudSchema.zoneName(for: BoardID()), zoneOwnerName: CloudZoneID.defaultOwnerName,
+            permission: .owner)
+        let plain = try JSONEncoder().encode(BoardSyncState(cloud: cloud))
+        #expect(!String(decoding: plain, as: UTF8.self).contains("isAdopted"))
+        #expect(try JSONDecoder().decode(BoardSyncState.self, from: plain).isAdopted == false)
+        let adopted = try JSONEncoder().encode(BoardSyncState(cloud: cloud, isAdopted: true))
+        #expect(try JSONDecoder().decode(BoardSyncState.self, from: adopted).isAdopted)
+    }
+
 }

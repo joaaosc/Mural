@@ -365,9 +365,11 @@ public enum SyncCore {
         StackingOrder.assignments(for: local.items.map(\.id), previous: state.layers)
     }
 
-    /// O registro do mural pode ser regravado? Não, se foi gravado por um app mais novo: a versão do formato dele cairia.
+    /// O registro do mural pode ser gravado? Não, se foi gravado por um app mais novo (a versão do formato dele cairia), nem num mural
+    /// adotado que ainda não recebeu o registro (`BoardSyncState.isAdopted`): só quem criou o mural cria o registro com o nome.
     private static func canWriteBoardRecord(_ state: BoardSyncState) -> Bool {
-        (state.baseBoardFormatVersion ?? 0) <= Board.currentFormatVersion
+        guard !(state.isAdopted && state.baseName == nil) else { return false }
+        return (state.baseBoardFormatVersion ?? 0) <= Board.currentFormatVersion
     }
 
     /// Este Mac conhece o cartão: ele está na base ou é de um app mais novo.

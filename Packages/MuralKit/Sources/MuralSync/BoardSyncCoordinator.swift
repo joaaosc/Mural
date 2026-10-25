@@ -254,7 +254,7 @@ public actor BoardSyncCoordinator {
             return isHere && isSameZone ? .alreadyTracked : .conflict
         }
         guard try await host.adoptBoard(id, cloud: cloud, name: name) else { return .conflict }
-        try await commit(BoardSyncState(cloud: cloud, isAwaitingFirstFetch: true), for: id)
+        try await commit(BoardSyncState(cloud: cloud, isAwaitingFirstFetch: true, isAdopted: true), for: id)
         return .adopted
     }
 

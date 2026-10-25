@@ -42,6 +42,10 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
     /// `SyncCore.record(for:state:local:name:itemsDirectory:)`), senão o nome provisório subiria ao iCloud e renomearia o mural de
     /// todos. Só vai ao disco quando ligado.
     public var isAwaitingFirstFetch: Bool
+    /// O mural veio de uma zona que outro Mac criou (adotado). Este Mac nunca cria o registro do mural, só o regrava depois de
+    /// recebê-lo (`baseName != nil`): se a zona ainda não tem o registro (o dono no meio do primeiro envio), a primeira busca termina
+    /// sem nome, e criá-lo aqui subiria o nome provisório e renomearia o mural de todos. Só vai ao disco quando ligado.
+    public var isAdopted: Bool
 
     public init(
         cloud: BoardCloudInfo,
@@ -54,7 +58,8 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         mediaOwners: [String: UUID] = [:],
         unsupportedRecordNames: Set<String> = [],
         needsFullFetch: Bool = false,
-        isAwaitingFirstFetch: Bool = false
+        isAwaitingFirstFetch: Bool = false,
+        isAdopted: Bool = false
     ) {
         self.cloud = cloud
         self.base = base
@@ -67,11 +72,12 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         self.unsupportedRecordNames = unsupportedRecordNames
         self.needsFullFetch = needsFullFetch
         self.isAwaitingFirstFetch = isAwaitingFirstFetch
+        self.isAdopted = isAdopted
     }
 
     private enum CodingKeys: String, CodingKey {
         case cloud, base, baseName, baseBoardFormatVersion, layers, systemFields, uploadedFiles, mediaOwners, unsupportedRecordNames
-        case needsFullFetch, isAwaitingFirstFetch
+        case needsFullFetch, isAwaitingFirstFetch, isAdopted
     }
 
     public init(from decoder: any Decoder) throws {
@@ -96,6 +102,7 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         unsupportedRecordNames = Set(try container.decode([String].self, forKey: .unsupportedRecordNames))
         needsFullFetch = try container.decodeIfPresent(Bool.self, forKey: .needsFullFetch) ?? false
         isAwaitingFirstFetch = try container.decodeIfPresent(Bool.self, forKey: .isAwaitingFirstFetch) ?? false
+        isAdopted = try container.decodeIfPresent(Bool.self, forKey: .isAdopted) ?? false
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -112,6 +119,7 @@ public struct BoardSyncState: Codable, Equatable, Sendable {
         // Desligado não vai ao disco: o estado comum continua com os mesmos bytes de antes do campo.
         if needsFullFetch { try container.encode(true, forKey: .needsFullFetch) }
         if isAwaitingFirstFetch { try container.encode(true, forKey: .isAwaitingFirstFetch) }
+        if isAdopted { try container.encode(true, forKey: .isAdopted) }
     }
 }
 

@@ -557,6 +557,31 @@ struct TwoMacsTests {
         #expect(await macs.cloudRecords() == cloudBefore, "o segundo Mac não enviou nada")
     }
 
+    @Test("Zona adotada ainda sem o registro do mural: o segundo Mac nunca cria o nome, e recebe o do dono quando ele chega")
+    func adoptedBoardNeverCreatesTheBoardRecord() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), name: "Casa")
+        defer { macs.cleanUp() }
+        // A zona existe, mas o dono ainda não enviou nada: a primeira busca do segundo Mac termina sem o registro do mural.
+        let second = try await macs.makeSecondOwnerMac()
+        defer { try? FileManager.default.removeItem(at: second.root) }
+        let ownerInfo = BoardCloudInfo(
+            database: .private, zoneName: macs.zoneName, zoneOwnerName: CloudZoneID.defaultOwnerName, permission: .owner)
+        #expect(try await second.coordinator.adoptZone(macs.ownerZone, cloud: ownerInfo, name: "Nome provisório") == .adopted)
+        try await second.engine.fetchChanges()
+
+        let state = try #require(try await second.store.state(for: macs.boardID))
+        #expect(!state.isAwaitingFirstFetch && state.isAdopted && state.baseName == nil)
+        #expect(try await second.coordinator.pendingChanges(for: macs.boardID).isEmpty, "o nome provisório não vira registro")
+        await second.engine.add(try await second.coordinator.pendingChanges(for: macs.boardID))
+        try await second.engine.sendChanges()
+        #expect(await macs.cloudRecord(CloudSchema.muralRecordName) == nil)
+
+        try await macs.settle(including: second)
+        #expect(await second.name == "Casa")
+        let mural = try #require(await macs.cloudRecord(CloudSchema.muralRecordName))
+        #expect(CardRecordMapping.boardName(from: mural) == "Casa")
+    }
+
     @Test("Segundo Mac do dono: depois de adotar, as edições dos três Macs convergem")
     func ownersSecondMacConvergesWithTheOthers() async throws {
         let macs = try await TwoMacs.make(board: board(note("Base")), name: "Casa")
