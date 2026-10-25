@@ -171,7 +171,8 @@ struct WebLinkTests {
     @Test(
         "Outros esquemas e endereços sem host não têm versão segura",
         arguments: [
-            "ftp://apple.com", "file:///Users/test-user/nota.txt", "mailto:someone@example.com", "javascript:alert(1)", "http://", "/caminho",
+            "ftp://apple.com", "file:///Users/test-user/nota.txt", "mailto:someone@example.com", "javascript:alert(1)", "http://",
+            "/caminho",
         ])
     func noSecureVariant(text: String) throws {
         #expect(WebLink.secureVariant(of: try url(text)) == nil)
