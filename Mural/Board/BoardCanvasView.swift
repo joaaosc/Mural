@@ -106,7 +106,9 @@ struct BoardCanvasView: View {
                 hoveredResizable?.freeTextID,
                 resizing?.target.freeTextID,
             ].compactMap { $0 })
-        let forceAll = isMarqueeActive || accessibilityEnabled
+        // A seleção por retângulo usa o mapa geométrico completo capturado no início
+        // do gesto; os cartões fora da viewport não precisam entrar na árvore visual.
+        let forceAll = accessibilityEnabled
         let cullingKey = CanvasRenderCulling.Key(
             boardID: boardID,
             generation: generation,
@@ -209,9 +211,14 @@ struct BoardCanvasView: View {
                 scrollPosition.scrollTo(point: request.point)
             }
         }
-        .onChange(of: zoom.zoom) { _, _ in
-            // Durante um novo nível de zoom, espera a geometria real do ScrollView antes de recortar de novo.
-            renderViewport = .zero
+        .onChange(of: zoom.zoom) { _, newZoom in
+            // O controlador já publicou o retângulo compensado no mesmo commit do zoom.
+            // Preservar o último recorte se ainda não houver geometria evita construir
+            // todos os cartões por um quadro enquanto o ScrollView atualiza o layout.
+            renderViewport = CanvasRenderCulling.viewportAfterZoom(
+                current: renderViewport,
+                visibleRect: zoom.visibleRect,
+                zoom: newZoom)
         }
         // Gesto cancelado sem `onEnded`: desfaz o arrasto. Fica para a volta seguinte do laço
         // principal, para não atropelar o `onEnded` quando ele vier.

@@ -155,6 +155,30 @@ struct CanvasRenderCullingTests {
         #expect(CanvasRenderCulling.shouldUpdateViewport(current: current, next: CGRect(x: 60, y: 0, width: 200, height: 200)))
     }
 
+    @Test("Zoom recalcula a viewport lógica sem abrir o mural inteiro")
+    func viewportAfterZoomUsesCompensatedVisibleRect() {
+        let current = CGRect(x: 10, y: 20, width: 800, height: 600)
+
+        let result = CanvasRenderCulling.viewportAfterZoom(
+            current: current,
+            visibleRect: CGRect(x: 250, y: 125, width: 1_000, height: 750),
+            zoom: 1.25)
+
+        #expect(result == CGRect(x: 200, y: 100, width: 800, height: 600))
+    }
+
+    @Test("Zoom sem geometria conserva o último recorte conhecido")
+    func viewportAfterZoomKeepsCurrentViewportWithoutGeometry() {
+        let current = CGRect(x: 10, y: 20, width: 800, height: 600)
+
+        let result = CanvasRenderCulling.viewportAfterZoom(
+            current: current,
+            visibleRect: .zero,
+            zoom: 1.25)
+
+        #expect(result == current)
+    }
+
     @Test("O cache invalida o culling quando a revisão do mural muda")
     func cacheInvalidatesForBoardRevision() {
         let cache = CanvasRenderCulling.Cache()

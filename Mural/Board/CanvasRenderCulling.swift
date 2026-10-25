@@ -90,6 +90,15 @@ enum CanvasRenderCulling {
             height: visibleRect.height / zoom)
     }
 
+    /// Recalcula imediatamente a janela lógica quando o zoom confirmado muda.
+    /// Se a geometria real ainda não existe, conserva o último recorte conhecido:
+    /// viewport vazia significa "renderizar tudo" para o cache e causaria uma
+    /// materialização integral do mural entre o comando de zoom e o próximo layout.
+    static func viewportAfterZoom(current: CGRect, visibleRect: CGRect, zoom: CGFloat) -> CGRect {
+        let updated = logicalVisibleRect(visibleRect, zoom: zoom)
+        return updated.isEmpty ? current : updated
+    }
+
     /// Só troca a seleção renderizada quando a viewport sai da faixa de pré-carregamento.
     /// Isso evita refazer a árvore a cada pixel de rolagem, mas garante que a próxima
     /// região já esteja pronta antes de entrar na tela.
