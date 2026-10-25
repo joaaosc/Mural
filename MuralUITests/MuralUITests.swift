@@ -23,6 +23,70 @@ final class MuralUITests: XCTestCase {
         return app
     }
 
+    /// Abre o corpus estrutural de 2.000 cartões na biblioteca isolada de performance.
+    /// Diferentemente de `launch()`, não passa `-uiTesting`: esse argumento recriaria a
+    /// biblioteca pequena dos testes funcionais e deixaria a medição sem carga representativa.
+    @MainActor
+    private func launchPerformanceFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.terminate()
+        app.launchArguments = [
+            "-ApplePersistenceIgnoreState", "YES",
+            "-manualTesting", "-performanceFixture", "-disableOnDeviceModel",
+        ]
+        app.launch()
+        app.activate()
+        let folder = app.buttons["Fixture Folder 1"].firstMatch
+        if !folder.waitForExistence(timeout: 2) {
+            // A raiz recém-criada entra pelo caminho legado do bootstrap e é publicada como
+            // o rascunho inicial; o conteúdo desse rascunho é a fixture, não o SampleBoard.
+            let fixtureEntry = app.buttons["welcome-draft-entry"].firstMatch
+            XCTAssertTrue(
+                fixtureEntry.waitForExistence(timeout: 20),
+                "o mural da fixture deveria aparecer na barra lateral"
+            )
+            fixtureEntry.click()
+        }
+        XCTAssertTrue(
+            folder.waitForExistence(timeout: 20),
+            "a fixture de 2.000 cartões deveria abrir antes da medição"
+        )
+        let sidebarButton = app.buttons["murals-sidebar-button"].firstMatch
+        if sidebarButton.waitForExistence(timeout: 5), app.buttons["welcome-draft-entry"].firstMatch.exists {
+            sidebarButton.click()
+        }
+        return app
+    }
+
+    /// Mede o processo do app, não o runner do XCTest. Cada iteração termina no mesmo
+    /// nível de zoom e alterna as duas direções para reduzir deriva entre amostras.
+    @MainActor
+    func testPerformanceFixtureScrollAndZoom() throws {
+        let app = launchPerformanceFixture()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+
+        let options = XCTMeasureOptions()
+        options.iterationCount = 5
+        measure(
+            metrics: [
+                XCTClockMetric(),
+                XCTCPUMetric(application: app),
+                XCTMemoryMetric(application: app),
+                XCTStorageMetric(application: app),
+                XCTHitchMetric(application: app),
+            ],
+            options: options
+        ) {
+            for _ in 0..<3 {
+                window.swipeUp()
+                window.swipeDown()
+                app.typeKey("=", modifierFlags: .command)
+                app.typeKey("-", modifierFlags: .command)
+            }
+        }
+    }
+
     @MainActor
     private func openExampleBoardIfNeeded(in app: XCUIApplication) {
         let exampleCard = app.buttons["The Cottage"].firstMatch
