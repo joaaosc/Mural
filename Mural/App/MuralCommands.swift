@@ -87,8 +87,10 @@ struct MuralCommands: Commands {
                 .disabled(!(actions?.canSaveCopy ?? false))
             Button("Renomear Mural…", action: { actions?.rename() })
                 .disabled(!(actions?.canRename ?? false))
-            Button("Excluir Mural…") { tabs.requestDeleteSelected() }
-                .disabled(tabs.selected == nil)
+            Button(BoardDeletionRequest.menuTitle(role: tabs.role(for: tabs.selected?.session.cloud))) {
+                Task { await tabs.requestDeleteSelected() }
+            }
+            .disabled(tabs.selected == nil)
             Button("Retomar Rascunho de Exemplo") { Task { await tabs.resumeDraft() } }
                 .disabled(!tabs.resumeDraftAvailable)
             #if DEBUG

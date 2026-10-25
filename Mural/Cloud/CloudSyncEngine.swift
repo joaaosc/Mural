@@ -18,6 +18,10 @@ protocol CloudSyncEngine: Sendable {
     /// Apaga do iCloud a zona do mural. Só o dono, no banco privado.
     func deleteZone(for boardID: BoardID) async throws
 
+    /// O convidado deixa o mural: apaga o próprio convite no iCloud, e a zona some para ele sem afetar o dono. Só no banco
+    /// compartilhado. Quem chama faz antes `declineZone(of:)` e `stopTracking` no coordenador.
+    func leave(_ zone: CloudZoneID) async throws
+
     /// Envia agora o que está pendente.
     func send() async throws
 
@@ -30,6 +34,10 @@ protocol CloudSyncEngine: Sendable {
 }
 
 extension CloudKitSyncEngine: CloudSyncEngine {
+    func leave(_ zone: CloudZoneID) async throws {
+        try leaveZone(zone)
+    }
+
     func send() async throws {
         try await sendNow()
     }
@@ -44,6 +52,10 @@ extension InMemorySyncEngine: CloudSyncEngine {
     func start() async throws {}
 
     // `deleteZone(for:)` é do próprio motor falso (apaga a zona no `InMemoryCloud`), e já cumpre o protocolo: não há adaptador.
+
+    func leave(_ zone: CloudZoneID) async throws {
+        await leaveZone(zone)
+    }
 
     func send() async throws {
         try await sendChanges()

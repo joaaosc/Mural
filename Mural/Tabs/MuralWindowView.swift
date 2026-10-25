@@ -141,19 +141,16 @@ struct MuralWindowView: View {
             Text(alert.message)
         }
         .confirmationDialog(
-            tabs.deletionRequest.map { "Excluir “\($0.name)”?" } ?? "",
+            tabs.deletionRequest?.title ?? "",
             isPresented: Binding(
                 get: { tabs.deletionRequest != nil }, set: { if !$0 { tabs.deletionRequest = nil } }),
             titleVisibility: .visible,
             presenting: tabs.deletionRequest
         ) { request in
-            Button(request.isDraft ? "Descartar" : "Mover para o Lixo", role: .destructive) { delete(request) }
+            Button(request.confirmTitle, role: request.isDestructive ? .destructive : nil) { delete(request) }
             Button("Cancelar", role: .cancel) {}
         } message: { request in
-            Text(
-                request.isDraft
-                    ? "O rascunho de exemplo será descartado e não poderá ser recuperado."
-                    : "O mural e os arquivos guardados nele vão para o Lixo do Mac.")
+            Text(request.message)
         }
         .onChange(of: tabs.request) { _, _ in consumeRequest() }
         // Os avisos de murais que saíram do iCloud usam o alerta da janela, um de cada vez.
@@ -259,13 +256,14 @@ struct MuralWindowView: View {
         }
     }
 
+    /// Faz o que o diálogo confirmou (excluir, sair do mural recebido ou tirar do iCloud); o erro vira o alerta da janela.
     private func delete(_ request: BoardDeletionRequest) {
         tabs.deletionRequest = nil
         Task {
             do {
-                try await tabs.deleteBoard(request.route)
+                try await tabs.perform(request)
             } catch {
-                alert = WindowAlert(title: "Não foi possível excluir o mural", message: error.localizedDescription)
+                alert = WindowAlert(title: request.failureTitle, message: error.localizedDescription)
             }
         }
     }

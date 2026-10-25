@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import MuralKit
+import MuralSync
 import Observation
 
 /// Uma aba da janela: um mural aberto e a sessão que o apresenta.
@@ -31,11 +32,89 @@ enum MuralWindowRequest: Equatable, Sendable {
 
 /// Pedido de excluir um mural, à espera da confirmação na janela.
 struct BoardDeletionRequest: Identifiable, Equatable, Sendable {
+    /// O que a confirmação faz, conforme o papel da pessoa no mural (o `cloud` do manifesto).
+    enum Kind: Equatable, Sendable {
+        /// Mural só deste Mac (ou o rascunho de exemplo): vai para o Lixo.
+        case local
+        /// Mural do dono no iCloud: sai do iCloud e de todos os Macs dele. `participants` são os convidados que já aceitaram.
+        case everywhere(participants: Int)
+        /// Mural recebido por convite: a pessoa sai dele, e quem compartilhou continua com o mural.
+        case leave
+        /// Mural do dono no iCloud que fica só neste Mac (não é uma exclusão, mas passa pela mesma confirmação).
+        case removeFromICloud(participants: Int)
+    }
+
     let route: BoardRoute
     let name: String
+    var kind: Kind = .local
 
     var id: BoardRoute { route }
     var isDraft: Bool { route.isDraft }
+
+    /// O rótulo do item de menu que pede a exclusão, conforme o papel da pessoa no mural (`MuralTabs.role(for:)`).
+    static func menuTitle(role: BoardCloudInfo.Database?) -> String {
+        role == .shared ? "Sair do Mural Compartilhado…" : "Excluir Mural…"
+    }
+
+    /// O título do diálogo de confirmação.
+    var title: String {
+        switch kind {
+        case .local: "Excluir “\(name)”?"
+        case .everywhere: "Excluir “\(name)” em todos os seus Macs?"
+        case .leave: "Sair de “\(name)”?"
+        case .removeFromICloud: "Tirar “\(name)” do iCloud?"
+        }
+    }
+
+    /// A mensagem do diálogo de confirmação.
+    var message: String {
+        switch kind {
+        case .local:
+            isDraft
+                ? "O rascunho de exemplo será descartado e não poderá ser recuperado."
+                : "O mural e os arquivos guardados nele vão para o Lixo do Mac."
+        case .everywhere(let participants):
+            "O mural sai do iCloud e de todos os seus Macs." + Self.lostAccess(participants)
+        case .leave:
+            "O mural sai deste Mac e você deixa de recebê-lo. Quem compartilhou continua com ele."
+        case .removeFromICloud(let participants):
+            "O mural continua neste Mac, mas sai dos seus outros Macs"
+                + (participants == 0 ? "" : " e as pessoas convidadas perdem o acesso") + "."
+        }
+    }
+
+    /// Quantas pessoas perdem o acesso, no singular ou no plural; nada quando ninguém aceitou o convite.
+    private static func lostAccess(_ participants: Int) -> String {
+        switch participants {
+        case 0: ""
+        case 1: " 1 pessoa perde o acesso."
+        default: " \(participants) pessoas perdem o acesso."
+        }
+    }
+
+    /// O texto do botão que confirma.
+    var confirmTitle: String {
+        switch kind {
+        case .local: isDraft ? "Descartar" : "Mover para o Lixo"
+        case .everywhere: "Excluir"
+        case .leave: "Sair"
+        case .removeFromICloud: "Tirar do iCloud"
+        }
+    }
+
+    /// O botão que confirma é destrutivo: o mural sai deste Mac ou some do iCloud para todos. Tirar do iCloud mantém o mural aqui.
+    var isDestructive: Bool {
+        if case .removeFromICloud = kind { false } else { true }
+    }
+
+    /// O título do alerta se a confirmação falhar.
+    var failureTitle: String {
+        switch kind {
+        case .local, .everywhere: "Não foi possível excluir o mural"
+        case .leave: "Não foi possível sair do mural"
+        case .removeFromICloud: "Não foi possível tirar o mural do iCloud"
+        }
+    }
 }
 
 /// As abas abertas e o que se lembra delas entre aberturas do app.
@@ -109,6 +188,8 @@ final class MuralTabs {
     @ObservationIgnored var removeBoardCaches: @MainActor (BoardID) -> Void = { boardID in
         try? FileManager.default.removeItem(at: LaunchConfiguration.linkPreviewsDirectory(for: boardID))
     }
+    /// O controlador da sincronização com o iCloud; `nil` com ela desligada. Os testes trocam.
+    @ObservationIgnored var cloudSync: @MainActor () -> CloudSyncController? = { CloudSyncController.current }
     @ObservationIgnored private var loadStarted: Set<UUID> = []
 
     init(
@@ -336,17 +417,71 @@ final class MuralTabs {
 
     // MARK: Excluir mural
 
-    /// Pede a confirmação para excluir o mural (a janela pergunta).
-    func requestDelete(_ route: BoardRoute, name: String) {
+    /// O papel da pessoa num mural do iCloud, para escolher a exclusão e os rótulos dos menus: `nil` num mural só deste Mac ou com a
+    /// sincronização desligada (a exclusão é então a local, mesmo que o manifesto ainda tenha `cloud`).
+    func role(for cloud: BoardCloudInfo?) -> BoardCloudInfo.Database? {
+        guard cloudSync()?.isEnabled == true else { return nil }
+        return cloud?.database
+    }
+
+    /// Pede a confirmação para excluir o mural (a janela pergunta). O que a confirmação faz depende do papel da pessoa nele, lido do
+    /// manifesto agora (a lista da barra lateral pode estar desatualizada): excluir só daqui, excluir em todos os Macs do dono ou
+    /// sair de um mural recebido.
+    func requestDelete(_ route: BoardRoute, name: String) async {
         guard Self.boardID(of: route) != nil else { return }
-        deletionRequest = BoardDeletionRequest(route: route, name: name)
+        let kind: BoardDeletionRequest.Kind
+        switch await cloudRole(of: route) {
+        case nil: kind = .local
+        case (.shared, _)?: kind = .leave
+        case (.private, let participants)?: kind = .everywhere(participants: participants)
+        }
+        deletionRequest = BoardDeletionRequest(route: route, name: name, kind: kind)
         showWindow()
     }
 
     /// Arquivo › Excluir Mural…: o mural da aba ativa.
-    func requestDeleteSelected() {
+    func requestDeleteSelected() async {
         guard let selected else { return }
-        requestDelete(selected.route, name: selected.title)
+        await requestDelete(selected.route, name: selected.title)
+    }
+
+    /// Pede a confirmação para tirar do iCloud o mural do dono: ele continua neste Mac e sai dos outros. Não faz nada para o mural
+    /// que não é do dono no iCloud.
+    func requestRemoveFromICloud(_ route: BoardRoute, name: String) async {
+        guard case (.private, let participants)? = await cloudRole(of: route) else { return }
+        deletionRequest = BoardDeletionRequest(route: route, name: name, kind: .removeFromICloud(participants: participants))
+        showWindow()
+    }
+
+    /// Faz o que a janela confirmou, conforme o tipo do pedido.
+    /// - Throws: o erro da exclusão, da saída ou da retirada do iCloud; `CloudSyncControllerError.disabled` se a sincronização foi
+    ///   desligada depois do pedido.
+    func perform(_ request: BoardDeletionRequest) async throws {
+        guard let boardID = Self.boardID(of: request.route) else { throw BoardLibraryError.unavailableRoute(request.route) }
+        switch request.kind {
+        case .local:
+            try await deleteBoard(request.route)
+        case .everywhere:
+            try await enabledCloudSync().deleteEverywhere(boardID)
+        case .leave:
+            try await enabledCloudSync().leaveShared(boardID)
+        case .removeFromICloud:
+            try await enabledCloudSync().removeFromICloud(boardID)
+        }
+    }
+
+    private func enabledCloudSync() throws -> CloudSyncController {
+        guard let sync = cloudSync(), sync.isEnabled else { throw CloudSyncControllerError.disabled }
+        return sync
+    }
+
+    /// O banco do `cloud` do manifesto do mural, lido agora, e quantos convidados já aceitaram o convite (de `shareStates`). `nil`
+    /// para o rascunho, o mural só deste Mac ou sem sincronização ligada.
+    private func cloudRole(of route: BoardRoute) async -> (database: BoardCloudInfo.Database, participants: Int)? {
+        guard case .saved(let id) = route, let sync = cloudSync(),
+            let database = role(for: (try? await registry.library.open(route))?.manifest.cloud)
+        else { return nil }
+        return (database, sync.shareStates[id]?.participants.count { $0.isAccepted } ?? 0)
     }
 
     /// Exclui o mural: fecha a aba dele gravando o que faltava, aposenta a sessão (nenhuma gravação tardia

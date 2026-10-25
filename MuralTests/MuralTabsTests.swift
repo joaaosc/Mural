@@ -261,10 +261,10 @@ struct MuralTabsTests {
         let route = try await library.createNamedBoard("Pedido")
         _ = tabs.open(route, title: "Pedido")
 
-        tabs.requestDeleteSelected()
+        await tabs.requestDeleteSelected()
         #expect(tabs.deletionRequest == BoardDeletionRequest(route: route, name: "Pedido"))
         #expect(opened == 1)
-        tabs.requestDelete(.library, name: "Murais")
+        await tabs.requestDelete(.library, name: "Murais")
         #expect(tabs.deletionRequest?.route == route, "a biblioteca não se exclui")
         #expect(try await library.listSaved().count == 1, "nada é excluído antes da confirmação")
         await tabs.closeAll()

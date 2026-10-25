@@ -77,6 +77,14 @@ final class CloudSyncController {
     @ObservationIgnored private var shareChain: Task<Void, Never>?
     /// O envio agendado de cada mural; uma nova gravação o cancela e agenda outro (a espera recomeça).
     @ObservationIgnored private var sendTasks: [BoardID: Task<Void, Never>] = [:]
+    /// Os murais que esperam a primeira busca, como o último `refreshIssues` os leu dos coordenadores. A sessão que se abre depois
+    /// recebe daqui.
+    @ObservationIgnored private var awaitingFirstFetch = Set<BoardID>()
+    /// A releitura agendada pelo aviso da ponte (`scheduleRefresh`), enquanto ela existe, e se chegou outro aviso durante ela.
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshAgain = false
+    /// Quem avisa da interface de compartilhamento do sistema; só existe no modo `.cloudKit`.
+    @ObservationIgnored private var sharingObserver: CKSystemSharingUIObserver?
 
     /// Há motores: a sincronização está ligada.
     var isEnabled: Bool { !channels.isEmpty }
@@ -108,10 +116,11 @@ final class CloudSyncController {
         let store = SyncMetadataStore(directory: directory)
         let container = effective == .cloudKit ? CKContainer(identifier: Self.containerIdentifier) : nil
         for scope in Self.scopes {
-            // A ponte só guarda um fecho fraco para o controlador: o coordenador a segura, e o controlador segura o coordenador.
-            let bridge = CloudSyncBridge(scope: scope, registry: registry, delivery: delivery, openSessions: openSessions) {
-                [weak self] notice in self?.post(notice)
-            }
+            // A ponte só guarda fechos fracos para o controlador: o coordenador a segura, e o controlador segura o coordenador.
+            let bridge = CloudSyncBridge(
+                scope: scope, registry: registry, delivery: delivery, openSessions: openSessions,
+                notify: { [weak self] notice in self?.post(notice) },
+                didApplyRemote: { [weak self] in self?.scheduleRefresh() })
             let coordinator = BoardSyncCoordinator(scope: scope, store: store, host: bridge)
             let engine: any CloudSyncEngine
             if let container {
@@ -121,6 +130,7 @@ final class CloudSyncController {
             }
             channels[scope] = Channel(coordinator: coordinator, engine: engine)
         }
+        if let container { observeSystemSharing(in: container) }
 
         // Toda sessão de janela, a que já existe e as que vierem, avisa o controlador de cada gravação local. A sessão não conhece
         // o controlador: só entrega o aviso a este fecho.
@@ -277,14 +287,15 @@ final class CloudSyncController {
     /// O aviso roda dentro da gravação da sessão, às vezes dentro de `applyRemote`, de que o coordenador está esperando a volta.
     /// Por isso aqui só se agenda uma tarefa: nada espera o coordenador.
     ///
-    /// A sessão nova também recebe, pelo último `issues`, se o mural ainda espera a primeira busca (abre só para ver).
+    /// A sessão nova também recebe, pela última leitura dos coordenadores (`awaitingFirstFetch`), se o mural ainda espera a primeira
+    /// busca (abre só para ver).
     private func attach(_ session: BoardWindowSession) {
         let id = session.boardID
         session.onPersisted = { [weak self] _, fromRemote in
             guard !fromRemote else { return }
             self?.scheduleSend(for: id)
         }
-        session.setAwaitingCloud(issues[id] == .awaitingFirstFetch)
+        session.setAwaitingCloud(awaitingFirstFetch.contains(id))
     }
 
     /// Agenda o envio do mural para daqui a `sendDelay`; uma gravação nova antes disso cancela este e agenda outro.
@@ -397,6 +408,154 @@ final class CloudSyncController {
         }
     }
 
+    // MARK: Ações por papel
+
+    /// O dono exclui o mural em todos os seus Macs: a zona sai do iCloud (e some para os convidados) e o pacote daqui vai para o
+    /// Lixo, pelo caminho de "Excluir Mural". Nos outros Macs do dono e nos dos convidados, a busca que mostrar a zona apagada remove
+    /// o pacote com um aviso.
+    ///
+    /// A zona é recusada e o mural deixa de ser acompanhado antes de a zona ser apagada: uma busca no meio, com a zona ainda no
+    /// servidor, não a adota de novo (o pacote voltaria do Lixo), e o evento da zona apagada, que chega depois, não encontra o mural
+    /// para remover. Cada passo pode ser repetido: se algo falhar no meio, tentar de novo termina o serviço.
+    /// - Throws: `CloudSyncControllerError` (sincronização desligada, mural fora do iCloud ou que não é do dono) ou o que o
+    ///   coordenador, o motor ou a biblioteca lançarem.
+    func deleteEverywhere(_ id: BoardID) async throws {
+        let (_, channel) = try await prepareAction(for: id, database: .private)
+        try await stopSyncing(id, in: channel)
+        try await channel.engine.deleteZone(for: id)
+        try await trashPackage(of: id)
+        await didLeave(id)
+    }
+
+    /// Quem recebeu o convite sai do mural compartilhado: o motor apaga o convite dela no iCloud (o dono e os outros convidados
+    /// continuam com o mural) e o pacote daqui vai para o Lixo. Mesma ordem e mesma repetição segura de `deleteEverywhere`: enquanto o
+    /// servidor não confirma, a busca que ainda mostrar a zona não a adota de novo.
+    /// - Throws: `CloudSyncControllerError` (sincronização desligada, mural fora do iCloud ou que é do próprio dono) ou o que o
+    ///   coordenador, o motor ou a biblioteca lançarem.
+    func leaveShared(_ id: BoardID) async throws {
+        let (cloud, channel) = try await prepareAction(for: id, database: .shared)
+        try await stopSyncing(id, in: channel)
+        try await channel.engine.leave(CloudZoneID(name: cloud.zoneName, ownerName: cloud.zoneOwnerName))
+        try await trashPackage(of: id)
+        await didLeave(id)
+    }
+
+    /// O dono tira o mural do iCloud: a zona é apagada (some para os convidados e para os outros Macs dele, onde a busca remove o
+    /// pacote com um aviso) e o mural fica só neste Mac, sem `cloud` no manifesto. O `cloud` sai pela sessão, que o grava
+    /// (`setCloud`), e por último: se a gravação falhar, o mural ainda mostra o iCloud e dá para tentar de novo.
+    /// - Throws: como `deleteEverywhere`.
+    func removeFromICloud(_ id: BoardID) async throws {
+        let (_, channel) = try await prepareAction(for: id, database: .private)
+        try await stopSyncing(id, in: channel)
+        try await channel.engine.deleteZone(for: id)
+        try await delivery.withSession(for: .saved(id)) { session, _ in try await session.setCloud(nil) }
+        await didLeave(id)
+    }
+
+    /// Espera o início e confere o papel da pessoa no mural pelo `cloud` do manifesto, lido agora: o dono (banco privado) apaga a zona
+    /// ou a tira do iCloud, e quem recebeu o convite (banco compartilhado) sai dele. Nada é tocado antes disto.
+    private func prepareAction(
+        for id: BoardID, database: BoardCloudInfo.Database
+    ) async throws -> (cloud: BoardCloudInfo, channel: Channel) {
+        guard isEnabled else { throw CloudSyncControllerError.disabled }
+        await startTask?.value
+        let route = BoardRoute.saved(id)
+        guard let snapshot = try await registry.library.open(route) else { throw BoardLibraryError.unavailableRoute(route) }
+        guard let cloud = snapshot.manifest.cloud else { throw CloudSyncControllerError.notInCloud }
+        guard cloud.database == database else {
+            throw database == .private ? CloudSyncControllerError.notOwner : CloudSyncControllerError.notGuest
+        }
+        return (cloud, try channel(for: database))
+    }
+
+    /// Para de acompanhar o mural neste Mac sem que uma busca o traga de volta: recusa a zona (até o servidor confirmar o apagamento)
+    /// e esquece o estado, nesta ordem, porque a recusa lê o estado. O envio agendado do mural não tem mais o que enviar.
+    private func stopSyncing(_ id: BoardID, in channel: Channel) async throws {
+        sendTasks[id]?.cancel()
+        sendTasks[id] = nil
+        try await channel.coordinator.declineZone(of: id)
+        try await channel.coordinator.stopTracking(id)
+    }
+
+    /// Fecha a aba (se aberta) e manda o pacote para o Lixo, pelo caminho de "Excluir Mural", na fila serial das entregas: não corre
+    /// junto com uma junção ou uma colagem no mesmo mural. Pacote que já não existe é o que se queria.
+    private func trashPackage(of id: BoardID) async throws {
+        let route = BoardRoute.saved(id)
+        let outcome: Result<Void, any Error> = await delivery.serially { [self] in
+            do {
+                if let tabs = delivery.tabs {
+                    try await tabs.deleteBoard(route)
+                } else {
+                    await registry.close(id)
+                    try await registry.library.deleteBoard(route)
+                }
+                return .success(())
+            } catch BoardLibraryError.unavailableRoute {
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        try outcome.get()
+    }
+
+    /// O mural já não é acompanhado aqui: o convite dele sai de `shareStates` (depois dos que já estavam a caminho, para nenhum o
+    /// devolver) e os avisos são relidos.
+    private func didLeave(_ id: BoardID) async {
+        await shareChain?.value
+        if shareStates[id] != nil { shareStates[id] = nil }
+        await refreshIssues()
+    }
+
+    // MARK: Compartilhamento do sistema
+
+    /// A interface de compartilhamento do sistema grava e apaga o convite (`CKShare`) por conta própria, sem passar pelo motor: o
+    /// observador avisa quando a pessoa para de compartilhar o mural (o mural continua no iCloud do dono) ou salva um convite. Os
+    /// blocos rodam numa fila do observador, fora do Main Actor, e voltam por uma tarefa; o convite então segue o caminho dos que a
+    /// busca traz (`receive`). Nos outros Macs, o convite apagado chega na busca (`ShareSummary.isDeleted`).
+    private func observeSystemSharing(in container: CKContainer) {
+        let observer = CKSystemSharingUIObserver(container: container)
+        observer.systemSharingUIDidStopSharingBlock = { [weak self] recordID, result in
+            let zone = CloudZoneID(recordID.zoneID)
+            Task { @MainActor [weak self] in
+                switch result {
+                case .success:
+                    self?.systemSharingDidStop(in: zone)
+                case .failure(let error):
+                    Self.log.error("Convite não apagado pelo sistema: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+        observer.systemSharingUIDidSaveShareBlock = { [weak self] _, result in
+            // O resumo sai do `CKShare` aqui, na fila do observador: só ele atravessa para o Main Actor.
+            let summary = result.map { ShareSummary($0) }
+            Task { @MainActor [weak self] in
+                switch summary {
+                case .success(let share):
+                    self?.systemSharingDidSave(share)
+                case .failure(let error):
+                    Self.log.error("Convite não gravado pelo sistema: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+        sharingObserver = observer
+    }
+
+    /// A pessoa parou de compartilhar o mural pela interface do sistema, que apagou o convite: ele sai de `shareStates`.
+    func systemSharingDidStop(in zone: CloudZoneID) {
+        receive([ShareSummary(zone: zone, isDeleted: true)], scope: Self.scope(of: zone))
+    }
+
+    /// A interface do sistema gravou o convite (alguém foi convidado, ou a permissão mudou): `shareStates` passa a ter o resumo dele.
+    func systemSharingDidSave(_ share: ShareSummary) {
+        receive([share], scope: Self.scope(of: share.zone))
+    }
+
+    /// O banco de uma zona pelo dono dela: a própria pessoa é o dono no privado; no compartilhado, outra.
+    private static func scope(of zone: CloudZoneID) -> CloudDatabaseScope {
+        zone.ownerName == CloudZoneID.defaultOwnerName ? .private : .shared
+    }
+
     // MARK: Interno
 
     /// O coordenador de um banco, para quem precisa falar com ele direto (os testes, e a depuração da 5c).
@@ -412,15 +571,57 @@ final class CloudSyncController {
     }
 
     /// Lê de novo os avisos dos coordenadores, um por mural, e põe em só leitura as janelas dos murais que ainda esperam a primeira
-    /// busca (`.awaitingFirstFetch`), tirando as que já a receberam.
+    /// busca, tirando as que já a receberam.
+    ///
+    /// A espera vem da consulta própria dos coordenadores (`boardsAwaitingFirstFetch`), e não do aviso de maior prioridade: um
+    /// `.localSaveFailed` esconderia `.awaitingFirstFetch`, e o mural continua sendo um pacote provisório. A consulta vem antes dos
+    /// avisos porque espera o evento em andamento do coordenador: depois dela, o que ele gravou já vale também para `issues()`. Por
+    /// isso este método nunca pode ser chamado, nem esperado, de dentro de um aviso do host (`applyRemote`), que roda durante um
+    /// evento: o aviso da ponte só agenda `scheduleRefresh()`.
     private func refreshIssues() async {
+        var awaiting = Set<BoardID>()
+        var readAwaiting = true
+        for scope in Self.scopes {
+            guard let channel = channels[scope] else { continue }
+            do {
+                awaiting.formUnion(try await channel.coordinator.boardsAwaitingFirstFetch())
+            } catch {
+                // Sem a leitura, as janelas ficam como estão: um erro passageiro não deve liberar a edição de um pacote provisório.
+                readAwaiting = false
+                Self.log.error(
+                    "Primeira busca no banco \(scope.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
         var all: [BoardID: SyncIssue] = [:]
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
             all.merge(await channel.coordinator.issues()) { first, _ in first }
         }
         if all != issues { issues = all }
-        for session in openSessions.live { session.setAwaitingCloud(all[session.boardID] == .awaitingFirstFetch) }
+        guard readAwaiting else { return }
+        awaitingFirstFetch = awaiting
+        for session in openSessions.live { session.setAwaitingCloud(awaiting.contains(session.boardID)) }
+    }
+
+    /// Pede para reler os avisos depois de uma junção que o motor fez por conta própria, como a busca completa que o motor do CloudKit
+    /// agenda ao adotar uma zona (o controlador não a provocou). Só agenda: o aviso da ponte chega durante um evento do coordenador, e
+    /// a leitura espera esse evento terminar. Avisos seguidos (um por zona, um por lote) viram uma leitura só: com uma em andamento,
+    /// apenas se marca que falta outra depois.
+    private func scheduleRefresh() {
+        guard refreshTask == nil else {
+            refreshAgain = true
+            return
+        }
+        refreshTask = Task { @MainActor [weak self] in
+            while let self {
+                self.refreshAgain = false
+                await self.refreshIssues()
+                guard self.refreshAgain else {
+                    self.refreshTask = nil
+                    return
+                }
+            }
+        }
     }
 }
 
@@ -431,6 +632,12 @@ enum CloudSyncControllerError: LocalizedError, Equatable {
     case notASavedBoard
     /// O mural já tem `cloud` no manifesto (já está no iCloud, ou veio de um convite).
     case alreadyInCloud
+    /// O mural não tem `cloud` no manifesto: não está no iCloud.
+    case notInCloud
+    /// A ação é do dono do mural (banco privado), e este é de outra pessoa.
+    case notOwner
+    /// A ação é de quem recebeu o convite (banco compartilhado), e este mural é do dono.
+    case notGuest
 
     /// O texto que o alerta da janela mostra.
     var errorDescription: String? {
@@ -438,6 +645,9 @@ enum CloudSyncControllerError: LocalizedError, Equatable {
         case .disabled: "A sincronização com o iCloud está desligada neste Mac."
         case .notASavedBoard: "Salve o mural antes de pô-lo no iCloud."
         case .alreadyInCloud: "Este mural já está no iCloud."
+        case .notInCloud: "Este mural não está no iCloud."
+        case .notOwner: "Só quem criou o mural pode fazer isso."
+        case .notGuest: "Este mural é seu, e não um convite recebido."
         }
     }
 }

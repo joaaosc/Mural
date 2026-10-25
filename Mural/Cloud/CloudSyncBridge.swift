@@ -24,23 +24,29 @@ final class CloudSyncBridge: BoardSyncHost {
     private let delivery: BoardDelivery
     private let openSessions: OpenBoardSessions
     private let notify: @MainActor (CloudSyncNotice) -> Void
+    private let didApplyRemote: @MainActor () -> Void
 
     /// - Parameters:
     ///   - scope: o banco do coordenador que usa esta ponte; vale quando o manifesto do mural não diz o banco.
     ///   - delivery: quem escolhe a sessão do mural e guarda a fila serial; a aba vem de `delivery.tabs`.
     ///   - notify: recebe os avisos para a pessoa.
+    ///   - didApplyRemote: avisa que uma junção do iCloud foi gravada, para o controlador reler o estado dos murais: a busca que o
+    ///     motor do CloudKit faz sozinho depois de adotar uma zona não passa por ele. Roda durante um evento do coordenador, que espera
+    ///     `applyRemote` voltar: só pode agendar trabalho, nunca esperar o coordenador (travaria os dois).
     init(
         scope: CloudDatabaseScope,
         registry: BoardSessionRegistry,
         delivery: BoardDelivery,
         openSessions: OpenBoardSessions = .shared,
-        notify: @escaping @MainActor (CloudSyncNotice) -> Void
+        notify: @escaping @MainActor (CloudSyncNotice) -> Void,
+        didApplyRemote: @escaping @MainActor () -> Void = {}
     ) {
         self.scope = scope
         self.registry = registry
         self.delivery = delivery
         self.openSessions = openSessions
         self.notify = notify
+        self.didApplyRemote = didApplyRemote
     }
 
     // MARK: Mural local
@@ -84,6 +90,7 @@ final class CloudSyncBridge: BoardSyncHost {
     /// antigo e marca o mural para uma busca completa.
     ///
     /// Se o nome mudou, avisa a barra lateral: o mural adotado nasce com um nome provisório, e o verdadeiro chega na primeira busca.
+    /// Depois de gravar, avisa o controlador (`didApplyRemote`); se algo falhar antes, nada é avisado.
     @MainActor
     func applyRemote(_ id: BoardID, received: ReceivedChanges) async throws {
         let renamed = try await delivery.withSession(for: .saved(id)) { [self] session, _ in
@@ -93,6 +100,7 @@ final class CloudSyncBridge: BoardSyncHost {
             return session.manifestName != previousName
         }
         if renamed { delivery.tabs?.libraryDidChange() }
+        didApplyRemote()
     }
 
     /// Copia para `Items/` do mural cada arquivo que ainda não está lá. Um nome que já existe tem o mesmo conteúdo (o nome vem do
