@@ -82,12 +82,17 @@ final class CloudSyncBridge: BoardSyncHost {
     ///
     /// Qualquer falha (mural que não abre, arquivo que não copia, gravação que não passa) é lançada: o coordenador mantém o estado
     /// antigo e marca o mural para uma busca completa.
+    ///
+    /// Se o nome mudou, avisa a barra lateral: o mural adotado nasce com um nome provisório, e o verdadeiro chega na primeira busca.
     @MainActor
     func applyRemote(_ id: BoardID, received: ReceivedChanges) async throws {
-        try await delivery.withSession(for: .saved(id)) { [self] session, _ in
+        let renamed = try await delivery.withSession(for: .saved(id)) { [self] session, _ in
+            let previousName = session.manifestName
             try await copyFiles(received.files, into: session)
             try await session.applyRemote(received)
+            return session.manifestName != previousName
         }
+        if renamed { delivery.tabs?.libraryDidChange() }
     }
 
     /// Copia para `Items/` do mural cada arquivo que ainda não está lá. Um nome que já existe tem o mesmo conteúdo (o nome vem do
@@ -118,6 +123,24 @@ final class CloudSyncBridge: BoardSyncHost {
         } catch {
             throw BoardSyncApplyError.saveFailed(error.localizedDescription)
         }
+    }
+
+    // MARK: Mural novo
+
+    /// O nome do pacote adotado até a primeira busca trazer o verdadeiro.
+    private static let provisionalName = "Mural do iCloud"
+
+    /// Cria o pacote local do mural que já existe no iCloud e este Mac ainda não tem (convite aceito, ou mural do dono vindo de outro
+    /// Mac dele): vazio, com o `id` da zona e o `cloud` no manifesto. Ainda não há sessão nem aba desse mural, então nada passa pela
+    /// fila das entregas; a barra lateral é avisada para mostrá-lo.
+    /// - Returns: `false` se já existe pacote com esse `id`, sem tocar nele.
+    @MainActor
+    func adoptBoard(_ id: BoardID, cloud: BoardCloudInfo, name: String?) async throws -> Bool {
+        guard try await registry.library.createBoard(id: id, name: name ?? Self.provisionalName, cloud: cloud) != nil else {
+            return false
+        }
+        delivery.tabs?.libraryDidChange()
+        return true
     }
 
     // MARK: Mural removido

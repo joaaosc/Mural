@@ -349,6 +349,142 @@ struct CloudSyncControllerTests {
         await env.finish()
     }
 
+    // MARK: Mural novo no iCloud
+
+    @Test("Segundo Mac do dono: o mural do iCloud aparece na biblioteca dele, com conteúdo e nome, e a barra lateral é avisada")
+    func ownersSecondMacAdoptsTheBoard() async throws {
+        let first = try SyncEnvironment()
+        defer { first.removeFiles() }
+        let card = Self.note("um")
+        let id = try await first.seed(name: "Casa", items: [card])
+        try await first.uploadToCloud(id)
+        let second = try SyncEnvironment(cloud: first.cloud)
+        defer { second.removeFiles() }
+        let zone = CloudSchema.zoneName(for: id)
+        let cloudBefore = await first.cloud.records(inZone: zone, owner: CloudSyncController.testUser)
+        let revisionBefore = second.tabs.libraryRevision
+
+        await second.controller.start()
+
+        #expect(try await second.library.listSaved().map(\.manifest.id) == [id])
+        let adopted = try #require(try await second.library.open(.saved(id)))
+        #expect(adopted.manifest.name == "Casa", "o nome provisório foi trocado pelo do dono")
+        #expect(adopted.board.item(id: card.id)?.text == "um")
+        #expect(adopted.manifest.cloud == SyncEnvironment.cloudInfo(database: .private, for: id))
+        #expect(second.tabs.libraryRevision > revisionBefore, "a barra lateral foi avisada")
+        #expect(try await second.controller.coordinator(for: .private)?.boardIDs() == [id])
+        #expect(second.controller.issues.isEmpty)
+        #expect(second.liveSessions(of: id).isEmpty)
+        #expect(await first.cloud.records(inZone: zone, owner: CloudSyncController.testUser) == cloudBefore, "nada subiu ao iCloud")
+    }
+
+    @Test("Convidado: o mural do convite é adotado só para ver e, depois da busca, manifesto e aba passam a editar, com o nome do dono")
+    func guestAdoptsTheInvitedBoardAndGetsTheGrantedPermission() async throws {
+        let owner = try SyncEnvironment(user: "ana")
+        defer { owner.removeFiles() }
+        let guest = try SyncEnvironment(cloud: owner.cloud, user: "bia")
+        defer { guest.removeFiles() }
+        // O app do convidado já está aberto quando o convite chega: é o início que liga o recebimento dos convites.
+        await guest.controller.start()
+        let card = Self.note("da dona")
+        let id = try await owner.seed(name: "Da Ana", items: [card])
+        try await owner.uploadToCloud(id)
+        let zoneName = CloudSchema.zoneName(for: id)
+        try await owner.cloud.share(zone: zoneName, owner: "ana", with: "bia", permission: .readWrite)
+
+        // O motor adota a zona nova com o menos que se pode dar: a permissão de verdade só vem com o convite.
+        let adoptedAs = BoardCloudInfo(database: .shared, zoneName: zoneName, zoneOwnerName: "ana", permission: .readOnly)
+        let coordinator = try #require(guest.controller.coordinator(for: .shared))
+        let adoption = try await coordinator.adoptZone(CloudZoneID(name: zoneName, ownerName: "ana"), cloud: adoptedAs, name: nil)
+        #expect(adoption == .adopted)
+        await guest.controller.send()
+        #expect(try await guest.diskManifest(id).cloud == adoptedAs)
+        let tab = try #require(guest.tabs.open(.saved(id), title: "Mural do iCloud"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let model = try #require(tab.session.model)
+        #expect(model.isReadOnly)
+
+        await guest.controller.fetch()
+
+        let granted = BoardCloudInfo(
+            database: .shared, zoneName: zoneName, zoneOwnerName: "ana", ownerDisplayName: "ana", permission: .readWrite)
+        await waitUntil("o convite chegar ao manifesto") { (try? await guest.diskManifest(id))?.cloud == granted }
+        await waitUntil("a aba deixar de ser só leitura") { !model.isReadOnly }
+        #expect(tab.session.cloud == granted)
+        #expect(model.board.item(id: card.id)?.text == "da dona")
+        #expect(tab.session.manifestName == "Da Ana")
+        #expect(guest.controller.shareStates[id]?.currentUserPermission == .readWrite)
+        #expect(guest.controller.issues.isEmpty)
+
+        // A permissão nova vale também para o envio: o que o convidado escreve chega à dona.
+        let added = try #require(model.importText("do convidado", as: .text))
+        tab.session.captureBoardIfNeeded()
+        await tab.session.flushAndPrepareToLeave()
+        await waitUntil("a dona receber a edição do convidado") {
+            await owner.controller.fetch()
+            return (try? await owner.diskBoard(id))?.item(id: added.id) != nil
+        }
+        await guest.finish()
+    }
+
+    @Test("Mural adotado com a aba aberta antes da primeira busca: abre só para ver e, depois da busca, pode editar")
+    func adoptedBoardOpensReadOnlyUntilTheFirstFetch() async throws {
+        let first = try SyncEnvironment()
+        defer { first.removeFiles() }
+        let card = Self.note("um")
+        let id = try await first.seed(name: "Casa", items: [card])
+        try await first.uploadToCloud(id)
+        let second = try SyncEnvironment(cloud: first.cloud)
+        defer { second.removeFiles() }
+
+        // O motor adota a zona ao vê-la: o pacote nasce vazio, esperando a primeira busca. Mesmo dono, sem restrição de permissão.
+        let coordinator = try #require(second.controller.coordinator(for: .private))
+        let adoption = try await coordinator.adoptZone(
+            CloudZoneID(name: CloudSchema.zoneName(for: id)), cloud: SyncEnvironment.cloudInfo(database: .private, for: id), name: nil)
+        #expect(adoption == .adopted)
+        await second.controller.send()
+        #expect(second.controller.issues[id] == .awaitingFirstFetch)
+        let tab = try #require(second.tabs.open(.saved(id), title: "Mural do iCloud"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let model = try #require(tab.session.model)
+        #expect(tab.session.isAwaitingCloud)
+        #expect(model.isReadOnly, "sem a primeira busca, só ver")
+        #expect(model.importText("não deve entrar", as: .text) == nil)
+
+        await second.controller.fetch()
+
+        #expect(!tab.session.isAwaitingCloud)
+        #expect(!model.isReadOnly)
+        #expect(model.board.item(id: card.id)?.text == "um")
+        #expect(tab.session.manifestName == "Casa")
+        #expect(second.controller.issues.isEmpty)
+        #expect(model.importText("agora pode", as: .text) != nil)
+        await second.finish()
+    }
+
+    @Test("start() é uma tarefa só: dois start() e um fetch() juntos esperam o mesmo início, sem travar nem adotar o mural duas vezes")
+    func startIsASingleTask() async throws {
+        let first = try SyncEnvironment()
+        defer { first.removeFiles() }
+        let card = Self.note("um")
+        let id = try await first.seed(name: "Casa", items: [card])
+        try await first.uploadToCloud(id)
+        let second = try SyncEnvironment(cloud: first.cloud)
+        defer { second.removeFiles() }
+
+        let starting = Task { await second.controller.start() }
+        await Task.yield()
+        async let again: Void = second.controller.start()
+        await second.controller.fetch()
+        await again
+        await starting.value
+
+        #expect(try await second.controller.coordinator(for: .private)?.boardIDs() == [id])
+        #expect(try await second.library.listSaved().count == 1)
+        #expect(try await second.diskBoard(id).item(id: card.id)?.text == "um")
+        #expect(second.controller.issues.isEmpty)
+    }
+
     // MARK: Mural removido
 
     struct RemovalCase: Sendable, CustomTestStringConvertible {
@@ -617,8 +753,16 @@ private final class SyncEnvironment {
     let tabs: MuralTabs
     let cloud: InMemoryCloud
     let controller: CloudSyncController
+    /// As janelas abertas deste "Mac": cada ambiente tem as suas, para dois deles no mesmo teste não se misturarem.
+    let openSessions: OpenBoardSessions
 
-    init(faults: BoardRepositoryFaultInjection = .none) throws {
+    /// - Parameters:
+    ///   - cloud: o iCloud falso; um segundo ambiente recebe o do primeiro, e os dois viram dois Macs sobre o mesmo iCloud.
+    ///   - user: quem usa este Mac no iCloud falso; o mesmo nome nos dois ambientes são dois Macs da mesma pessoa.
+    init(
+        faults: BoardRepositoryFaultInjection = .none, cloud: InMemoryCloud = InMemoryCloud(),
+        user: String = CloudSyncController.testUser
+    ) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MuralCloudSync-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -627,18 +771,19 @@ private final class SyncEnvironment {
         let discard: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
         let library = BoardLibrary(rootDirectory: root, repositoryFaultInjection: faults, discardPackage: discard)
         let registry = BoardSessionRegistry(library: library)
+        let openSessions = OpenBoardSessions()
         let makeSession: @MainActor (BoardRoute) -> BoardWindowSession = {
-            BoardWindowSession(route: $0, registry: registry, usesOnDeviceModel: false)
+            BoardWindowSession(route: $0, registry: registry, openSessions: openSessions, usesOnDeviceModel: false)
         }
-        let delivery = BoardDelivery(registry: registry, covers: nil, makeSession: makeSession)
+        let delivery = BoardDelivery(registry: registry, covers: nil, openSessions: openSessions, makeSession: makeSession)
         let tabs = MuralTabs(
             registry: registry, makeSession: { route in delivery.adoptDetachedSession(for: route) ?? makeSession(route) })
         tabs.removeBoardCaches = { _ in }
         tabs.dockPresence = { _ in }
         delivery.tabs = tabs
-        let cloud = InMemoryCloud()
 
         self.directory = directory
+        self.openSessions = openSessions
         self.cloud = cloud
         self.seedLibrary = BoardLibrary(rootDirectory: root, discardPackage: discard)
         self.library = library
@@ -647,11 +792,11 @@ private final class SyncEnvironment {
         self.tabs = tabs
         self.controller = CloudSyncController(
             mode: .inMemory, registry: registry, delivery: delivery, directory: directory.appendingPathComponent("Sync"),
-            cloud: cloud, sendDelay: Self.sendDelay)
+            cloud: cloud, user: user, openSessions: openSessions, sendDelay: Self.sendDelay)
     }
 
     func bridge() -> CloudSyncBridge {
-        CloudSyncBridge(scope: .private, registry: registry, delivery: delivery, notify: { _ in })
+        CloudSyncBridge(scope: .private, registry: registry, delivery: delivery, openSessions: openSessions, notify: { _ in })
     }
 
     // MARK: Murais
@@ -703,16 +848,23 @@ private final class SyncEnvironment {
             permission: info.permission == .readOnly ? .readOnly : .readWrite)
     }
 
-    /// Acompanha o mural no banco privado, manda tudo ao iCloud e põe o segundo Mac para acompanhá-lo também.
-    func putInCloud(_ id: BoardID) async throws -> RemoteMac {
+    /// Acompanha o mural no banco privado e manda tudo ao iCloud.
+    /// - Returns: o nome do mural.
+    @discardableResult
+    func uploadToCloud(_ id: BoardID) async throws -> String {
         let info = Self.cloudInfo(database: .private, for: id)
         var snapshot = try #require(try await seedLibrary.open(.saved(id)))
         snapshot.manifest.cloud = info
         try await seedLibrary.repository(for: .saved(id)).save(snapshot)
         await controller.start()
         try await controller.track(id, cloud: info)
-        return try await RemoteMac.join(
-            boardID: id, name: snapshot.manifest.name, cloud: cloud, root: directory.appendingPathComponent("OutroMac"))
+        return snapshot.manifest.name
+    }
+
+    /// Como `uploadToCloud` e põe o segundo Mac para acompanhar o mural também.
+    func putInCloud(_ id: BoardID) async throws -> RemoteMac {
+        let name = try await uploadToCloud(id)
+        return try await RemoteMac.join(boardID: id, name: name, cloud: cloud, root: directory.appendingPathComponent("OutroMac"))
     }
 
     // MARK: Conferir
@@ -734,7 +886,7 @@ private final class SyncEnvironment {
     }
 
     func liveSessions(of id: BoardID) -> [BoardWindowSession] {
-        OpenBoardSessions.shared.live.filter { $0.boardID == id }
+        openSessions.live.filter { $0.boardID == id }
     }
 
     /// Fecha as abas (gravando).

@@ -54,6 +54,10 @@ final class CloudSyncController {
     /// Os avisos de murais que saíram do iCloud, do mais antigo ao mais novo, até a pessoa dispensá-los.
     private(set) var notices: [CloudSyncNotice] = []
 
+    /// O convite de cada mural como a última busca que o trouxe o mandou: quem foi convidado, a permissão e o endereço. Convite
+    /// apagado (o dono parou de compartilhar) ou mural que saiu do iCloud neste Mac sai daqui. A interface de compartilhamento o usa.
+    private(set) var shareStates: [BoardID: ShareSummary] = [:]
+
     /// O controlador do app, para quem não tem como recebê-lo pelo construtor (o delegado do app). `nil` com a sincronização
     /// desligada; só `MuralApp` o define.
     static var current: CloudSyncController?
@@ -66,7 +70,11 @@ final class CloudSyncController {
     private let openSessions: OpenBoardSessions
     private let sendDelay: Duration
     @ObservationIgnored private var channels: [CloudDatabaseScope: Channel] = [:]
-    @ObservationIgnored private var isStarted = false
+    /// O início, em andamento ou já feito: quem chama `start()` de novo espera esta mesma tarefa, e o que depende do início
+    /// (`fetch`, `send`, `track`, `putInCloud`) também. `nil` até alguém ligar o controlador.
+    @ObservationIgnored private var startTask: Task<Void, Never>?
+    /// O fim da fila dos convites: cada leva espera a anterior, para duas não trocarem o `cloud` do mesmo mural ao mesmo tempo.
+    @ObservationIgnored private var shareChain: Task<Void, Never>?
     /// O envio agendado de cada mural; uma nova gravação o cancela e agenda outro (a espera recomeça).
     @ObservationIgnored private var sendTasks: [BoardID: Task<Void, Never>] = [:]
 
@@ -123,17 +131,38 @@ final class CloudSyncController {
     // MARK: Ligar
 
     /// Liga os motores e entrega a cada um o que há por enviar dos murais já acompanhados (`pendingChanges(for:)`): o app pode ter
-    /// sido fechado com gravações ainda não enviadas. Chamar de novo não faz nada. Uma falha de um banco não impede o outro.
+    /// sido fechado com gravações ainda não enviadas. Uma falha de um banco não impede o outro.
+    ///
+    /// O início é uma tarefa só: chamar de novo espera a mesma, e `fetch()`, `send()`, `track` e `putInCloud` esperam por ela antes de
+    /// agir (o delegado do app busca ao ativar, às vezes antes de o início terminar). No fim, uma busca traz inteiras as zonas que a
+    /// varredura dos motores adotou ao ligar (mural novo no iCloud, convite aceito em outro Mac).
     ///
     /// Com o iCloud falso (`.inMemory`), antes disso recria no iCloud falso a zona de cada mural privado acompanhado
     /// (`startZone` é idempotente). Com `-uiTestingKeep` o pacote e o estado de sincronização sobrevivem entre execuções, mas o
     /// iCloud falso nasce vazio a cada uma: sem a zona, a primeira busca a tomaria por apagada (`.zoneDeleted`), e o pacote do
     /// mural seria removido. O iCloud de verdade guarda as zonas, então não passa por aqui.
     func start() async {
-        guard isEnabled, !isStarted else { return }
-        isStarted = true
+        guard isEnabled else { return }
+        if let startTask {
+            await startTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performStart()
+        }
+        startTask = task
+        await task.value
+    }
+
+    /// O corpo de `start()`. A busca do fim não espera `startTask` (seria esperar a si mesma): chama `performFetch()`.
+    private func performStart() async {
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
+            // Antes de ligar o motor, para nenhum convite de uma busca feita logo ao começar se perder.
+            await channel.engine.setShareHandler { [weak self] shares in
+                Task { @MainActor [weak self] in self?.receive(shares, scope: scope) }
+            }
             do {
                 try await channel.engine.start()
                 let ids = try await channel.coordinator.boardIDs()
@@ -148,12 +177,14 @@ final class CloudSyncController {
             }
         }
         await refreshIssues()
+        await performFetch()
     }
 
     /// Passa a acompanhar o mural: o coordenador guarda o estado (`startTracking`), o dono cria a zona no iCloud (só no banco
     /// privado) e o motor recebe o que há por enviar, que é enviado já. Quem chama grava antes o `cloud` no manifesto.
     /// - Throws: o que o coordenador ou o motor lançarem, como `BoardSyncCoordinatorError.wrongDatabase`.
     func track(_ id: BoardID, cloud: BoardCloudInfo) async throws {
+        await startTask?.value
         let channel = try channel(for: cloud.database)
         if cloud.database == .private { try await channel.engine.startZone(for: id) }
         try await channel.engine.add(try await channel.coordinator.startTracking(id, cloud: cloud))
@@ -172,6 +203,7 @@ final class CloudSyncController {
     func putInCloud(_ route: BoardRoute) async throws {
         guard isEnabled else { throw CloudSyncControllerError.disabled }
         guard case .saved(let id) = route else { throw CloudSyncControllerError.notASavedBoard }
+        await startTask?.value
         let library = registry.library
         guard let snapshot = try await library.open(route) else { throw BoardLibraryError.unavailableRoute(route) }
         guard snapshot.manifest.cloud == nil else { throw CloudSyncControllerError.alreadyInCloud }
@@ -201,8 +233,16 @@ final class CloudSyncController {
     // MARK: Buscar e enviar
 
     /// Busca agora, nos dois bancos, o que mudou no iCloud. O que chega é junto e gravado pela ponte antes de cada busca voltar. Uma
-    /// falha de rede ou do iCloud fica no registro do sistema e não impede o outro banco.
+    /// falha de rede ou do iCloud fica no registro do sistema e não impede o outro banco. Espera o início (`start()`), se ele estiver
+    /// em andamento.
     func fetch() async {
+        await startTask?.value
+        await performFetch()
+    }
+
+    /// O corpo de `fetch()`, sem esperar o início: é também a busca do fim dele. Depois dos motores, espera a fila dos convites que a
+    /// busca trouxe (a permissão do mural adotado vem deles) e relê os avisos.
+    private func performFetch() async {
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
             do {
@@ -211,11 +251,13 @@ final class CloudSyncController {
                 Self.log.error("Busca no banco \(scope.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
+        await shareChain?.value
         await refreshIssues()
     }
 
-    /// Envia agora, nos dois bancos, o que está pendente.
+    /// Envia agora, nos dois bancos, o que está pendente. Espera o início (`start()`), se ele estiver em andamento.
     func send() async {
+        await startTask?.value
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
             do {
@@ -234,12 +276,15 @@ final class CloudSyncController {
     ///
     /// O aviso roda dentro da gravação da sessão, às vezes dentro de `applyRemote`, de que o coordenador está esperando a volta.
     /// Por isso aqui só se agenda uma tarefa: nada espera o coordenador.
+    ///
+    /// A sessão nova também recebe, pelo último `issues`, se o mural ainda espera a primeira busca (abre só para ver).
     private func attach(_ session: BoardWindowSession) {
         let id = session.boardID
         session.onPersisted = { [weak self] _, fromRemote in
             guard !fromRemote else { return }
             self?.scheduleSend(for: id)
         }
+        session.setAwaitingCloud(issues[id] == .awaitingFirstFetch)
     }
 
     /// Agenda o envio do mural para daqui a `sendDelay`; uma gravação nova antes disso cancela este e agenda outro.
@@ -256,6 +301,7 @@ final class CloudSyncController {
     /// Pede ao coordenador o que falta enviar do mural (lê o que está gravado, não a janela), entrega ao motor e envia. Mural que
     /// nenhum banco acompanha não tem pendência e não faz nada.
     private func sendPending(for id: BoardID) async {
+        await startTask?.value
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
             do {
@@ -280,6 +326,75 @@ final class CloudSyncController {
 
     private func post(_ notice: CloudSyncNotice) {
         notices.append(notice)
+        // O aviso é de um mural que deixou o iCloud neste Mac: o convite dele já não vale.
+        if shareStates[notice.boardID] != nil { shareStates[notice.boardID] = nil }
+    }
+
+    // MARK: Convites
+
+    /// Recebe os convites que uma busca trouxe. Voltam logo (o motor os entrega dentro do seu executor): o trabalho entra na fila,
+    /// onde cada leva espera a anterior terminar.
+    private func receive(_ shares: [ShareSummary], scope: CloudDatabaseScope) {
+        let previous = shareChain
+        shareChain = Task { [weak self] in
+            await previous?.value
+            await self?.apply(shares, scope: scope)
+        }
+    }
+
+    /// Guarda cada convite em `shareStates` (o apagado sai) e, no banco compartilhado, passa ao mural o que o convite diz.
+    ///
+    /// Convite de mural que este banco não acompanha (recusado, ou que o motor não pôde adotar) não aparece em lugar nenhum e é
+    /// ignorado. Não chama nada que espere o início (`track`, `fetch`): esta fila é esperada pela busca do fim dele.
+    private func apply(_ shares: [ShareSummary], scope: CloudDatabaseScope) async {
+        guard let channel = channels[scope] else { return }
+        for share in shares {
+            guard let id = CloudSchema.boardID(fromZoneName: share.zone.name) else { continue }
+            if share.isDeleted {
+                if shareStates[id] != nil { shareStates[id] = nil }
+                continue
+            }
+            guard (try? await channel.coordinator.isTracking(id)) == true else { continue }
+            if shareStates[id] != share { shareStates[id] = share }
+            if scope == .shared { await adoptGrantedAccess(from: share, id: id, channel: channel) }
+        }
+        await refreshIssues()
+    }
+
+    /// No banco compartilhado, o convite diz o que esta pessoa pode fazer no mural e quem é o dono. O mural adotado começa só leitura
+    /// e sem o nome do dono; quando o convite traz algo diferente do `cloud` do manifesto, o manifesto (pela sessão, que o grava,
+    /// como `putInCloud`) e o coordenador (`startTracking`) passam a valer o novo, e o que estava pendente vai ao motor.
+    ///
+    /// Se o coordenador não aceita, o manifesto volta ao que era: o próximo convite tenta de novo, e os dois não ficam em desacordo.
+    private func adoptGrantedAccess(from share: ShareSummary, id: BoardID, channel: Channel) async {
+        let route = BoardRoute.saved(id)
+        guard let current = (try? await registry.library.open(route))?.manifest.cloud, current.database == .shared else { return }
+        var updated = current
+        if let permission = share.currentUserPermission, permission != .owner { updated.permission = permission }
+        if let owner = share.ownerDisplayName { updated.ownerDisplayName = owner }
+        guard updated != current else { return }
+
+        do {
+            try await delivery.withSession(for: route) { session, _ in try await session.setCloud(updated) }
+        } catch {
+            Self.log.error("Convite não gravado no mural: \(String(describing: error), privacy: .public)")
+            return
+        }
+        let pending: Set<PendingChange>
+        do {
+            pending = try await channel.coordinator.startTracking(id, cloud: updated)
+        } catch {
+            Self.log.error("Convite não aplicado ao coordenador: \(String(describing: error), privacy: .public)")
+            try? await delivery.withSession(for: route) { session, _ in try await session.setCloud(current) }
+            return
+        }
+        guard !pending.isEmpty else { return }
+        do {
+            try await channel.engine.add(pending)
+            try await channel.engine.send()
+        } catch {
+            Self.log.error("Envio depois do convite: \(String(describing: error), privacy: .public)")
+        }
     }
 
     // MARK: Interno
@@ -296,7 +411,8 @@ final class CloudSyncController {
         return channel
     }
 
-    /// Lê de novo os avisos dos coordenadores, um por mural.
+    /// Lê de novo os avisos dos coordenadores, um por mural, e põe em só leitura as janelas dos murais que ainda esperam a primeira
+    /// busca (`.awaitingFirstFetch`), tirando as que já a receberam.
     private func refreshIssues() async {
         var all: [BoardID: SyncIssue] = [:]
         for scope in Self.scopes {
@@ -304,6 +420,7 @@ final class CloudSyncController {
             all.merge(await channel.coordinator.issues()) { first, _ in first }
         }
         if all != issues { issues = all }
+        for session in openSessions.live { session.setAwaitingCloud(all[session.boardID] == .awaitingFirstFetch) }
     }
 }
 

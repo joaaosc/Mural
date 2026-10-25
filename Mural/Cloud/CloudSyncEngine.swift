@@ -23,6 +23,10 @@ protocol CloudSyncEngine: Sendable {
 
     /// Busca agora o que mudou no iCloud.
     func fetch() async throws
+
+    /// Liga quem recebe os convites (`ShareSummary`) que as buscas trazem. O fecho roda no executor do motor e deve voltar logo; vale
+    /// ligá-lo antes de `start()`, para nenhum convite se perder.
+    func setShareHandler(_ handler: @escaping @Sendable ([ShareSummary]) -> Void) async
 }
 
 extension CloudKitSyncEngine: CloudSyncEngine {
