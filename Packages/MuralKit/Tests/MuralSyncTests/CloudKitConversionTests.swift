@@ -611,4 +611,54 @@ struct CloudKitConversionTests {
         #expect(CloudKitMapping.fetchScope(.zoneIDs([a, b, c]), excluding: [b]) == .zoneIDs([a, c]))
     }
 
+    // MARK: Fila do motor
+
+    @Test("Trocar as pendências: sai o que o coordenador não devolveu e entra o que é novo, sem tocar nas outras zonas")
+    func pendingReplacementSwapsTheChangesOfTheZones() {
+        let first = CloudZoneID(name: "mural-A")
+        let second = CloudZoneID(name: "mural-B")
+        let kept = PendingChange.save(CloudRecordID(zone: first, name: "um"))
+        let dropped = PendingChange.save(CloudRecordID(zone: first, name: "dois"))
+        let elsewhere = PendingChange.save(CloudRecordID(zone: second, name: "tres"))
+        let added = PendingChange.delete(CloudRecordID(zone: first, name: "quatro"))
+
+        let replacement = CloudKitMapping.pendingReplacement(current: [kept, dropped, elsewhere], in: [first], with: [kept, added])
+
+        #expect(replacement.stale == [dropped])
+        #expect(replacement.new == [added])
+        let unchanged = CloudKitMapping.pendingReplacement(current: [kept], in: [first], with: [kept])
+        #expect(unchanged.stale.isEmpty && unchanged.new.isEmpty, "o que já está na fila não é refeito")
+    }
+
+    @Test("O apagamento do convite da zona (a saída do convidado) não sai com a troca; sai se o servidor o aceitou ou a zona acabou")
+    func pendingReplacementKeepsTheZoneShareDeletion() {
+        let zone = CloudZoneID(name: "mural-A", ownerName: "_dono")
+        let leaving = PendingChange.delete(CloudKitMapping.zoneShareRecordID(in: zone))
+        let ordinary = PendingChange.delete(CloudRecordID(zone: zone, name: "cartao"))
+        let otherZone = CloudZoneID(name: "mural-B", ownerName: "_dono")
+        let otherLeaving = PendingChange.delete(CloudKitMapping.zoneShareRecordID(in: otherZone))
+
+        // O coordenador não conhece a saída: devolver nada tira o apagamento comum da fila e deixa a saída.
+        let swapped = CloudKitMapping.pendingReplacement(current: [leaving, ordinary], in: [zone], with: [])
+        #expect(swapped.stale == [ordinary])
+        #expect(swapped.new.isEmpty)
+
+        // O servidor aceitou o apagamento, ou a zona foi apagada: agora ele sai. A saída de outra zona fica.
+        let settled = CloudKitMapping.pendingReplacement(
+            current: [leaving, ordinary, otherLeaving], in: [zone, otherZone], with: [], settled: [leaving.recordID])
+        #expect(settled.stale == [leaving, ordinary])
+        let otherZoneOnly = CloudKitMapping.pendingReplacement(current: [leaving, otherLeaving], in: [zone], with: [], settled: [])
+        #expect(otherZoneOnly.stale.isEmpty, "a saída de outra zona nem entra na troca")
+    }
+
+    @Test("O apagamento do convite tem o nome do registro de convite da zona, e só ele é reconhecido como saída do mural")
+    func zoneShareDeletionIsRecognizedByTheShareRecordName() {
+        let zone = CloudZoneID(name: "mural-A", ownerName: "_dono")
+        let id = CloudKitMapping.zoneShareRecordID(in: zone)
+
+        #expect(id.name == CKRecordNameZoneWideShare && id.zone == zone)
+        #expect(PendingChange(PendingChange.delete(id).engineChange)?.isZoneShareDeletion == true)
+        #expect(PendingChange.save(id).isZoneShareDeletion == false, "gravar um registro com esse nome não é sair do mural")
+        #expect(PendingChange.delete(CloudRecordID(zone: zone, name: "outro")).isZoneShareDeletion == false)
+    }
 }

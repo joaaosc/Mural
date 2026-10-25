@@ -8,6 +8,8 @@ public enum CloudKitSyncEngineError: Error, Equatable, Sendable {
     case notStarted
     /// Só quem usa o banco privado cria e apaga zonas: o convidado recebe as do dono.
     case notOwner
+    /// Só quem usa o banco compartilhado sai de um mural: o dono o apaga ou o tira do iCloud.
+    case notGuest
 }
 
 /// O papel do `InMemorySyncEngine` com o iCloud de verdade: um `CKSyncEngine` por banco (privado ou compartilhado) que traduz os
@@ -26,7 +28,8 @@ public enum CloudKitSyncEngineError: Error, Equatable, Sendable {
 /// pendências do motor nas zonas do evento são trocadas pelas que o coordenador devolveu, como faz o `InMemorySyncEngine`. Um
 /// registro que o iCloud recusou por cota, permissão ou erro desconhecido não é reenviado na hora (seria um laço de recusas): volta na
 /// próxima chamada de `add(_:)`, que o app faz com `BoardSyncCoordinator.pendingChanges(for:)` ao gravar o mural e ao abrir. Uma
-/// falha passageira (sem rede, servidor ocupado) não é recusa: a pendência fica na fila e o motor tenta de novo.
+/// falha passageira (sem rede, servidor ocupado) não é recusa: a pendência fica na fila e o motor tenta de novo. A troca poupa o apagamento
+/// do convite que o convidado põe na fila ao sair do mural (`leaveZone(_:)`), que o coordenador não conhece.
 ///
 /// **Arquivos que chegam**: o `fileURL` de um `CKAsset` buscado só vale durante o evento. O coordenador entrega a
 /// `BoardSyncHost.applyRemote`, que copia para `Items/`, antes de `handleEvent` voltar; por isso nada é copiado aqui.
@@ -174,6 +177,21 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         engine.state.add(pendingDatabaseChanges: [.deleteZone(zone.ckZoneID)])
     }
 
+    /// O convidado deixa o mural: apagar o convite da zona inteira (o `CKShare`) pelo banco compartilhado tira esta pessoa do convite,
+    /// e a zona some para ela sem afetar o dono nem os outros convidados. O apagamento fica na fila do motor, que o repete sem rede, e
+    /// a troca de pendências (`replacePending`) nunca o tira dali. Esquece o que o motor tinha para enviar à zona: sem acesso, nada
+    /// mais pode ser enviado. Quem chama faz antes `BoardSyncCoordinator.declineZone(of:)` e `stopTracking`, como com `deleteZone`:
+    /// enquanto o servidor não confirma, a busca que ainda mostrar a zona não a adota de novo.
+    /// - Throws: `CloudKitSyncEngineError.notStarted` ou `.notGuest` (banco privado).
+    public func leaveZone(_ zone: CloudZoneID) throws {
+        let engine = try requireEngine()
+        guard scope == .shared else { throw CloudKitSyncEngineError.notGuest }
+        Self.replacePending(in: [zone], with: [], engine: engine)
+        let leaving = PendingChange.delete(CloudKitMapping.zoneShareRecordID(in: zone))
+        guard !engine.state.pendingRecordZoneChanges.contains(leaving.engineChange) else { return }
+        engine.state.add(pendingRecordZoneChanges: [leaving.engineChange])
+    }
+
     /// Envia agora o que está pendente, sem esperar a agenda do motor. Fora de `handleEvent`, como a Apple pede.
     public func sendNow() async throws {
         try await requireEngine().sendChanges()
@@ -315,7 +333,8 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
             let zone = CloudZoneID(deletion.zoneID)
             let reason = CloudKitMapping.removalReason(for: deletion.reason, in: scope)
             Logger.sync.notice("Zona apagada: \(zone.name, privacy: .public) (\(String(describing: reason), privacy: .public))")
-            Self.replacePending(in: [zone], with: [], engine: engine)
+            // A zona já não existe, nem o convite que o convidado ia apagar para sair dela.
+            Self.replacePending(in: [zone], with: [], settled: [CloudKitMapping.zoneShareRecordID(in: zone)], engine: engine)
             do {
                 try await coordinator.handleZoneDeleted(zone, reason: reason)
             } catch {
@@ -354,7 +373,9 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         do {
             let remaining = try await coordinator.handleSent(saved: outcome.saved, deleted: outcome.deleted, failures: outcome.failures)
             let refused = outcome.refused
-            Self.replacePending(in: outcome.zones, with: remaining.filter { !refused.contains($0.recordID) }, engine: engine)
+            // O servidor aceitou o apagamento do convite (a saída do mural): ele não fica na fila, mesmo que o motor ainda o tenha.
+            Self.replacePending(
+                in: outcome.zones, with: remaining.filter { !refused.contains($0.recordID) }, settled: Set(outcome.deleted), engine: engine)
             // Falha passageira: o motor tenta de novo; se ele a tirou da fila, ela volta.
             Self.keepPending(outcome.retriedByEngine, engine: engine)
         } catch {
@@ -382,7 +403,7 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
                 Self.replacePending(in: [zone], with: remaining, engine: engine)
                 deliver(fetched.shares)
             } catch let error as CKError where error.code == .zoneNotFound || error.code == .userDeletedZone {
-                Self.replacePending(in: [zone], with: [], engine: engine)
+                Self.replacePending(in: [zone], with: [], settled: [CloudKitMapping.zoneShareRecordID(in: zone)], engine: engine)
                 do {
                     try await coordinator.handleZoneDeleted(zone, reason: scope == .private ? .zoneDeleted : .accessRevoked)
                 } catch {
@@ -448,14 +469,15 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     }
 
     /// Troca as pendências do motor nas `zones` pelas que o coordenador devolveu: tira as que não voltaram e põe as novas. Só mexe no
-    /// que mudou, para não reiniciar o que o motor já tem agendado.
-    private static func replacePending(in zones: Set<CloudZoneID>, with changes: Set<PendingChange>, engine: CKSyncEngine) {
+    /// que mudou, para não reiniciar o que o motor já tem agendado. O apagamento do convite da zona inteira (a saída do convidado) só
+    /// sai se estiver em `settled`: veja `CloudKitMapping.pendingReplacement`.
+    private static func replacePending(
+        in zones: Set<CloudZoneID>, with changes: Set<PendingChange>, settled: Set<CloudRecordID> = [], engine: CKSyncEngine
+    ) {
         let current = Set(engine.state.pendingRecordZoneChanges.compactMap { PendingChange($0) })
-        let currentInZones = current.filter { zones.contains($0.recordID.zone) }
-        let stale = currentInZones.subtracting(changes)
-        let new = changes.subtracting(current)
-        if !stale.isEmpty { engine.state.remove(pendingRecordZoneChanges: stale.map(\.engineChange)) }
-        if !new.isEmpty { engine.state.add(pendingRecordZoneChanges: new.map(\.engineChange)) }
+        let replacement = CloudKitMapping.pendingReplacement(current: current, in: zones, with: changes, settled: settled)
+        if !replacement.stale.isEmpty { engine.state.remove(pendingRecordZoneChanges: replacement.stale.map(\.engineChange)) }
+        if !replacement.new.isEmpty { engine.state.add(pendingRecordZoneChanges: replacement.new.map(\.engineChange)) }
     }
 
     /// Garante que as pendências estão na fila do motor, sem repetir as que já estão.

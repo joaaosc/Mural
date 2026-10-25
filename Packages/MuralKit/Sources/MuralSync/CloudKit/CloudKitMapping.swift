@@ -62,8 +62,9 @@ public struct ShareSummary: Equatable, Sendable {
 }
 
 extension ShareSummary {
-    /// O resumo de um convite que chegou do CloudKit.
-    init(_ share: CKShare) {
+    /// O resumo de um convite que chegou do CloudKit, ou que a interface de compartilhamento do sistema acabou de gravar. Público
+    /// porque o app recebe o `CKShare` dessa interface sem passar pelo motor.
+    public init(_ share: CKShare) {
         self.init(
             zone: CloudZoneID(share.recordID.zoneID),
             title: share[CKShare.SystemFieldKey.title] as? String,
@@ -112,6 +113,11 @@ extension PendingChange {
         case .save(let id): .saveRecord(id.ckRecordID)
         case .delete(let id): .deleteRecord(id.ckRecordID)
         }
+    }
+
+    /// É o apagamento do convite da zona inteira: o que o convidado envia para sair do mural (`CloudKitSyncEngine.leaveZone(_:)`).
+    var isZoneShareDeletion: Bool {
+        if case .delete(let id) = self { id.name == CKRecordNameZoneWideShare } else { false }
     }
 }
 
@@ -375,6 +381,30 @@ enum CloudKitMapping {
         case .purged, .encryptedDataReset: return .cloudDataErased
         @unknown default: return .zoneDeleted
         }
+    }
+
+    // MARK: Fila do motor
+
+    /// O registro do convite da zona inteira. Apagá-lo pelo banco compartilhado tira a pessoa do convite: é como o convidado sai do mural.
+    static func zoneShareRecordID(in zone: CloudZoneID) -> CloudRecordID {
+        CloudRecordID(zone: zone, name: CKRecordNameZoneWideShare)
+    }
+
+    /// Como trocar as pendências que o motor tem nas `zones` pelas que o coordenador devolveu (`changes`): o que sai da fila e o que
+    /// entra. Só o que mudou, para não reiniciar o que o motor já tem agendado.
+    ///
+    /// O apagamento do convite da zona inteira não é do coordenador: quem o põe na fila é o convidado que sai do mural
+    /// (`CloudKitSyncEngine.leaveZone(_:)`), depois de o coordenador esquecer o mural, e `changes` nunca o traz. A troca comum o tiraria
+    /// da fila antes de ser enviado, e o convidado continuaria no convite. Por isso ele só sai se estiver em `settled`: o servidor já
+    /// o aceitou, ou a zona deixou de existir e não há mais o que apagar.
+    static func pendingReplacement(
+        current: Set<PendingChange>, in zones: Set<CloudZoneID>, with changes: Set<PendingChange>, settled: Set<CloudRecordID> = []
+    ) -> (stale: Set<PendingChange>, new: Set<PendingChange>) {
+        let stale = current.filter { change in
+            zones.contains(change.recordID.zone) && !changes.contains(change)
+                && (!change.isZoneShareDeletion || settled.contains(change.recordID))
+        }
+        return (stale, changes.subtracting(current))
     }
 
     // MARK: Interno

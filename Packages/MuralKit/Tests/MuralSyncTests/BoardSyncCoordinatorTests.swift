@@ -723,6 +723,77 @@ struct BoardSyncCoordinatorTests {
         #expect(await setup.coordinator.issues().isEmpty)
     }
 
+    @Test("Quem espera a primeira busca vem do estado guardado: a gravação que falhou não o esconde, e só a busca completa o tira")
+    func boardsAwaitingFirstFetchFollowsTheStoredMark() async throws {
+        let setup = try await adoptedSetup()
+        defer { cleanUp(setup) }
+        let arrived = makeNote("Chegou")
+        let card = try serverCard(arrived, layer: 1, mark: "s-1", in: setup)
+        #expect(try await setup.coordinator.boardsAwaitingFirstFetch() == [setup.boardID])
+
+        // O host não consegue gravar: `issues()` mostra a gravação que falhou, mas o pacote continua provisório.
+        await setup.host.failNextApply()
+        _ = try await setup.coordinator.handleFetched(saved: [card], deleted: [])
+        #expect(await setup.coordinator.issues()[setup.boardID] == .localSaveFailed)
+        #expect(try await setup.coordinator.boardsAwaitingFirstFetch() == [setup.boardID])
+
+        // Um coordenador novo, que ainda não leu nada, lê do disco, e cada banco vê só os murais dele.
+        let store = SyncMetadataStore(directory: setup.syncDirectory)
+        let restarted = BoardSyncCoordinator(scope: .private, store: store, host: setup.host)
+        #expect(try await restarted.boardsAwaitingFirstFetch() == [setup.boardID])
+        let sharedID = BoardID()
+        let sharedInfo = BoardCloudInfo(
+            database: .shared, zoneName: CloudSchema.zoneName(for: sharedID), zoneOwnerName: "_dono", permission: .readOnly)
+        try await store.save(BoardSyncState(cloud: sharedInfo, isAwaitingFirstFetch: true, isAdopted: true), for: sharedID)
+        #expect(try await restarted.boardsAwaitingFirstFetch() == [setup.boardID], "o mural do banco compartilhado não é deste banco")
+        let shared = BoardSyncCoordinator(scope: .shared, store: store, host: setup.host)
+        #expect(try await shared.boardsAwaitingFirstFetch() == [sharedID])
+
+        let cloudBoard = Board(items: [arrived])
+        let records = [
+            card, serverBoard(name: "Casa", formatVersion: cloudBoard.requiredFormatVersion, mark: "m-1", in: setup),
+        ]
+        _ = try await setup.coordinator.handleFullFetch(setup.zone, records: records)
+        #expect(try await setup.coordinator.boardsAwaitingFirstFetch().isEmpty)
+        #expect(try await restarted.boardsAwaitingFirstFetch().isEmpty)
+    }
+
+    @Test("Parar de acompanhar tira o mural de quem espera a primeira busca")
+    func stoppingTrackingEndsTheAwaitingQuery() async throws {
+        let setup = try await adoptedSetup()
+        defer { cleanUp(setup) }
+        #expect(try await setup.coordinator.boardsAwaitingFirstFetch() == [setup.boardID])
+
+        try await setup.coordinator.stopTracking(setup.boardID)
+
+        #expect(try await setup.coordinator.boardsAwaitingFirstFetch().isEmpty)
+    }
+
+    @Test("A pergunta feita enquanto o host junta a busca completa espera o evento e já vê a espera desligada")
+    func awaitingQueryWaitsForTheRunningEvent() async throws {
+        let setup = try await adoptedSetup()
+        defer { cleanUp(setup) }
+        let note = makeNote("Do iCloud")
+        let cloudBoard = Board(items: [note])
+        let records = [
+            try serverCard(note, layer: 1, mark: "s-1", in: setup),
+            serverBoard(name: "Casa", formatVersion: cloudBoard.requiredFormatVersion, mark: "m-1", in: setup),
+        ]
+        let gate = SyncTestGate()
+        await setup.host.hold(gate)
+
+        let fetching = Task { try await setup.coordinator.handleFullFetch(setup.zone, records: records) }
+        await gate.waitUntilHolding()
+        let asking = Task { try await setup.coordinator.boardsAwaitingFirstFetch() }
+        // Tempo para a pergunta chegar ao coordenador: sem a espera ela leria a marca ainda ligada, como o app a leria ao reagir ao
+        // aviso do host, que vem antes de o estado novo ser gravado.
+        try await Task.sleep(for: .milliseconds(100))
+        await gate.release()
+        _ = try await fetching.value
+
+        #expect(try await asking.value.isEmpty)
+    }
+
     @Test("Adotar de novo, durante a espera ou depois dela, não cria nada: a zona já é acompanhada")
     func adoptingTwiceIsAlreadyTracked() async throws {
         let setup = try await adoptedSetup()

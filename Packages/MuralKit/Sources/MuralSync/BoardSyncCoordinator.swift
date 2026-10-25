@@ -132,7 +132,8 @@ public enum BoardSyncCoordinatorError: Error, Equatable, Sendable {
 ///
 /// **Um evento de cada vez**: como a espera pelo host abre espaço para outro evento ler o mesmo estado antigo e gravar por cima do
 /// primeiro, os que mudam o estado (`startTracking`, `stopTracking`, `adoptZone`, `declineZone`, `handleSent`, `handleFetched`,
-/// `handleZoneDeleted`) rodam um por vez, na ordem de chegada. `pendingChanges(for:)` e `record(for:)` só leem e não esperam.
+/// `handleZoneDeleted`) rodam um por vez, na ordem de chegada. `pendingChanges(for:)` e `record(for:)` só leem e não esperam;
+/// `boardsAwaitingFirstFetch()` só lê, mas espera a vez, para devolver o estado já gravado pelo evento em andamento.
 public actor BoardSyncCoordinator {
     /// O resultado de `adoptZone(_:cloud:name:)`.
     public enum AdoptionResult: Equatable, Sendable {
@@ -383,6 +384,23 @@ public actor BoardSyncCoordinator {
             zones.append(CloudZoneID(name: state.cloud.zoneName, ownerName: state.cloud.zoneOwnerName))
         }
         return zones
+    }
+
+    /// Os murais deste banco que esperam a primeira busca completa depois de adotados (`BoardSyncState.isAwaitingFirstFetch`), lidos do
+    /// estado guardado. O app põe em só leitura a janela de quem está aqui. Não vem de `issues()`: o aviso de maior prioridade esconde a
+    /// espera, como a gravação que falhou (`SyncIssue.localSaveFailed`), e o mural não deixa de ser provisório por causa dela.
+    ///
+    /// Espera o evento em andamento, como os que mudam o estado: o host avisa que juntou o que chegou antes de o coordenador gravar o
+    /// estado novo, e quem pergunta logo depois (o app, ao reagir a esse aviso) leria a espera ainda ligada.
+    /// - Throws: `SyncMetadataStoreError.corrupted` se algum estado não pode ser lido.
+    public func boardsAwaitingFirstFetch() async throws -> Set<BoardID> {
+        await acquireEventLock()
+        defer { releaseEventLock() }
+        var awaiting = Set<BoardID>()
+        for id in try await store.boardIDs() {
+            if let state = try await loadState(for: id), state.isAwaitingFirstFetch { awaiting.insert(id) }
+        }
+        return awaiting
     }
 
     /// A zona inteira, buscada de novo: todos os registros que ela tem agora. O que este Mac conhecia e não veio foi apagado no
