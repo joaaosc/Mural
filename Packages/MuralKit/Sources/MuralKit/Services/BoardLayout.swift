@@ -334,6 +334,7 @@ public enum BoardLayout {
             occupied.append((item.position, size(of: item)))
         }
         var result: [BoardPoint] = []
+        result.reserveCapacity(kinds.count)
         for (index, kind) in kinds.enumerated() {
             let newSize = cardSize(for: kind)
             let candidates = importCandidates(anchor: anchor, size: newSize, index: index)

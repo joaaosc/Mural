@@ -32,6 +32,7 @@ struct FolderPeekItemTests {
         let items = children([.text, .image])
         #expect(FolderPeekItem.latest(items, limit: 1, fileURL: fileURL).map(\.id) == [items[1].id])
         #expect(FolderPeekItem.latest(items, limit: 0, fileURL: fileURL).isEmpty)
+        #expect(FolderPeekItem.latest(items, limit: -1, fileURL: fileURL).isEmpty)
         #expect(FolderPeekItem.latest(items, fileURL: fileURL).map(\.id) == items.map(\.id))
         #expect(FolderPeekItem.latest([], fileURL: fileURL).isEmpty)
     }

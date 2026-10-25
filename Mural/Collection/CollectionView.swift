@@ -46,12 +46,11 @@ struct CollectionView: View {
         // Os cartões das colunas: tudo, menos os post-its largados num lugar livre da pasta.
         // Os post-its soltos são derivados da mesma lista já memoizada: não percorremos o board inteiro
         // nem fazemos uma segunda filtragem independente para descobrir os dois grupos.
-        let (columnItems, placedStickies) = splitChildren(children)
-        let childIDs = children.map(\.id)
-        let isDraggingFromColumns =
-            stickyDrag.map { drag in
-                columnItems.contains { $0.id == drag.id }
-            } ?? false
+        let split = splitChildren(children)
+        let columnItems = split.columnItems
+        let placedStickies = split.placedStickies
+        let childIDs = split.childIDs
+        let isDraggingFromColumns = stickyDrag?.isFromColumns == true
         let currentSelection = selection
 
         ScrollView {
@@ -129,19 +128,24 @@ struct CollectionView: View {
         .accessibilityHidden(restoring)
     }
 
-    private func splitChildren(_ children: [BoardItem]) -> (columnItems: [BoardItem], placedStickies: [BoardItem]) {
+    private func splitChildren(
+        _ children: [BoardItem]
+    ) -> (columnItems: [BoardItem], placedStickies: [BoardItem], childIDs: [UUID]) {
         var columnItems: [BoardItem] = []
         var placedStickies: [BoardItem] = []
+        var childIDs: [UUID] = []
         columnItems.reserveCapacity(children.count)
         placedStickies.reserveCapacity(children.count)
+        childIDs.reserveCapacity(children.count)
         for child in children {
+            childIDs.append(child.id)
             if child.isPlacedInFolder {
                 placedStickies.append(child)
             } else {
                 columnItems.append(child)
             }
         }
-        return (columnItems, placedStickies)
+        return (columnItems, placedStickies, childIDs)
     }
 
     private func card(for item: BoardItem, columnItems: [BoardItem], selection: CardSelection?) -> some View {
@@ -241,7 +245,9 @@ struct CollectionView: View {
         } else {
             let accepted = acceptedSubfolders(for: item, among: columnItems)
             current = StickyDrag(
-                id: item.id, translation: .zero,
+                id: item.id,
+                isFromColumns: columnItems.contains { $0.id == item.id },
+                translation: .zero,
                 tracker: FolderDropTracker(startFolder: subfolder(at: value.startLocation, among: accepted)),
                 acceptedFolders: accepted)
         }
@@ -382,6 +388,8 @@ extension ReadingPosition {
 /// Post-it em arrasto e quanto já andou desde que o gesto começou, em pontos do conteúdo.
 private struct StickyDrag: Equatable {
     var id: UUID
+    /// Fixa a camada de origem no início do gesto, evitando procurar o ID na galeria em cada recomposição.
+    var isFromColumns: Bool
     var translation: CGSize
     /// Acompanha a subpasta que guardaria o post-it se ele fosse solto agora.
     var tracker: FolderDropTracker

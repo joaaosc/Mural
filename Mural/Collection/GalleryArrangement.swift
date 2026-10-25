@@ -33,15 +33,26 @@ nonisolated struct GalleryArrangement {
     ///   - lanes: faixa de cada cartão, na ordem de exibição.
     ///   - heightForWidth: altura do cartão de índice `i` para uma largura de coluna.
     init(width: CGFloat, lanes: [GalleryLane], metrics: Metrics = .init(), heightForWidth: (Int, CGFloat) -> CGFloat) {
+        self.init(width: width, laneCount: lanes.count, laneAt: { lanes[$0] }, metrics: metrics, heightForWidth: heightForWidth)
+    }
+
+    /// Variante para consumidores que já têm as faixas nos subviews: evita materializar um array intermediário.
+    init(
+        width: CGFloat,
+        laneCount: Int,
+        laneAt: (Int) -> GalleryLane,
+        metrics: Metrics = .init(),
+        heightForWidth: (Int, CGFloat) -> CGFloat
+    ) {
         // Partition in one pass. The arrangement is rebuilt while the collection
         // layout cache is invalidated, so avoid the two closure-based traversals
         // and temporary intermediate storage created by `filter`.
         var mediaIndices: [Int] = []
         var noteIndices: [Int] = []
-        mediaIndices.reserveCapacity(lanes.count / 2)
-        noteIndices.reserveCapacity(lanes.count / 2)
-        for index in lanes.indices {
-            switch lanes[index] {
+        mediaIndices.reserveCapacity(laneCount / 2)
+        noteIndices.reserveCapacity(laneCount / 2)
+        for index in 0..<laneCount {
+            switch laneAt(index) {
             case .media:
                 mediaIndices.append(index)
             case .notes:
@@ -60,7 +71,7 @@ nonisolated struct GalleryArrangement {
         let unit = units > 0 ? min(metrics.maxColumnWidth, max((width - gaps) / units, metrics.minColumnWidth)) : 0
         let usedWidth = units * unit + gaps
 
-        var frames = Array(repeating: CGRect.zero, count: lanes.count)
+        var frames = Array(repeating: CGRect.zero, count: laneCount)
         let originX = max((width - usedWidth) / 2, 0)
 
         let mediaHeight = Self.placeMasonry(

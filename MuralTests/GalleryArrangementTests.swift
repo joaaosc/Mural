@@ -61,4 +61,18 @@ struct GalleryArrangementTests {
     func emptyFolder() {
         #expect(arrange([], width: 800).size.height == 0)
     }
+
+    @Test("A leitura direta das faixas é equivalente à inicialização por array")
+    func directLaneAccessMatchesArray() {
+        let lanes: [GalleryLane] = [.media, .notes, .media, .notes, .media]
+        let legacy = arrange(lanes, width: 840)
+        let direct = GalleryArrangement(
+            width: 840,
+            laneCount: lanes.count,
+            laneAt: { lanes[$0] },
+            metrics: metrics,
+            heightForWidth: { _, columnWidth in columnWidth * 1.3 })
+        #expect(direct.frames == legacy.frames)
+        #expect(direct.size == legacy.size)
+    }
 }
