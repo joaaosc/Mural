@@ -31,6 +31,10 @@ public enum CloudKitSyncEngineError: Error, Equatable, Sendable {
 /// **Arquivos que chegam**: o `fileURL` de um `CKAsset` buscado só vale durante o evento. O coordenador entrega a
 /// `BoardSyncHost.applyRemote`, que copia para `Items/`, antes de `handleEvent` voltar; por isso nada é copiado aqui.
 ///
+/// **Convites**: o `CKShare` da zona compartilhada chega junto dos registros, na busca e na busca completa. Ele não é parte do mural:
+/// é separado antes de converter (senão o `SyncCore` o marcaria como ilegível e o mural ganharia um aviso falso) e vai a quem foi
+/// ligado por `setShareHandler(_:)`, sem passar pelo coordenador.
+///
 /// **Regra da Apple**: `handleEvent` não chama `fetchChanges` nem `sendChanges`. Pendências novas entram por `state.add(...)`, que
 /// agenda o envio sozinho; só `sendNow()` e `fetchNow()`, chamados de fora, forçam.
 public actor CloudKitSyncEngine: CKSyncEngineDelegate {
@@ -43,6 +47,8 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     private let coordinator: BoardSyncCoordinator
     private let store: SyncMetadataStore
     private var syncEngine: CKSyncEngine?
+    /// Quem recebe os convites que as buscas trazem; sem ninguém ligado, eles são descartados.
+    private var shareHandler: (@Sendable ([ShareSummary]) -> Void)?
 
     /// - Parameters:
     ///   - container: o container do app (`iCloud.com.joaocosta.Mural`), já criado por quem confere o entitlement.
@@ -78,6 +84,12 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     }
 
     // MARK: Entrada pública
+
+    /// Liga quem recebe os convites (`CKShare`) que uma busca ou uma busca completa traz. O convite não é parte do mural, então não
+    /// passa pelo coordenador: vai direto a quem mostra o compartilhamento. O handler roda no actor deste motor e deve voltar logo.
+    public func setShareHandler(_ handler: @escaping @Sendable ([ShareSummary]) -> Void) {
+        shareHandler = handler
+    }
 
     /// Acrescenta pendências, como o app faz com o que `BoardSyncCoordinator.pendingChanges(for:)` devolve depois de gravar o mural.
     /// O motor agenda o envio sozinho.
@@ -255,14 +267,23 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
 
     private func handleFetched(_ changes: CKSyncEngine.Event.FetchedRecordZoneChanges, engine: CKSyncEngine) async {
         let outcome = CloudKitMapping.fetchOutcome(
-            modifications: changes.modifications.map(\.record), deletions: changes.deletions.map(\.recordID))
-        guard !outcome.saved.isEmpty || !outcome.deleted.isEmpty else { return }
-        do {
-            let remaining = try await coordinator.handleFetched(saved: outcome.saved, deleted: outcome.deleted)
-            Self.replacePending(in: outcome.zones, with: remaining, engine: engine)
-        } catch {
-            Logger.sync.error("Busca não tratada: \(String(describing: error), privacy: .public)")
+            modifications: changes.modifications.map(\.record),
+            deletions: changes.deletions.map { (recordID: $0.recordID, recordType: $0.recordType) })
+        if !outcome.saved.isEmpty || !outcome.deleted.isEmpty {
+            do {
+                let remaining = try await coordinator.handleFetched(saved: outcome.saved, deleted: outcome.deleted)
+                Self.replacePending(in: outcome.zones, with: remaining, engine: engine)
+            } catch {
+                Logger.sync.error("Busca não tratada: \(String(describing: error), privacy: .public)")
+            }
         }
+        deliver(outcome.shares)
+    }
+
+    /// Entrega os convites de uma busca a quem os recebe, depois de o coordenador tratar os registros da mesma leva.
+    private func deliver(_ shares: [ShareSummary]) {
+        guard !shares.isEmpty else { return }
+        shareHandler?(shares)
     }
 
     private func handleSent(_ sent: CKSyncEngine.Event.SentRecordZoneChanges, engine: CKSyncEngine) async {
@@ -297,9 +318,10 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
                 .appendingPathComponent("MuralFullFetch-\(UUID().uuidString)", isDirectory: true)
             defer { try? FileManager.default.removeItem(at: scratch) }
             do {
-                let records = try await Self.allRecords(in: zone.ckZoneID, database: engine.database, copyingAssetsTo: scratch)
-                let remaining = try await coordinator.handleFullFetch(zone, records: records)
+                let fetched = try await Self.allRecords(in: zone.ckZoneID, database: engine.database, copyingAssetsTo: scratch)
+                let remaining = try await coordinator.handleFullFetch(zone, records: fetched.records)
                 Self.replacePending(in: [zone], with: remaining, engine: engine)
+                deliver(fetched.shares)
             } catch let error as CKError where error.code == .zoneNotFound || error.code == .userDeletedZone {
                 Self.replacePending(in: [zone], with: [], engine: engine)
                 do {
@@ -318,17 +340,24 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     /// Todos os registros que a zona tem agora: as mudanças desde o começo (`since: nil`), página a página. Um registro que falha ou
     /// não converte interrompe tudo (lança), porque na busca completa o que não vem conta como apagado. Os arquivos (`CKAsset`) são
     /// copiados para `directory` na hora: o arquivo do CloudKit pode sumir quando a operação termina.
+    ///
+    /// O convite da zona vem junto dos registros e é separado antes de converter (`CloudKitMapping.separatingShares`): como registro
+    /// do mural ele não converteria, e a busca completa nunca terminaria.
     private static func allRecords(
         in zoneID: CKRecordZone.ID, database: CKDatabase, copyingAssetsTo directory: URL
-    ) async throws -> [CloudRecord] {
+    ) async throws -> (records: [CloudRecord], shares: [ShareSummary]) {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var records: [CloudRecord] = []
+        var shares: [ShareSummary] = []
         var token: CKServerChangeToken?
         var moreComing = true
         while moreComing {
             let page = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
-            for (_, result) in page.modificationResultsByID {
-                var record = try CloudRecord(try result.get().record)
+            let (muralRecords, pageShares) = CloudKitMapping.separatingShares(
+                from: try page.modificationResultsByID.values.map { try $0.get().record })
+            shares.append(contentsOf: pageShares)
+            for ckRecord in muralRecords {
+                var record = try CloudRecord(ckRecord)
                 for (key, value) in record.fields {
                     guard case .asset(let source) = value else { continue }
                     let copy = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
@@ -340,7 +369,7 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
             token = page.changeToken
             moreComing = page.moreComing
         }
-        return records
+        return (records, shares)
     }
 
     // MARK: Interno

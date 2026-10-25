@@ -426,7 +426,8 @@ struct CloudKitConversionTests {
         set(bad, "x", Date() as NSDate)
         let removed = ckRecord(name: "33333333-2222-3333-4444-555555555555").recordID
 
-        let outcome = CloudKitMapping.fetchOutcome(modifications: [bad, good], deletions: [removed])
+        let outcome = CloudKitMapping.fetchOutcome(
+            modifications: [bad, good], deletions: [(recordID: removed, recordType: CloudSchema.RecordType.card.rawValue)])
 
         #expect(outcome.saved == [try CloudRecord(good)])
         #expect(outcome.deleted == [CloudRecordID(removed)])
@@ -441,6 +442,136 @@ struct CloudKitConversionTests {
         let outcome = CloudKitMapping.fetchOutcome(modifications: [bad], deletions: [])
 
         #expect(outcome.saved.isEmpty && outcome.deleted.isEmpty && outcome.zones.isEmpty)
+    }
+
+    // MARK: Convite
+
+    /// O convite de uma zona, criado sem conta, só com o título. O CloudKit põe quem o cria como dono e como usuário atual, e esse
+    /// único participante é o dono: sem o `participants` do resumo o dono não aparece.
+    private func ckShare(title: String? = nil, owner: String = CKCurrentUserDefaultName) -> CKShare {
+        let share = CKShare(recordZoneID: CKRecordZone.ID(zoneName: Self.zoneName, ownerName: owner))
+        if let title { share[CKShare.SystemFieldKey.title] = title as NSString }
+        return share
+    }
+
+    @Test("O convite da zona vai para os convites da leva, não para os registros, e o cartão da mesma leva segue normal")
+    func shareIsSeparatedFromTheBoardRecords() throws {
+        let card = ckRecord(name: "11111111-2222-3333-4444-555555555555")
+        set(card, "title", "bom" as NSString)
+        let share = ckShare(title: "Casa")
+        #expect(share.recordType == CKRecord.SystemType.share)
+        #expect(share.recordID.recordName == CKRecordNameZoneWideShare)
+
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [share, card], deletions: [])
+
+        #expect(outcome.saved == [try CloudRecord(card)], "o convite não vira registro do mural, nem ilegível")
+        #expect(outcome.deleted.isEmpty)
+        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(name: Self.zoneName), title: "Casa", currentUserPermission: .owner)])
+        #expect(outcome.zones == [CloudZoneID(name: Self.zoneName)], "só a zona do cartão: o convite não declara zona")
+    }
+
+    @Test("Só o convite na leva: nada segue para o coordenador, e nenhuma zona é declarada")
+    func aBatchWithOnlyTheShareHasNothingForTheCoordinator() {
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [ckShare(title: "Casa")], deletions: [])
+
+        #expect(outcome.saved.isEmpty && outcome.deleted.isEmpty && outcome.zones.isEmpty)
+        #expect(outcome.shares.count == 1)
+    }
+
+    @Test("Convite sem título, e do lado do convidado: a zona leva o dono como veio")
+    func shareKeepsTheZoneOwnerAndMissingTitle() {
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [ckShare(owner: "_dono")], deletions: [])
+
+        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(name: Self.zoneName, ownerName: "_dono"), currentUserPermission: .owner)])
+        #expect(outcome.shares.first?.title == nil && outcome.shares.first?.url == nil)
+    }
+
+    @Test("Registro de tipo de convite que não chega como CKShare sai da leva e não vira aviso nem resumo")
+    func shareTypedRecordWithoutShareClassIsDropped() {
+        let plain = CKRecord(
+            recordType: CKRecord.SystemType.share,
+            recordID: CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: CKRecordZone.ID(zoneName: Self.zoneName)))
+
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [plain], deletions: [])
+
+        #expect(outcome == CloudKitMapping.FetchOutcome())
+    }
+
+    @Test("Apagar o convite vira um resumo apagado da zona, e o apagamento de um registro do mural continua em `deleted`")
+    func shareDeletionBecomesADeletedSummary() {
+        let zone = CKRecordZone.ID(zoneName: Self.zoneName, ownerName: "_dono")
+        let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zone)
+        let cardID = CKRecord.ID(recordName: "33333333-2222-3333-4444-555555555555", zoneID: zone)
+
+        let outcome = CloudKitMapping.fetchOutcome(
+            modifications: [],
+            deletions: [(recordID: shareID, recordType: CKRecord.SystemType.share), (recordID: cardID, recordType: "Card")])
+
+        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(zone), isDeleted: true)])
+        #expect(outcome.deleted == [CloudRecordID(cardID)])
+        #expect(outcome.zones == [CloudZoneID(zone)])
+    }
+
+    @Test("O apagamento do convite também é reconhecido pelo nome do registro, se o tipo vier vazio")
+    func shareDeletionIsRecognizedByTheRecordName() {
+        let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: CKRecordZone.ID(zoneName: Self.zoneName))
+
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [], deletions: [(recordID: shareID, recordType: "")])
+
+        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(name: Self.zoneName), isDeleted: true)])
+        #expect(outcome.deleted.isEmpty)
+    }
+
+    @Test("Sem participante para o usuário atual a permissão é nil")
+    func noCurrentParticipantMeansNoPermission() {
+        #expect(CloudKitMapping.permission(of: nil) == nil)
+    }
+
+    @Test("Convite criado sem conta: quem o cria é o dono e o usuário atual, o nome do dono vem vazio e a lista de convidados não o inclui")
+    func shareCreatedWithoutAnAccountListsNoGuests() {
+        let share = ckShare(title: "Casa")
+        #expect(share.participants.count == 1 && share.participants.first?.role == .owner, "o CloudKit lista o dono entre os participantes")
+
+        let summary = ShareSummary(share)
+
+        #expect(summary.currentUserPermission == .owner)
+        #expect(summary.participants.isEmpty, "o dono fica de fora")
+        #expect(summary.ownerDisplayName == nil, "componentes de nome vazios não viram nome")
+        #expect(!summary.isDeleted)
+    }
+
+    @Test("Permissão do usuário atual: o dono vale como dono, o participante vale a permissão dele e sem permissão conhecida é nil")
+    func currentUserPermissionFollowsRoleAndPermission() {
+        let owner = CKShare.ParticipantRole.owner
+        let guest = CKShare.ParticipantRole.privateUser
+        let expected: [(CKShare.ParticipantRole, CKShare.ParticipantPermission, BoardCloudInfo.Permission?)] = [
+            (owner, .readWrite, .owner), (owner, .unknown, .owner),
+            (guest, .readWrite, .readWrite), (guest, .readOnly, .readOnly), (guest, .none, nil), (guest, .unknown, nil),
+        ]
+        for (role, permission, result) in expected {
+            let mapped = CloudKitMapping.permission(role: role, permission: permission)
+            #expect(mapped == result, "papel \(role.rawValue), permissão \(permission.rawValue)")
+        }
+    }
+
+    @Test("Permissão do CloudKit para a do app: editar e ver passam, e sem permissão conhecida não há equivalente")
+    func participantPermissionMapsToTheAppVocabulary() {
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.readWrite) == .readWrite)
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.readOnly) == .readOnly)
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.none) == nil)
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.unknown) == nil)
+    }
+
+    @Test("Nome para mostrar: sem componentes ou com componentes vazios é nil; com nome e sobrenome traz os dois")
+    func displayNameFromNameComponents() {
+        #expect(CloudKitMapping.displayName(from: nil) == nil)
+        #expect(CloudKitMapping.displayName(from: PersonNameComponents()) == nil)
+
+        var components = PersonNameComponents()
+        components.givenName = "Ana"
+        components.familyName = "Silva"
+        let name = CloudKitMapping.displayName(from: components)
+        #expect(name?.contains("Ana") == true && name?.contains("Silva") == true)
     }
 
     @Test("A pendência vai e volta entre o coordenador e o `CKSyncEngine`")
