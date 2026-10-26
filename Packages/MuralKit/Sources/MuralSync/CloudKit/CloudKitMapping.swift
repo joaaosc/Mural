@@ -38,6 +38,9 @@ public struct ShareSummary: Equatable, Sendable {
     /// O que esta pessoa pode fazer no mural; `nil` quando o convite não a lista ou o CloudKit não disse.
     public var currentUserPermission: BoardCloudInfo.Permission?
     public var ownerDisplayName: String?
+    /// O nome do registro de usuário do dono no CloudKit. No Mac do próprio dono o CloudKit pode dar `CKCurrentUserDefaultName` no
+    /// lugar do nome real.
+    public var ownerUserRecordName: String?
     public var participants: [Participant]
     /// O convite foi apagado: o dono parou de compartilhar o mural. Os outros campos ficam vazios.
     public var isDeleted: Bool
@@ -48,6 +51,7 @@ public struct ShareSummary: Equatable, Sendable {
         url: URL? = nil,
         currentUserPermission: BoardCloudInfo.Permission? = nil,
         ownerDisplayName: String? = nil,
+        ownerUserRecordName: String? = nil,
         participants: [Participant] = [],
         isDeleted: Bool = false
     ) {
@@ -56,6 +60,7 @@ public struct ShareSummary: Equatable, Sendable {
         self.url = url
         self.currentUserPermission = currentUserPermission
         self.ownerDisplayName = ownerDisplayName
+        self.ownerUserRecordName = ownerUserRecordName
         self.participants = participants
         self.isDeleted = isDeleted
     }
@@ -71,6 +76,7 @@ extension ShareSummary {
             url: share.url,
             currentUserPermission: CloudKitMapping.permission(of: share.currentUserParticipant),
             ownerDisplayName: CloudKitMapping.displayName(from: share.owner.userIdentity.nameComponents),
+            ownerUserRecordName: share.owner.userIdentity.userRecordID?.recordName,
             participants: share.participants.filter { $0.role != .owner }.map { Participant($0) })
     }
 }

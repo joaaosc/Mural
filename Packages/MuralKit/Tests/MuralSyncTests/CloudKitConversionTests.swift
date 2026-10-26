@@ -466,7 +466,12 @@ struct CloudKitConversionTests {
 
         #expect(outcome.saved == [try CloudRecord(card)], "o convite não vira registro do mural, nem ilegível")
         #expect(outcome.deleted.isEmpty)
-        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(name: Self.zoneName), title: "Casa", currentUserPermission: .owner)])
+        #expect(
+            outcome.shares == [
+                ShareSummary(
+                    zone: CloudZoneID(name: Self.zoneName), title: "Casa", currentUserPermission: .owner,
+                    ownerUserRecordName: CKCurrentUserDefaultName)
+            ])
         #expect(outcome.zones == [CloudZoneID(name: Self.zoneName)], "só a zona do cartão: o convite não declara zona")
     }
 
@@ -482,7 +487,12 @@ struct CloudKitConversionTests {
     func shareKeepsTheZoneOwnerAndMissingTitle() {
         let outcome = CloudKitMapping.fetchOutcome(modifications: [ckShare(owner: "_dono")], deletions: [])
 
-        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(name: Self.zoneName, ownerName: "_dono"), currentUserPermission: .owner)])
+        #expect(
+            outcome.shares == [
+                ShareSummary(
+                    zone: CloudZoneID(name: Self.zoneName, ownerName: "_dono"), currentUserPermission: .owner,
+                    ownerUserRecordName: CKCurrentUserDefaultName)
+            ])
         #expect(outcome.shares.first?.title == nil && outcome.shares.first?.url == nil)
     }
 
@@ -538,6 +548,16 @@ struct CloudKitConversionTests {
         #expect(summary.participants.isEmpty, "o dono fica de fora")
         #expect(summary.ownerDisplayName == nil, "componentes de nome vazios não viram nome")
         #expect(!summary.isDeleted)
+    }
+
+    @Test("O resumo do convite copia o nome do registro de usuário do dono, como o CloudKit o dá")
+    func shareSummaryCopiesTheOwnerUserRecordName() {
+        let share = ckShare(title: "Casa", owner: "_dono")
+
+        let summary = ShareSummary(share)
+
+        #expect(summary.ownerUserRecordName == share.owner.userIdentity.userRecordID?.recordName)
+        #expect(summary.ownerUserRecordName == CKCurrentUserDefaultName, "convite criado aqui: marcador padrão no lugar do nome real")
     }
 
     @Test("Permissão do usuário atual: o dono vale como dono, o participante vale a permissão dele e sem permissão conhecida é nil")

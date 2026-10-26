@@ -257,8 +257,10 @@ public actor InMemorySyncEngine {
     }
 
     /// Um convite por zona que esta pessoa vê, como o `CKShare` que a busca do CloudKit traz junto dos registros:
-    /// - no banco compartilhado, a permissão que o dono deu a ela e o nome do dono no iCloud falso;
-    /// - no privado, `.owner` e os convidados como participantes (todos aceitos);
+    /// - no banco compartilhado, a permissão que o dono deu a ela, o nome do dono no iCloud falso (também o `ownerUserRecordName`) e
+    ///   todos os convidados da zona como participantes (todos aceitos): é por essa lista que o convidado confere as outras pessoas
+    ///   do Live Share;
+    /// - no privado, `.owner`, ele mesmo como dono (`ownerUserRecordName`) e os convidados como participantes (todos aceitos);
     /// - no privado, a zona sem nenhum convidado sai como apagada: no CloudKit, parar de compartilhar apaga o convite.
     private func deliverShares(for visible: [CloudZoneID]) async {
         guard let shareHandler else { return }
@@ -271,20 +273,29 @@ public actor InMemorySyncEngine {
                     shares.append(ShareSummary(zone: zone, isDeleted: true))
                     continue
                 }
-                let participants = guests.sorted { $0.key < $1.key }.map {
-                    ShareSummary.Participant(
-                        displayName: $0.key, userRecordName: $0.key, permission: Self.permission(of: $0.value), isAccepted: true)
-                }
                 shares.append(
-                    ShareSummary(zone: zone, currentUserPermission: .owner, ownerDisplayName: user, participants: participants))
+                    ShareSummary(
+                        zone: zone, currentUserPermission: .owner, ownerDisplayName: user, ownerUserRecordName: user,
+                        participants: Self.participants(of: guests)))
             case .shared:
                 guard let granted = await cloud.guestPermission(of: user, inZone: zone.name, owner: zone.ownerName) else { continue }
+                let guests = await cloud.guests(inZone: zone.name, owner: zone.ownerName)
                 shares.append(
-                    ShareSummary(zone: zone, currentUserPermission: Self.permission(of: granted), ownerDisplayName: zone.ownerName))
+                    ShareSummary(
+                        zone: zone, currentUserPermission: Self.permission(of: granted), ownerDisplayName: zone.ownerName,
+                        ownerUserRecordName: zone.ownerName, participants: Self.participants(of: guests)))
             }
         }
         guard !shares.isEmpty else { return }
         shareHandler(shares)
+    }
+
+    /// Os convidados do iCloud falso como o convite os lista: ordenados pelo nome, todos aceitos.
+    private static func participants(of guests: [String: InMemoryCloud.GuestPermission]) -> [ShareSummary.Participant] {
+        guests.sorted { $0.key < $1.key }.map {
+            ShareSummary.Participant(
+                displayName: $0.key, userRecordName: $0.key, permission: permission(of: $0.value), isAccepted: true)
+        }
     }
 
     /// A recusa de uma zona que esta pessoa já não vê foi confirmada pelo servidor: a zona foi apagada, ou o acesso acabou.

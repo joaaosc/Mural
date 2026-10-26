@@ -767,7 +767,7 @@ struct TwoMacsTests {
 
     // MARK: Convites
 
-    @Test("Convites do motor falso: o convidado recebe a permissão do dono e o nome dele, e o dono recebe os convidados")
+    @Test("Convites do motor falso: o convidado recebe a permissão, o dono e os convidados, e o dono recebe a si mesmo e os convidados")
     func fakeEngineDeliversTheShares() async throws {
         let macs = try await TwoMacs.make(board: board(note("Nota")), guestPermission: .readOnly, guestTracksAs: .readOnly)
         defer { macs.cleanUp() }
@@ -786,12 +786,17 @@ struct TwoMacsTests {
             ownerLog.all == [
                 [
                     ShareSummary(
-                        zone: macs.ownerZone, currentUserPermission: .owner, ownerDisplayName: TwoMacs.ownerUser, participants: [guest])
+                        zone: macs.ownerZone, currentUserPermission: .owner, ownerDisplayName: TwoMacs.ownerUser,
+                        ownerUserRecordName: TwoMacs.ownerUser, participants: [guest])
                 ]
             ])
         #expect(
             guestLog.all == [
-                [ShareSummary(zone: macs.guestZone, currentUserPermission: .readOnly, ownerDisplayName: TwoMacs.ownerUser)]
+                [
+                    ShareSummary(
+                        zone: macs.guestZone, currentUserPermission: .readOnly, ownerDisplayName: TwoMacs.ownerUser,
+                        ownerUserRecordName: TwoMacs.ownerUser, participants: [guest])
+                ]
             ])
 
         // O dono passa o convidado a editar: o convite seguinte já traz a permissão nova, para os dois.
@@ -801,6 +806,25 @@ struct TwoMacsTests {
 
         #expect(guestLog.all.last?.first?.currentUserPermission == .readWrite)
         #expect(ownerLog.all.last?.first?.participants.map(\.permission) == [.readWrite])
+    }
+
+    @Test("Convites do motor falso: o convidado recebe todos os convidados da zona, ordenados pelo nome, todos aceitos")
+    func fakeEngineListsEveryGuestToTheGuest() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), guestPermission: .readOnly, guestTracksAs: .readOnly)
+        defer { macs.cleanUp() }
+        let guestLog = ShareLog()
+        await macs.guest.engine.setShareHandler { guestLog.record($0) }
+        try await macs.cloud.share(zone: macs.zoneName, owner: TwoMacs.ownerUser, with: "caio", permission: .readWrite)
+        try await macs.cloud.share(zone: macs.zoneName, owner: TwoMacs.ownerUser, with: "abel", permission: .readOnly)
+
+        try await macs.guest.engine.fetchChanges()
+
+        let share = try #require(guestLog.all.last?.first)
+        #expect(share.ownerUserRecordName == TwoMacs.ownerUser)
+        #expect(share.participants.map(\.userRecordName) == ["abel", TwoMacs.guestUser, "caio"], "pelo nome, com a própria pessoa")
+        #expect(share.participants.map(\.displayName) == ["abel", TwoMacs.guestUser, "caio"])
+        #expect(share.participants.map(\.permission) == [.readOnly, .readOnly, .readWrite])
+        #expect(share.participants.allSatisfy { $0.isAccepted })
     }
 
     @Test("Convites do motor falso: a zona do dono sem convidado sai como apagada, e quem perdeu o acesso não recebe mais convite")
