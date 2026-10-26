@@ -89,6 +89,9 @@ struct SharePopover: View {
     let display: ShareDisplay
     var onRemoveFromICloud: () -> Void = {}
     var onLeave: () -> Void = {}
+    /// O mural a entregar ao compartilhamento do sistema, para o botão "Convidar pessoas…" (ou "Gerenciar pessoas…", quando o item já
+    /// traz o convite). `nil` com o iCloud falso ou num mural que não pode ser convidado (o rascunho de exemplo): sem botão.
+    var shareItem: BoardShareItem?
     /// **Só do iCloud falso dos testes** (`CloudSyncController.inviteTestGuest(to:)`): `nil` com o iCloud de verdade, e o botão
     /// "Convidar convidado de teste" não aparece. É o caminho dos testes de interface até um mural compartilhado.
     var onInviteTestGuest: (() async throws -> Void)?
@@ -102,11 +105,12 @@ struct SharePopover: View {
         if case .guest = display.role { true } else { false }
     }
 
-    // As ações falam com o iCloud: sem conta, o popover só explica.
+    // As ações falam com o iCloud: sem conta, o popover só explica. Quem recebeu o convite não convida outras pessoas.
+    private var showsInvite: Bool { display.accountAvailable && !isGuest && shareItem != nil }
     private var showsRemoveFromICloud: Bool { display.accountAvailable && isOwner }
     private var showsLeave: Bool { display.accountAvailable && isGuest }
     private var showsTestInvite: Bool { display.accountAvailable && !isGuest && onInviteTestGuest != nil }
-    private var hasActions: Bool { showsRemoveFromICloud || showsLeave || showsTestInvite }
+    private var hasActions: Bool { showsInvite || showsRemoveFromICloud || showsLeave || showsTestInvite }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -173,7 +177,14 @@ struct SharePopover: View {
 
     private var actions: some View {
         VStack(spacing: 8) {
-            // Lugar de "Convidar pessoas…" (próximo commit) e de "Live Share…" (commit seguinte): só ganham botão quando funcionarem.
+            // Lugar de "Live Share…" (commit seguinte): só ganha botão quando funcionar.
+            if showsInvite, let shareItem {
+                ShareLink(item: shareItem, preview: SharePreview(display.boardName)) {
+                    Text(shareItem.share == nil ? "Convidar pessoas…" : "Gerenciar pessoas…")
+                        .frame(maxWidth: .infinity)
+                }
+                .accessibilityIdentifier("share-invite-button")
+            }
             if showsTestInvite {
                 Button(action: inviteTestGuest) {
                     Text("Convidar convidado de teste")

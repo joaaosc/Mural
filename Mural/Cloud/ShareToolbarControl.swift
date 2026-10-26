@@ -1,3 +1,4 @@
+import CloudKit
 import MuralKit
 import MuralSync
 import SwiftUI
@@ -52,14 +53,34 @@ private struct LiveSharePopover: View {
     let sync: CloudSyncController
     let dismiss: () -> Void
 
+    /// O convite que o iCloud já tem do mural, lido ao abrir o popover: com ele o botão passa a "Gerenciar pessoas…". Relido a cada
+    /// abertura, para o sistema receber o convite com a versão atual do servidor.
+    @State private var existingShare: CKShare?
+
     var body: some View {
         SharePopover(
             display: ShareDisplay(tab: tab, sync: sync),
             onRemoveFromICloud: { confirm { await tabs.requestRemoveFromICloud(tab.route, name: tab.title) } },
             // Para quem recebeu o convite, o pedido de exclusão já vira "sair do mural".
             onLeave: { confirm { await tabs.requestDelete(tab.route, name: tab.title) } },
+            shareItem: shareItem,
             // O convidado de teste é só do iCloud falso dos testes de interface.
-            onInviteTestGuest: sync.mode == .inMemory ? { try await sync.inviteTestGuest(to: tab.route) } : nil)
+            onInviteTestGuest: sync.mode == .inMemory ? { try await sync.inviteTestGuest(to: tab.route) } : nil
+        )
+        .task { await loadExistingShare() }
+    }
+
+    /// O item do botão Convidar: só com o iCloud de verdade e num mural salvo (o rascunho de exemplo ainda não é da pessoa).
+    private var shareItem: BoardShareItem? {
+        guard let service = sync.shareService, case .saved(let id) = tab.route else { return nil }
+        return service.item(for: id, share: existingShare)
+    }
+
+    /// Só o mural da própria pessoa no iCloud pode já ter convite; num mural só deste Mac a zona nem existe. Uma falha (sem rede, por
+    /// exemplo) deixa o botão "Convidar pessoas…", que busca o convite de novo na hora de convidar.
+    private func loadExistingShare() async {
+        guard let service = sync.shareService, case .saved(let id) = tab.route, tab.session.cloud?.database == .private else { return }
+        existingShare = try? await service.existingShare(for: id)
     }
 
     /// Fecha o popover e pede a confirmação à janela, para o diálogo aparecer sem o popover na frente.

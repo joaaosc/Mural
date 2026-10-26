@@ -15,11 +15,15 @@ enum CloudSyncMode: Equatable, Sendable {
     case cloudKit
 }
 
-/// Um aviso para a pessoa sobre um mural que mudou por causa do iCloud. Texto simples por ora; a Fase 3 refina.
+/// Um aviso para a pessoa sobre um mural que mudou por causa do iCloud, ou sobre um convite que não deu certo. Texto simples por
+/// ora; a Fase 3 refina.
 struct CloudSyncNotice: Identifiable, Equatable, Sendable {
     let id = UUID()
-    var boardID: BoardID
+    /// O mural do aviso; `nil` quando o aviso não é de um mural que este Mac tenha (um convite que não vale, por exemplo).
+    var boardID: BoardID?
     var message: String
+    /// O título do alerta. O padrão é o de um mural que saiu do iCloud.
+    var title = "Mural fora do iCloud"
 }
 
 /// O controlador da sincronização no app: monta, para cada banco do iCloud (privado e compartilhado), o coordenador e o motor, liga
@@ -102,6 +106,10 @@ final class CloudSyncController {
     @ObservationIgnored private var refreshAgain = false
     /// Quem avisa da interface de compartilhamento do sistema; só existe no modo `.cloudKit`.
     @ObservationIgnored private var sharingObserver: CKSystemSharingUIObserver?
+    /// O container do iCloud de verdade; `nil` fora do modo `.cloudKit`. O aceite de convites o usa.
+    @ObservationIgnored private var cloudContainer: CKContainer?
+    /// O convite de pessoas pelo iCloud (`CKShare`); só existe no modo `.cloudKit`. A interface o usa para montar o botão Convidar.
+    @ObservationIgnored private(set) var shareService: ShareService?
 
     /// Há motores: a sincronização está ligada.
     var isEnabled: Bool { !channels.isEmpty }
@@ -149,6 +157,8 @@ final class CloudSyncController {
             channels[scope] = Channel(coordinator: coordinator, engine: engine)
         }
         if let container {
+            cloudContainer = container
+            shareService = ShareService(container: container, library: registry.library, sync: self)
             observeSystemSharing(in: container)
             observeAccount(of: container)
         }
@@ -213,13 +223,19 @@ final class CloudSyncController {
 
     /// Passa a acompanhar o mural: o coordenador guarda o estado (`startTracking`), o dono cria a zona no iCloud (só no banco
     /// privado) e o motor recebe o que há por enviar, que é enviado já. Quem chama grava antes o `cloud` no manifesto.
+    /// - Parameter sendsNow: `false` não espera o envio: o que há por enviar fica agendado, como depois de uma gravação
+    ///   (`scheduleSend`), e a volta não depende da rede.
     /// - Throws: o que o coordenador ou o motor lançarem, como `BoardSyncCoordinatorError.wrongDatabase`.
-    func track(_ id: BoardID, cloud: BoardCloudInfo) async throws {
+    func track(_ id: BoardID, cloud: BoardCloudInfo, sendsNow: Bool = true) async throws {
         await startTask?.value
         let channel = try channel(for: cloud.database)
         if cloud.database == .private { try await channel.engine.startZone(for: id) }
         try await channel.engine.add(try await channel.coordinator.startTracking(id, cloud: cloud))
-        try await channel.engine.send()
+        if sendsNow {
+            try await channel.engine.send()
+        } else {
+            scheduleSend(for: id)
+        }
         await refreshIssues()
     }
 
@@ -232,12 +248,27 @@ final class CloudSyncController {
     /// - Throws: `CloudSyncControllerError` para sincronização desligada, rascunho de exemplo ou mural que já tem `cloud`; ou o
     ///   que a biblioteca, a sessão ou o motor lançarem.
     func putInCloud(_ route: BoardRoute) async throws {
+        try await moveToCloud(route, sendsNow: true)
+    }
+
+    /// Como `putInCloud`, para a janela do convite: o primeiro envio fica só agendado (a espera de `sendDelay`, como depois de uma
+    /// gravação) e não é aguardado, para a janela não ficar girando num mural grande. Mural que já é do dono no iCloud não muda nada.
+    /// - Throws: como `putInCloud`, mas sem `.alreadyInCloud`; `CloudSyncControllerError.notOwner` para mural de outra pessoa.
+    func enableCloud(_ route: BoardRoute) async throws {
+        try await moveToCloud(route, sendsNow: false)
+    }
+
+    /// O corpo de `putInCloud` (`sendsNow`) e de `enableCloud`.
+    private func moveToCloud(_ route: BoardRoute, sendsNow: Bool) async throws {
         guard isEnabled else { throw CloudSyncControllerError.disabled }
         guard case .saved(let id) = route else { throw CloudSyncControllerError.notASavedBoard }
         await startTask?.value
         let library = registry.library
         guard let snapshot = try await library.open(route) else { throw BoardLibraryError.unavailableRoute(route) }
-        guard snapshot.manifest.cloud == nil else { throw CloudSyncControllerError.alreadyInCloud }
+        if let current = snapshot.manifest.cloud {
+            if !sendsNow, current.database == .private { return }
+            throw sendsNow ? CloudSyncControllerError.alreadyInCloud : CloudSyncControllerError.notOwner
+        }
 
         _ = try await library.backupPackage(route, to: library.rootDirectory.appendingPathComponent("Backups", isDirectory: true))
         let cloud = BoardCloudInfo(
@@ -249,7 +280,7 @@ final class CloudSyncController {
             throw error
         }
         do {
-            try await track(id, cloud: cloud)
+            try await track(id, cloud: cloud, sendsNow: sendsNow)
         } catch {
             // Um `send` que falha depois de o mural ser acompanhado deixa tudo certo para a próxima tentativa; só o que nem chegou a
             // ser acompanhado volta a ser local.
@@ -379,7 +410,13 @@ final class CloudSyncController {
     private func post(_ notice: CloudSyncNotice) {
         notices.append(notice)
         // O aviso é de um mural que deixou o iCloud neste Mac: o convite dele já não vale.
-        if shareStates[notice.boardID] != nil { shareStates[notice.boardID] = nil }
+        if let id = notice.boardID, shareStates[id] != nil { shareStates[id] = nil }
+    }
+
+    /// Avisa a pessoa de um convite que não deu certo (preparar, aceitar ou abrir). Não é de um mural que saiu do iCloud: o convite
+    /// dele, se houver, continua valendo.
+    func postInvitationNotice(_ message: String) {
+        post(CloudSyncNotice(message: message, title: "Convite do iCloud"))
     }
 
     // MARK: Convites
@@ -548,6 +585,89 @@ final class CloudSyncController {
         await refreshIssues()
     }
 
+    // MARK: Aceitar convite
+
+    /// A pessoa abriu o link de um convite: o sistema entrega o `CKShare.Metadata` ao delegado do app. Espera o início e segue a
+    /// decisão de `ShareAcceptance`: o convite que não vale vira aviso; a dona do mural abre o próprio mural; os demais aceitam o
+    /// convite no iCloud (se ainda não aceito), adotam o mural neste Mac e o abrem numa aba. Qualquer erro vira aviso.
+    ///
+    /// Só com o iCloud de verdade (`.cloudKit`): o iCloud falso dos testes de interface não tem convites do sistema. O aceite não
+    /// tem teste automático (o convite é do CloudKit de verdade); só se confere com duas contas do iCloud.
+    func acceptShare(_ metadata: CKShare.Metadata) async {
+        guard let container = cloudContainer else { return }
+        await start()
+        let zone = CloudZoneID(metadata.share.recordID.zoneID)
+        let decision = ShareAcceptance.decide(
+            container: metadata.containerIdentifier, appContainer: Self.containerIdentifier,
+            isZoneWide: metadata.share.recordID.recordName == CKRecordNameZoneWideShare, zoneName: zone.name,
+            role: metadata.participantRole, status: metadata.participantStatus)
+        do {
+            switch decision {
+            case .reject(let rejection):
+                postInvitationNotice(rejection.message)
+            case .openOwn(let id):
+                await openOwnBoard(id)
+            case .adoptOnly(let id):
+                try await adoptInvited(metadata, zone: zone, id: id)
+            case .acceptAndAdopt(let id):
+                _ = try await container.accept(metadata)
+                try await adoptInvited(metadata, zone: zone, id: id)
+            }
+        } catch {
+            Self.log.error("Convite não aceito: \(String(describing: error), privacy: .public)")
+            postInvitationNotice("Não foi possível aceitar o convite: \(error.localizedDescription)")
+        }
+    }
+
+    /// A dona abriu o link do próprio mural: abre a aba dele, se o mural está neste Mac.
+    private func openOwnBoard(_ id: BoardID) async {
+        guard (try? await registry.library.open(.saved(id))) != nil else {
+            postInvitationNotice("Este mural é seu, mas ainda não está neste Mac.")
+            return
+        }
+        await showBoard(id, fallbackTitle: nil)
+    }
+
+    /// Adota neste Mac o mural do convite aceito: a zona recusada antes (a pessoa tinha saído do mural) volta a valer; o pacote
+    /// provisório nasce com o título do convite e a permissão que ele dá; a busca traz o conteúdo; e o mural abre numa aba. Se o
+    /// motor do banco compartilhado já adotou a zona por conta própria, `adoptZone` a reconhece (`.alreadyTracked`) e a permissão
+    /// certa chega com o convite buscado (`adoptGrantedAccess`).
+    private func adoptInvited(_ metadata: CKShare.Metadata, zone: CloudZoneID, id: BoardID) async throws {
+        let channel = try channel(for: .shared)
+        let summary = ShareSummary(metadata.share)
+        let cloud = ShareAcceptance.cloudInfo(
+            zone: zone, ownerName: Self.displayName(of: metadata.ownerIdentity) ?? summary.ownerDisplayName,
+            permission: metadata.participantPermission)
+        try await channel.coordinator.undeclineZone(zone)
+        switch try await channel.coordinator.adoptZone(zone, cloud: cloud, name: summary.title) {
+        case .adopted, .alreadyTracked:
+            break
+        case .conflict:
+            postInvitationNotice("Este Mac já tem um mural com o mesmo identificador, e ele não foi substituído pelo convite.")
+            return
+        case .declined, .notABoardZone:
+            postInvitationNotice("Não foi possível adotar o mural deste convite.")
+            return
+        }
+        await fetch()
+        await showBoard(id, fallbackTitle: summary.title)
+    }
+
+    /// Abre o mural numa aba (ou vai para a aba dele) e traz a janela para a frente, com o nome gravado no pacote.
+    private func showBoard(_ id: BoardID, fallbackTitle: String?) async {
+        let route = BoardRoute.saved(id)
+        let name = (try? await registry.library.open(route))?.manifest.name ?? fallbackTitle
+        guard let tabs = delivery.tabs else { return }
+        tabs.open(route, title: name)
+        tabs.showWindow()
+    }
+
+    /// O nome de uma pessoa do iCloud, no formato da região; `nil` se o iCloud não deu nome.
+    private static func displayName(of identity: CKUserIdentity) -> String? {
+        guard let name = identity.nameComponents?.formatted(), !name.isEmpty else { return nil }
+        return name
+    }
+
     // MARK: Convite de teste
 
     /// **Só do iCloud falso** (`.inMemory`, os testes de interface): convida o `testGuest` para editar o mural, para esses testes terem
@@ -633,7 +753,8 @@ final class CloudSyncController {
         receive([ShareSummary(zone: zone, isDeleted: true)], scope: Self.scope(of: zone))
     }
 
-    /// A interface do sistema gravou o convite (alguém foi convidado, ou a permissão mudou): `shareStates` passa a ter o resumo dele.
+    /// A interface do sistema gravou o convite (alguém foi convidado, ou a permissão mudou), ou o `ShareService` o criou ou o releu:
+    /// `shareStates` passa a ter o resumo dele.
     func systemSharingDidSave(_ share: ShareSummary) {
         receive([share], scope: Self.scope(of: share.zone))
     }

@@ -376,6 +376,59 @@ struct CloudSyncControllerTests {
         await env.finish()
     }
 
+    @Test("Pôr no iCloud para convidar: o mural fica acompanhado e com cloud sem esperar o envio, que só fica agendado")
+    func enableCloudDoesNotWaitForTheFirstUpload() async throws {
+        let env = try SyncEnvironment(sendDelay: .seconds(30))
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(name: "Para convidar", items: [card])
+        await env.controller.start()
+        let zone = CloudSchema.zoneName(for: id)
+
+        try await env.controller.enableCloud(.saved(id))
+
+        #expect(try await env.diskManifest(id).cloud == SyncEnvironment.cloudInfo(database: .private, for: id))
+        #expect(try await env.controller.coordinator(for: .private)?.boardIDs() == [id], "o mural já é acompanhado")
+        #expect(await env.cloud.records(inZone: zone, owner: CloudSyncController.testUser).isEmpty, "o primeiro envio não foi aguardado")
+        let backups = await env.library.rootDirectory.appendingPathComponent("Backups", isDirectory: true)
+        let copies = try FileManager.default.contentsOfDirectory(atPath: backups.path)
+        #expect(copies.count == 1, "a cópia de segurança vem antes, como em putInCloud")
+
+        // O que ficou para enviar não se perde: quando o envio sai, o segundo Mac recebe o mural.
+        await env.controller.send()
+        let remote = try await RemoteMac.join(
+            boardID: id, name: "Para convidar", cloud: env.cloud, root: env.directory.appendingPathComponent("OutroMac"))
+        #expect(await remote.host.board.item(id: card.id)?.text == "um")
+
+        // Mural que já é do dono no iCloud: nada muda. O de outra pessoa e o rascunho de exemplo são recusados.
+        try await env.controller.enableCloud(.saved(id))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: backups.path).count == 1, "nenhuma segunda cópia")
+        let received = try await env.seed(name: "Recebido", items: [], database: .shared)
+        await #expect(throws: CloudSyncControllerError.notOwner) { try await env.controller.enableCloud(.saved(received)) }
+        await #expect(throws: CloudSyncControllerError.notASavedBoard) {
+            try await env.controller.enableCloud(.welcomeDraft(BoardID()))
+        }
+    }
+
+    @Test("Pôr no iCloud para convidar: o primeiro envio agendado sai sozinho e o segundo Mac recebe o mural")
+    func enableCloudUploadsAfterTheSendDelay() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(name: "Para convidar", items: [card])
+        await env.controller.start()
+        let zone = CloudSchema.zoneName(for: id)
+
+        try await env.controller.enableCloud(.saved(id))
+
+        await waitUntil("o envio agendado chegar ao iCloud") {
+            await !env.cloud.records(inZone: zone, owner: CloudSyncController.testUser).isEmpty
+        }
+        let remote = try await RemoteMac.join(
+            boardID: id, name: "Para convidar", cloud: env.cloud, root: env.directory.appendingPathComponent("OutroMac"))
+        #expect(await remote.host.board.item(id: card.id)?.text == "um")
+    }
+
     // MARK: Conta e convite de teste
 
     @Test("O iCloud falso sempre tem conta")
@@ -1257,9 +1310,10 @@ private final class SyncEnvironment {
     /// - Parameters:
     ///   - cloud: o iCloud falso; um segundo ambiente recebe o do primeiro, e os dois viram dois Macs sobre o mesmo iCloud.
     ///   - user: quem usa este Mac no iCloud falso; o mesmo nome nos dois ambientes são dois Macs da mesma pessoa.
+    ///   - sendDelay: a espera entre gravar e enviar; um teste que não quer o envio agendado dentro dele a alonga.
     init(
         faults: BoardRepositoryFaultInjection = .none, cloud: InMemoryCloud = InMemoryCloud(),
-        user: String = CloudSyncController.testUser
+        user: String = CloudSyncController.testUser, sendDelay: Duration = SyncEnvironment.sendDelay
     ) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MuralCloudSync-\(UUID().uuidString)", isDirectory: true)
@@ -1290,7 +1344,7 @@ private final class SyncEnvironment {
         self.tabs = tabs
         let controller = CloudSyncController(
             mode: .inMemory, registry: registry, delivery: delivery, directory: directory.appendingPathComponent("Sync"),
-            cloud: cloud, user: user, openSessions: openSessions, sendDelay: Self.sendDelay)
+            cloud: cloud, user: user, openSessions: openSessions, sendDelay: sendDelay)
         // As abas escolhem a exclusão pelo papel da pessoa, que vem do controlador deste "Mac" e não do global do app.
         tabs.cloudSync = { controller }
         self.controller = controller

@@ -227,7 +227,7 @@ struct MuralWindowView: View {
     /// Mostra o aviso mais antigo do iCloud quando a janela não tem outro alerta na frente.
     private func presentNextNotice() {
         guard alert == nil, let notice = CloudSyncController.current?.notices.first else { return }
-        alert = WindowAlert(title: "Mural fora do iCloud", message: notice.message, noticeID: notice.id)
+        alert = WindowAlert(title: notice.title, message: notice.message, noticeID: notice.id)
     }
 
     private func createBoard() {
