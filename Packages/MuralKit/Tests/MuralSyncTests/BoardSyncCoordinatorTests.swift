@@ -876,6 +876,27 @@ struct BoardSyncCoordinatorTests {
         #expect(try await setup.coordinator.declinedZones().isEmpty)
     }
 
+    @Test("Voltar a aceitar a zona recusada tira só ela das recusadas, neste banco, e a zona volta a ser adotada")
+    func undecliningLetsTheZoneBeAdoptedAgain() async throws {
+        let setup = try await makeSetup(hasLocalBoard: false)
+        defer { cleanUp(setup) }
+        let other = CloudZoneID(name: CloudSchema.zoneName(for: BoardID()))
+        try await setup.store.saveDeclinedZones([CloudZoneID(name: setup.zone.name, ownerName: "_outro"), other], for: .private)
+        try await setup.store.saveDeclinedZones([setup.zone], for: .shared)
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil) == .declined)
+
+        try await setup.coordinator.undeclineZone(setup.zone)
+
+        #expect(try await setup.coordinator.declinedZones() == [other], "a zona saiu pelo nome, e a outra continua recusada")
+        #expect(try await setup.store.declinedZones(for: .shared) == [setup.zone], "o outro banco não é tocado")
+        #expect(try await setup.coordinator.adoptZone(setup.zone, cloud: setup.cloud, name: nil) == .adopted)
+
+        // Zona que não estava recusada: nada muda.
+        try await setup.coordinator.undeclineZone(setup.zone)
+        try await setup.coordinator.undeclineZone(CloudZoneID(name: "Outra"))
+        #expect(try await setup.coordinator.declinedZones() == [other])
+    }
+
     @Test("O mesmo id acompanhado no outro banco é conflito, e o estado dele não é tocado")
     func sameIDInTheOtherDatabaseIsAConflict() async throws {
         let setup = try await makeSetup(hasLocalBoard: false)

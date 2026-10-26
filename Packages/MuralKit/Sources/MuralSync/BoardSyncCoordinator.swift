@@ -131,8 +131,8 @@ public enum BoardSyncCoordinatorError: Error, Equatable, Sendable {
 /// `declinedZones()` e não é adotado de novo até o servidor confirmar o apagamento (`handleZoneDeleted`).
 ///
 /// **Um evento de cada vez**: como a espera pelo host abre espaço para outro evento ler o mesmo estado antigo e gravar por cima do
-/// primeiro, os que mudam o estado (`startTracking`, `stopTracking`, `adoptZone`, `declineZone`, `handleSent`, `handleFetched`,
-/// `handleZoneDeleted`) rodam um por vez, na ordem de chegada. `pendingChanges(for:)` e `record(for:)` só leem e não esperam;
+/// primeiro, os que mudam o estado (`startTracking`, `stopTracking`, `adoptZone`, `declineZone`, `undeclineZone`, `handleSent`,
+/// `handleFetched`, `handleZoneDeleted`) rodam um por vez, na ordem de chegada. `pendingChanges(for:)` e `record(for:)` só leem e não esperam;
 /// `boardsAwaitingFirstFetch()` só lê, mas espera a vez, para devolver o estado já gravado pelo evento em andamento.
 public actor BoardSyncCoordinator {
     /// O resultado de `adoptZone(_:cloud:name:)`.
@@ -275,6 +275,14 @@ public actor BoardSyncCoordinator {
     /// As zonas recusadas deste banco: não são adotadas até o servidor confirmar o apagamento.
     public func declinedZones() async throws -> Set<CloudZoneID> {
         try await store.declinedZones(for: scope)
+    }
+
+    /// Tira a zona das recusadas: a pessoa que saiu do mural voltou a aceitar o convite, e `adoptZone` pode adotá-la de novo. A
+    /// comparação é pelo nome, como a de `adoptZone`. Zona que não estava recusada: nada muda.
+    public func undeclineZone(_ zone: CloudZoneID) async throws {
+        await acquireEventLock()
+        defer { releaseEventLock() }
+        try await store.undeclineZone(zone, for: scope)
     }
 
     // MARK: O que enviar
@@ -428,9 +436,7 @@ public actor BoardSyncCoordinator {
         await acquireEventLock()
         defer { releaseEventLock() }
         if try await loadState(for: id) != nil { try await remove(id, reason: reason) }
-        let declined = try await store.declinedZones(for: scope)
-        let remaining = declined.filter { $0.name != zone.name }
-        if remaining.count != declined.count { try await store.saveDeclinedZones(remaining, for: scope) }
+        try await store.undeclineZone(zone, for: scope)
     }
 
     /// O que está impedindo cada mural de sincronizar, um por mural. Havendo vários, vale o mais grave: app mais novo, a gravação

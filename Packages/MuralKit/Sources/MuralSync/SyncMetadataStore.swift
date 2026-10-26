@@ -223,6 +223,16 @@ public actor SyncMetadataStore {
         try SyncJSON.encode(ordered).write(to: declinedURL(for: scope), options: .atomic)
     }
 
+    /// Tira a zona da lista de recusadas do banco, pelo nome (a comparação de `adoptZone`): ou o servidor confirmou o apagamento, ou a
+    /// pessoa voltou a aceitar o mural. Zona que não estava na lista: nada muda e o arquivo nem é gravado.
+    /// - Throws: `SyncMetadataStoreError.corrupted` se o arquivo da lista existe e não pode ser lido.
+    public func undeclineZone(_ zone: CloudZoneID, for scope: CloudDatabaseScope) throws {
+        let declined = try declinedZones(for: scope)
+        let remaining = declined.filter { $0.name != zone.name }
+        guard remaining.count != declined.count else { return }
+        try saveDeclinedZones(remaining, for: scope)
+    }
+
     // MARK: Interno
 
     private var boardsDirectory: URL {

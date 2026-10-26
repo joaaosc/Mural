@@ -373,6 +373,27 @@ struct SyncMetadataStoreTests {
         #expect(try await store.declinedZones(for: .private) == [zone])
     }
 
+    @Test("Tirar uma zona das recusadas é pelo nome e só no banco pedido, e sem a zona na lista nada é gravado")
+    func undecliningRemovesTheZoneByNameInOneScope() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let kept = CloudZoneID(name: "mural-AAAAAAAA-0000-4000-8000-000000000001", ownerName: "_b")
+        let removed = CloudZoneID(name: "mural-AAAAAAAA-0000-4000-8000-000000000002", ownerName: "_b")
+        try await store.saveDeclinedZones([kept, removed], for: .shared)
+        try await store.saveDeclinedZones([removed], for: .private)
+
+        try await store.undeclineZone(CloudZoneID(name: removed.name, ownerName: "_outro"), for: .shared)
+
+        #expect(try await store.declinedZones(for: .shared) == [kept], "pelo nome, qualquer que seja o dono")
+        #expect(try await store.declinedZones(for: .private) == [removed], "o outro banco não muda")
+
+        let untouched = temporaryDirectory()
+        defer { cleanUp(untouched) }
+        try await SyncMetadataStore(directory: untouched).undeclineZone(kept, for: .shared)
+        #expect(!FileManager.default.fileExists(atPath: untouched.path), "sem lista de recusadas, nada é criado")
+    }
+
     // MARK: Espera pela primeira busca
 
     @Test("A espera pela primeira busca só vai ao disco quando ligada, e o estado gravado sem ela abre desligado")
