@@ -95,7 +95,8 @@ public struct DriveMirrorPlan: Equatable, Sendable {
     /// O nome do pacote para um mural: seguro para qualquer volume, com ".mural".
     ///
     /// Troca `/` e `:` por `-`; tira os caracteres de controle, os espaços das pontas e os pontos do começo (nome com ponto
-    /// no começo some do Finder); usa "Mural" se nada sobrar; corta em 120 caracteres, não em bytes.
+    /// no começo some do Finder); usa "Mural" se nada sobrar; corta em 120 caracteres e, se ainda passar de 200 bytes em UTF-8,
+    /// tira caracteres do fim até caber: o volume aceita 255 bytes por nome, e o sufixo do id e ".mural" somam até 45.
     public static func fileName(for name: String) -> String {
         let scalars = name.unicodeScalars.compactMap { scalar -> Unicode.Scalar? in
             if scalar.properties.generalCategory == .control { return nil }
@@ -103,14 +104,17 @@ public struct DriveMirrorPlan: Equatable, Sendable {
         }
         var cleaned = Substring(String(String.UnicodeScalarView(scalars)))
         while let first = cleaned.first, first == "." || first.isWhitespace { cleaned.removeFirst() }
+        cleaned = cleaned.prefix(maximumNameLength)
+        while cleaned.utf8.count > maximumNameBytes { cleaned.removeLast() }
         while let last = cleaned.last, last.isWhitespace { cleaned.removeLast() }
         if cleaned.isEmpty { cleaned = fallbackName[...] }
-        return String(cleaned.prefix(maximumNameLength)) + packageExtension
+        return String(cleaned) + packageExtension
     }
 
     private static let packageExtension = ".mural"
     private static let fallbackName = "Mural"
     private static let maximumNameLength = 120
+    private static let maximumNameBytes = 200
 
     private struct FolderEntry {
         var name: String

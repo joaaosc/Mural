@@ -227,16 +227,24 @@ struct DriveMirrorPlanTests {
         #expect(DriveMirrorPlan.fileName(for: name) == expected)
     }
 
-    @Test("fileName(for:) corta em 120 caracteres, não em bytes, sem partir uma letra acentuada")
-    func longNamesAreCutByCharacter() {
-        let precomposed = DriveMirrorPlan.fileName(for: String(repeating: "é", count: 200))
-        #expect(precomposed == String(repeating: "é", count: 120) + ".mural")
-        #expect(precomposed.utf8.count == 120 * 2 + 6)
+    @Test("fileName(for:) corta em 120 caracteres e em 200 bytes, sem partir uma letra acentuada")
+    func longNamesAreCutByCharacterAndBytes() {
+        // Letras de 1 byte: o corte é o de 120 caracteres.
+        #expect(DriveMirrorPlan.fileName(for: String(repeating: "a", count: 300)) == String(repeating: "a", count: 120) + ".mural")
 
-        // "e" + acento combinado é uma letra só: o corte não deixa um acento solto.
+        // "é" tem 2 bytes: cabem 100 letras.
+        let precomposed = DriveMirrorPlan.fileName(for: String(repeating: "é", count: 200))
+        #expect(precomposed == String(repeating: "é", count: 100) + ".mural")
+
+        // "e" + acento combinado é uma letra só, de 3 bytes: cabem 66, e o corte não deixa um acento solto.
         let decomposed = DriveMirrorPlan.fileName(for: String(repeating: "e\u{301}", count: 200))
-        #expect(decomposed.count == 120 + 6)
-        #expect(decomposed.unicodeScalars.count == 120 * 2 + 6)
+        #expect(decomposed.count == 66 + 6)
         #expect(decomposed.hasSuffix("e\u{301}.mural"))
+
+        // Escrita de 3 bytes por letra: mesmo com o sufixo do id inteiro, o nome cabe nos 255 bytes do volume.
+        let wide = DriveMirrorPlan.fileName(for: String(repeating: "漢", count: 150))
+        let base = wide.dropLast(".mural".count)
+        #expect(base.utf8.count <= 200)
+        #expect("\(base) (\(UUID().uuidString)).mural".utf8.count <= 255)
     }
 }
