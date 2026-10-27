@@ -81,6 +81,10 @@ final class CloudSyncController {
     /// Quanto se espera, depois da última gravação de um mural, para enviar: gravações em sequência (digitação) viram um envio só.
     static let defaultSendDelay: Duration = .seconds(1)
 
+    /// A espera de envio de um mural em Live Share com outra pessoa (`liveBoards`): menor que a de uso, para as mudanças chegarem
+    /// antes aos outros.
+    static let liveSendDelay: Duration = .milliseconds(300)
+
     private let registry: BoardSessionRegistry
     private let delivery: BoardDelivery
     private let openSessions: OpenBoardSessions
@@ -110,6 +114,21 @@ final class CloudSyncController {
     @ObservationIgnored private var cloudContainer: CKContainer?
     /// O convite de pessoas pelo iCloud (`CKShare`); só existe no modo `.cloudKit`. A interface o usa para montar o botão Convidar.
     @ObservationIgnored private(set) var shareService: ShareService?
+    /// Os murais em Live Share com outra pessoa conferida; quem define é o controlador do Live Share. O envio deles espera só
+    /// `liveSendDelay` (se for menor que a espera comum).
+    @ObservationIgnored var liveBoards: Set<BoardID> = []
+    /// Chamado com o mural depois de um envio dele que levou mudanças ao iCloud e voltou sem erro (`sendPending`, com os avisos já
+    /// relidos): o Live Share avisa as outras pessoas para buscarem já. Um ouvinte só.
+    @ObservationIgnored var onBoardSent: (@MainActor (BoardID) -> Void)?
+    /// Chamado com o mural que saiu do iCloud neste Mac: o aviso de um mural removido (`post`, quando traz o mural) ou a saída da
+    /// própria pessoa (`didLeave`). O Live Share sai da sessão desse mural. Um ouvinte só.
+    @ObservationIgnored var onBoardLeftCloud: (@MainActor (BoardID) -> Void)?
+    /// A busca pedida por `requestFetch()`, enquanto ela existe, e se chegou outro pedido durante ela.
+    @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchAgain = false
+    /// O `userRecordName` da pessoa deste Mac no iCloud de verdade, guardado depois da primeira leitura que deu certo
+    /// (`currentUserRecordName()`). Uma troca de conta (`CKAccountChanged`) o esquece.
+    @ObservationIgnored private var cachedUserRecordName: String?
 
     /// Há motores: a sincronização está ligada.
     var isEnabled: Bool { !channels.isEmpty }
@@ -317,6 +336,25 @@ final class CloudSyncController {
         await refreshIssues()
     }
 
+    /// Pede uma busca (`fetch()`) sem esperar a volta: o Live Share a usa quando outra pessoa avisa que enviou. Pedidos durante uma
+    /// busca em andamento viram uma só, logo depois dela, como em `scheduleRefresh()`.
+    func requestFetch() {
+        guard fetchTask == nil else {
+            fetchAgain = true
+            return
+        }
+        fetchTask = Task { @MainActor [weak self] in
+            while let self {
+                self.fetchAgain = false
+                await self.fetch()
+                guard self.fetchAgain else {
+                    self.fetchTask = nil
+                    return
+                }
+            }
+        }
+    }
+
     /// Envia agora, nos dois bancos, o que está pendente. Espera o início (`start()`), se ele estiver em andamento.
     func send() async {
         await startTask?.value
@@ -350,10 +388,11 @@ final class CloudSyncController {
         session.setAwaitingCloud(awaitingFirstFetch.contains(id))
     }
 
-    /// Agenda o envio do mural para daqui a `sendDelay`; uma gravação nova antes disso cancela este e agenda outro.
+    /// Agenda o envio do mural para daqui a `sendDelay` (a menor entre ela e `liveSendDelay`, se o mural está em `liveBoards`); uma
+    /// gravação nova antes disso cancela este e agenda outro.
     private func scheduleSend(for id: BoardID) {
         sendTasks[id]?.cancel()
-        let delay = sendDelay
+        let delay = liveBoards.contains(id) ? min(sendDelay, Self.liveSendDelay) : sendDelay
         sendTasks[id] = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
@@ -364,10 +403,14 @@ final class CloudSyncController {
     /// Pede ao coordenador o que falta enviar do mural (lê o que está gravado, não a janela), entrega ao motor e envia. Mural que
     /// nenhum banco acompanha não tem pendência e não faz nada. O mural fica em `sendingBoards` até os avisos serem relidos, para a
     /// interface passar de "Enviando…" direto ao estado final.
+    ///
+    /// No fim, depois de reler os avisos, chama `onBoardSent` se algum banco tinha mudanças e o envio dele voltou sem erro. Sem
+    /// pendência (uma gravação só de zoom ou rolagem, por exemplo) ou com o envio falhando, não chama.
     private func sendPending(for id: BoardID) async {
         await startTask?.value
         beginSending(id)
         defer { endSending(id) }
+        var sent = false
         for scope in Self.scopes {
             guard let channel = channels[scope] else { continue }
             do {
@@ -375,12 +418,14 @@ final class CloudSyncController {
                 guard !changes.isEmpty else { continue }
                 try await channel.engine.add(changes)
                 try await channel.engine.send()
+                sent = true
             } catch {
                 Self.log.error(
                     "Envio do mural no banco \(scope.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
         await refreshIssues()
+        if sent { onBoardSent?(id) }
     }
 
     /// Só toca em `sendingBoards` quando o mural entra no primeiro envio em andamento, para a interface não ser avisada à toa.
@@ -409,8 +454,10 @@ final class CloudSyncController {
 
     private func post(_ notice: CloudSyncNotice) {
         notices.append(notice)
-        // O aviso é de um mural que deixou o iCloud neste Mac: o convite dele já não vale.
-        if let id = notice.boardID, shareStates[id] != nil { shareStates[id] = nil }
+        // O aviso é de um mural que deixou o iCloud neste Mac: o convite dele já não vale, e o Live Share sai da sessão dele.
+        guard let id = notice.boardID else { return }
+        if shareStates[id] != nil { shareStates[id] = nil }
+        onBoardLeftCloud?(id)
     }
 
     /// Avisa a pessoa de um convite que não deu certo (preparar, aceitar ou abrir). Não é de um mural que saiu do iCloud: o convite
@@ -578,10 +625,12 @@ final class CloudSyncController {
     }
 
     /// O mural já não é acompanhado aqui: o convite dele sai de `shareStates` (depois dos que já estavam a caminho, para nenhum o
-    /// devolver) e os avisos são relidos.
+    /// devolver), `onBoardLeftCloud` avisa e os avisos são relidos. O aviso vem antes da releitura, que pode esperar um evento do
+    /// coordenador em andamento: o Live Share não precisa esperar por ela para sair da sessão.
     private func didLeave(_ id: BoardID) async {
         await shareChain?.value
         if shareStates[id] != nil { shareStates[id] = nil }
+        onBoardLeftCloud?(id)
         await refreshIssues()
     }
 
@@ -706,12 +755,29 @@ final class CloudSyncController {
     }
 
     private func refreshAccount(of container: CKContainer) async {
+        // Outra conta pode ter entrado: o `userRecordName` guardado talvez já não seja desta pessoa.
+        cachedUserRecordName = nil
         do {
             let available = try await container.accountStatus() == .available
             if accountAvailable != available { accountAvailable = available }
         } catch {
             Self.log.error("Conta do iCloud não lida: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// O `userRecordName` da pessoa deste Mac no iCloud: o Live Share o manda aos outros para conferirem quem entra. Com o iCloud
+    /// falso é o usuário dele; com o de verdade vem de `CKContainer.userRecordID()`, lido uma vez e guardado (uma troca de conta o
+    /// esquece). `nil` com a sincronização desligada ou se o iCloud não o deu agora (sem conta, sem rede): a próxima chamada tenta de
+    /// novo.
+    ///
+    /// O caminho do iCloud de verdade não tem teste automático: o registro de usuário é do CloudKit e só se confere com uma conta do
+    /// iCloud.
+    func currentUserRecordName() async -> String? {
+        if let fakeCloud { return fakeCloud.user }
+        if let cachedUserRecordName { return cachedUserRecordName }
+        guard let container = cloudContainer, let recordName = try? await container.userRecordID().recordName else { return nil }
+        cachedUserRecordName = recordName
+        return recordName
     }
 
     // MARK: Compartilhamento do sistema
@@ -757,6 +823,36 @@ final class CloudSyncController {
     /// `shareStates` passa a ter o resumo dele.
     func systemSharingDidSave(_ share: ShareSummary) {
         receive([share], scope: Self.scope(of: share.zone))
+    }
+
+    /// Relê o convite do mural agora (quem foi convidado, a permissão e o endereço), sem esperar a próxima busca: o Live Share confere
+    /// com ele quem pode entrar na sessão. Quando volta, `shareStates` já tem o convite relido, porque a fila dos convites foi esperada.
+    ///
+    /// Com o iCloud falso é uma busca (`fetch()`). Com o de verdade, lê o `cloud` do manifesto e busca o `CKShare` da zona (o registro
+    /// `CKRecordNameZoneWideShare`) no banco do papel da pessoa: o privado para o dono, o compartilhado para quem recebeu o convite;
+    /// ele segue o mesmo caminho do convite que a interface do sistema grava (`systemSharingDidSave`). Mural sem `cloud` no manifesto,
+    /// ou zona sem convite, não muda nada. Um erro do iCloud vai ao registro do sistema, nunca a quem chama. Com a sincronização
+    /// desligada, não faz nada.
+    ///
+    /// O caminho do iCloud de verdade não tem teste automático: o convite é do CloudKit e só se confere com duas contas do iCloud.
+    func refreshShare(for id: BoardID) async {
+        if fakeCloud != nil {
+            await fetch()
+            return
+        }
+        guard let container = cloudContainer else { return }
+        await startTask?.value
+        guard let cloud = (try? await registry.library.open(.saved(id)))?.manifest.cloud else { return }
+        let zoneID = CKRecordZone.ID(zoneName: cloud.zoneName, ownerName: cloud.zoneOwnerName)
+        let recordID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zoneID)
+        let database = cloud.database == .private ? container.privateCloudDatabase : container.sharedCloudDatabase
+        do {
+            guard let share = try await database.record(for: recordID) as? CKShare else { return }
+            systemSharingDidSave(ShareSummary(share))
+            await shareChain?.value
+        } catch {
+            Self.log.error("Convite do mural não relido: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// O banco de uma zona pelo dono dela: a própria pessoa é o dono no privado; no compartilhado, outra.

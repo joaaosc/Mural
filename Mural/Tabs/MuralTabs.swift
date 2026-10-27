@@ -188,6 +188,9 @@ final class MuralTabs {
     }
     /// O controlador da sincronização com o iCloud; `nil` com ela desligada. Os testes trocam.
     @ObservationIgnored var cloudSync: @MainActor () -> CloudSyncController? = { CloudSyncController.current }
+    /// Chamado com o mural de cada aba que sai (`close`, `closeAll` e `replace`, que tira a aba antiga): o Live Share sai da sessão do
+    /// mural que deixou de estar aberto. Um ouvinte só.
+    @ObservationIgnored var onBoardClosed: (@MainActor (BoardID) -> Void)?
     @ObservationIgnored private var loadStarted: Set<UUID> = []
 
     init(
@@ -242,6 +245,7 @@ final class MuralTabs {
     func close(_ id: UUID) {
         if id == selectedID, isShowingSheet() { return }
         guard let closing = removeTab(id) else { return }
+        onBoardClosed?(closing.boardID)
         Task { await closing.session.handleWindowWillClose() }
         if tabs.isEmpty {
             closeWindow()
@@ -269,6 +273,7 @@ final class MuralTabs {
         selectedID = nil
         loadStarted = []
         libraryRevision &+= 1
+        for tab in closing { onBoardClosed?(tab.boardID) }
         // Uma tarefa por mural: as gravações avançam juntas, cada uma na sua fila.
         let closes = closing.map { tab in Task { await tab.session.handleWindowWillClose() } }
         for close in closes { await close.value }
@@ -286,6 +291,7 @@ final class MuralTabs {
             activate(tab)
         }
         libraryRevision &+= 1
+        onBoardClosed?(old.boardID)
         Task { await old.session.handleWindowWillClose() }
     }
 

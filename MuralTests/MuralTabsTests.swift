@@ -145,6 +145,64 @@ struct MuralTabsTests {
         await tabs.closeAll()
     }
 
+    @Test("Fechar uma aba avisa onBoardClosed com o mural dela; fechar uma aba que não existe não avisa")
+    func closeReportsTheClosedBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        let tabA = try #require(tabs.open(try await library.createNamedBoard("A")))
+        let tabB = try #require(tabs.open(try await library.createNamedBoard("B")))
+        let closed = ClosedBoards()
+        tabs.onBoardClosed = { closed.ids.append($0) }
+
+        tabs.close(UUID())
+        #expect(closed.ids.isEmpty, "sem aba, nada saiu")
+        tabs.close(tabA.id)
+        #expect(closed.ids == [tabA.boardID])
+        tabs.close(tabB.id)
+        #expect(closed.ids == [tabA.boardID, tabB.boardID], "a última aba também avisa, antes de a janela fechar")
+    }
+
+    @Test("Fechar todas as abas avisa onBoardClosed com o mural de cada uma")
+    func closeAllReportsEveryBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        for name in ["A", "B", "C"] { _ = try #require(tabs.open(try await library.createNamedBoard(name))) }
+        let open = tabs.tabs.map(\.boardID)
+        #expect(open.count == 3)
+        let closed = ClosedBoards()
+        tabs.onBoardClosed = { closed.ids.append($0) }
+
+        await tabs.closeAll()
+        #expect(closed.ids == open, "um aviso por mural, na ordem das abas")
+        #expect(tabs.tabs.isEmpty)
+
+        await tabs.closeAll()
+        #expect(closed.ids == open, "sem abas, não há mais o que avisar")
+    }
+
+    @Test("Promover o rascunho avisa onBoardClosed com o mural que saiu da aba, e não com o novo; rota que não é mural não avisa")
+    func replaceReportsTheOldBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        let tabA = try #require(tabs.open(try await library.createNamedBoard("A")))
+        _ = tabs.open(try await library.createNamedBoard("B"))
+        let promoted = try await library.createNamedBoard("A promovido")
+        let closed = ClosedBoards()
+        tabs.onBoardClosed = { closed.ids.append($0) }
+
+        tabs.replace(tabA.id, with: .library)
+        #expect(closed.ids.isEmpty, "a biblioteca não é uma aba: nada mudou")
+        tabs.replace(tabA.id, with: promoted)
+        #expect(closed.ids == [tabA.boardID])
+        #expect(tabs.tab(for: tabA.boardID) == nil)
+        #expect(tabs.tabs.first?.route == promoted)
+        tabs.onBoardClosed = nil
+        await tabs.closeAll()
+    }
+
     @Test("Restauração: mural repetido e biblioteca ficam de fora; só a aba ativa carrega")
     func restoreSkipsInvalidAndLoadsOnlySelected() async throws {
         let (library, directory) = try makeLibrary()
@@ -305,4 +363,10 @@ struct MuralTabsTests {
 @MainActor
 private final class WindowCloses {
     var count = 0
+}
+
+/// Anota os murais que `MuralTabs.onBoardClosed` avisou, na ordem.
+@MainActor
+private final class ClosedBoards {
+    var ids: [BoardID] = []
 }

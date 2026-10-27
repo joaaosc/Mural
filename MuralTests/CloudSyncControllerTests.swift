@@ -283,6 +283,159 @@ struct CloudSyncControllerTests {
         await env.finish()
     }
 
+    // MARK: Ganchos para o Live Share
+
+    /// Uma edição local gravada: acrescenta uma nota ao modelo da aba e grava, como o app faz ao editar. A gravação agenda o envio.
+    @discardableResult
+    private static func saveEdit(in tab: BoardTab, text: String = "escrito aqui") async throws -> BoardItem {
+        let model = try #require(tab.session.model)
+        let added = try #require(model.importText(text, as: .text))
+        tab.session.captureBoardIfNeeded()
+        await tab.session.flushAndPrepareToLeave()
+        return added
+    }
+
+    @Test("Mural em Live Share: o envio sai pela espera curta, bem antes da espera comum de 2 s")
+    func liveBoardIsSentAfterTheShortDelay() async throws {
+        let env = try SyncEnvironment(sendDelay: .seconds(2))
+        defer { env.removeFiles() }
+        let id = try await env.seed(items: [Self.note("um")])
+        _ = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        env.controller.liveBoards = [id]
+        let sent = BoardHookRecorder(sentBy: env.controller)
+
+        try await Self.saveEdit(in: tab)
+
+        await waitUntil("o aviso de envio, antes de 1,5 s", timeout: .milliseconds(1500)) { !sent.ids.isEmpty }
+        #expect(sent.ids == [id])
+        await env.finish()
+    }
+
+    @Test("Mural fora do Live Share: o envio segue a espera comum de 2 s e não sai antes dela")
+    func boardOutsideLiveKeepsTheNormalDelay() async throws {
+        let env = try SyncEnvironment(sendDelay: .seconds(2))
+        defer { env.removeFiles() }
+        let id = try await env.seed(items: [Self.note("um")])
+        _ = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let sent = BoardHookRecorder(sentBy: env.controller)
+        let start = ContinuousClock.now
+
+        try await Self.saveEdit(in: tab)
+        // A gravação veio depois de `start` e o envio sai 2 s depois dela: aos 1,5 s de `start` ainda não pode ter saído.
+        try await ContinuousClock().sleep(until: start.advanced(by: .milliseconds(1500)))
+        #expect(sent.ids.isEmpty, "a espera comum ainda não acabou")
+
+        await waitUntil("o aviso de envio, depois da espera comum") { !sent.ids.isEmpty }
+        #expect(sent.ids == [id])
+        await env.finish()
+    }
+
+    @Test("onBoardSent avisa uma vez por envio com mudança, com o mural certo, e nada quando não havia o que enviar")
+    func boardSentFiresOncePerSendWithChanges() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(items: [Self.note("um")])
+        let remote = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let sent = BoardHookRecorder(sentBy: env.controller)
+
+        let first = try await Self.saveEdit(in: tab, text: "primeira")
+        await waitUntil("o aviso do primeiro envio") { !sent.ids.isEmpty }
+        #expect(sent.ids == [id])
+        try await remote.engine.fetchChanges()
+        #expect(await remote.host.board.item(id: first.id) != nil, "quando o aviso chega, o iCloud já tem a edição")
+
+        // Uma gravação local que não muda o que o iCloud guarda (só zoom ou rolagem, por exemplo) também agenda o envio, mas o
+        // coordenador não tem pendência: o controlador roda o envio e não avisa. A sessão chama este mesmo `onPersisted` ao gravar.
+        let model = try #require(tab.session.model)
+        let sending = SendingRecorder(env.controller)
+        tab.session.onPersisted?(model.board, false)
+        await waitUntil("o envio sem mudança começar e voltar") { sending.valuesBeforeChange.count >= 2 }
+        #expect(sent.ids == [id], "sem pendência, nenhum aviso novo")
+
+        // Outra edição, outro envio: outro aviso, e só um.
+        try await Self.saveEdit(in: tab, text: "segunda")
+        await waitUntil("o aviso do segundo envio") { sent.ids.count >= 2 }
+        #expect(sent.ids == [id, id])
+        await env.finish()
+    }
+
+    @Test("requestFetch traz a edição do outro Mac para a aba sem fetch() explícito, e pedidos seguidos não perdem nenhuma")
+    func requestFetchBringsTheRemoteEdit() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(items: [card])
+        let remote = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+
+        try await remote.edit { Self.setText(Self.editedText, of: card.id, in: &$0) }
+        env.controller.requestFetch()
+        env.controller.requestFetch()
+        await waitUntil("a edição do outro Mac chegar à aba") { tab.session.model?.board.item(id: card.id)?.text == Self.editedText }
+        #expect(try await env.diskBoard(id).item(id: card.id)?.text == Self.editedText)
+
+        // Pedidos feitos com uma busca talvez ainda em andamento: caiam antes, durante ou depois dela, a segunda edição chega.
+        let second = Self.note("do outro Mac")
+        try await remote.edit { $0.add(second) }
+        env.controller.requestFetch()
+        env.controller.requestFetch()
+        await waitUntil("a segunda edição chegar à aba") { tab.session.model?.board.item(id: second.id) != nil }
+        #expect(try await env.diskBoard(id).item(id: second.id) != nil)
+        #expect(env.controller.issues.isEmpty)
+        await env.finish()
+    }
+
+    @Test("refreshShare com o iCloud falso: o convite dado direto no iCloud aparece em shareStates, sem fetch() explícito")
+    func refreshShareReadsTheInvitation() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed(name: "Casa", items: [Self.note("um")])
+        try await env.uploadToCloud(id)
+        #expect(env.controller.shareStates[id] == nil)
+
+        try await env.cloud.share(
+            zone: CloudSchema.zoneName(for: id), owner: CloudSyncController.testUser, with: CloudSyncController.testGuest,
+            permission: .readWrite)
+        await env.controller.refreshShare(for: id)
+
+        let share = try #require(env.controller.shareStates[id], "quando refreshShare volta, o convite já está lá")
+        #expect(share.participants.map(\.displayName) == [CloudSyncController.testGuest])
+        await env.finish()
+    }
+
+    @Test("currentUserRecordName com o iCloud falso é o usuário dele")
+    func currentUserRecordNameIsTheFakeUser() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let other = try SyncEnvironment(cloud: env.cloud, user: "ana")
+        defer { other.removeFiles() }
+
+        #expect(await env.controller.currentUserRecordName() == CloudSyncController.testUser)
+        #expect(await other.controller.currentUserRecordName() == "ana")
+        await env.finish()
+        await other.finish()
+    }
+
+    @Test("onBoardLeftCloud não avisa por um aviso que não é de um mural, como o de um convite que não vale")
+    func leftCloudIsNotReportedForNoticesWithoutABoard() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let left = BoardHookRecorder(leftCloudBy: env.controller)
+
+        env.controller.postInvitationNotice("Convite que não vale.")
+
+        #expect(env.controller.notices.count == 1)
+        #expect(left.ids.isEmpty, "o aviso não é de um mural que saiu do iCloud")
+        await env.finish()
+    }
+
     @Test("Mural só leitura: abre sem edição e ainda recebe o que a dona muda")
     func readOnlyBoardOpensReadOnlyAndStillReceives() async throws {
         let env = try SyncEnvironment()
@@ -638,6 +791,7 @@ struct CloudSyncControllerTests {
         if let tab { await waitUntil("a aba carregar") { tab.session.model != nil } }
         let scope = try #require(CloudDatabaseScope(rawValue: removal.database.rawValue))
         let coordinator = try #require(env.controller.coordinator(for: scope))
+        let left = BoardHookRecorder(leftCloudBy: env.controller)
 
         try await coordinator.handleZoneDeleted(
             CloudZoneID(name: info.zoneName, ownerName: info.zoneOwnerName), reason: removal.reason)
@@ -645,6 +799,7 @@ struct CloudSyncControllerTests {
         #expect(try await coordinator.boardIDs().isEmpty, "o coordenador parou de acompanhar o mural")
         #expect(env.controller.notices.count == 1)
         #expect(env.controller.notices.first?.message.contains("Saindo") == true)
+        #expect(left.ids == [id], "o Live Share é avisado uma vez, com ou sem pacote apagado")
         if removal.removesPackage {
             #expect(!FileManager.default.fileExists(atPath: package.path))
             #expect(env.tabs.tab(for: id) == nil, "a aba fechou")
@@ -670,12 +825,14 @@ struct CloudSyncControllerTests {
         try await env.controller.track(id, cloud: info)
         await env.controller.fetch()
         #expect(FileManager.default.fileExists(atPath: package.path))
+        let left = BoardHookRecorder(leftCloudBy: env.controller)
 
         await env.cloud.deleteZone(info.zoneName, owner: info.zoneOwnerName)
         await env.controller.fetch()
 
         #expect(!FileManager.default.fileExists(atPath: package.path))
         #expect(env.controller.notices.count == 1)
+        #expect(left.ids == [id], "a busca que removeu o mural avisa o Live Share")
         await env.finish()
     }
 
@@ -709,9 +866,14 @@ struct CloudSyncControllerTests {
         #expect(try await guest.library.listSaved().map(\.manifest.id) == [id], "a convidada adotou o mural")
         let tab = try #require(owner.tabs.open(.saved(id), title: "Casa"))
         await waitUntil("a aba carregar") { tab.session.model != nil }
+        let ownerLeft = BoardHookRecorder(leftCloudBy: owner.controller)
+        let secondLeft = BoardHookRecorder(leftCloudBy: second.controller)
+        let guestLeft = BoardHookRecorder(leftCloudBy: guest.controller)
 
         try await owner.controller.deleteEverywhere(id)
 
+        #expect(ownerLeft.ids == [id], "quem excluiu avisa o Live Share, mesmo sem aviso na tela")
+        #expect(secondLeft.ids.isEmpty && guestLeft.ids.isEmpty, "os outros só sabem na busca")
         #expect(await owner.cloud.changeCounter(inZone: zoneName, owner: "ana") == nil, "a zona saiu do iCloud")
         #expect(try await owner.library.listSaved().isEmpty, "o pacote foi para o Lixo")
         #expect(owner.tabs.tab(for: id) == nil)
@@ -727,11 +889,13 @@ struct CloudSyncControllerTests {
         #expect(try await second.library.listSaved().isEmpty)
         #expect(second.controller.notices.map(\.boardID) == [id])
         #expect(second.controller.notices.first?.message.contains("apagado do iCloud em outro Mac") == true)
+        #expect(secondLeft.ids == [id])
 
         await guest.controller.fetch()
         #expect(try await guest.library.listSaved().isEmpty, "a convidada perde o mural")
         #expect(guest.controller.notices.map(\.boardID) == [id])
         #expect(guest.controller.notices.first?.message.contains("não tem mais acesso") == true)
+        #expect(guestLeft.ids == [id])
 
         // O servidor ainda mostra a zona (a confirmação do apagamento não chegou): a busca não adota o mural de volta.
         await owner.cloud.createZone(zoneName, owner: "ana")
@@ -760,9 +924,12 @@ struct CloudSyncControllerTests {
         #expect(guest.controller.shareStates[id] != nil)
         let tab = try #require(guest.tabs.open(.saved(id), title: "Casa"))
         await waitUntil("a aba carregar") { tab.session.model != nil }
+        let guestLeft = BoardHookRecorder(leftCloudBy: guest.controller)
+        let ownerLeft = BoardHookRecorder(leftCloudBy: owner.controller)
 
         try await guest.controller.leaveShared(id)
 
+        #expect(guestLeft.ids == [id], "quem saiu avisa o Live Share, mesmo sem aviso na tela")
         #expect(await owner.cloud.guestPermission(of: "bia", inZone: zoneName, owner: "ana") == nil, "o acesso dela acabou no iCloud")
         #expect(await owner.cloud.zones(for: "bia", scope: .shared).isEmpty)
         #expect(try await guest.library.listSaved().isEmpty, "o pacote saiu deste Mac")
@@ -780,6 +947,7 @@ struct CloudSyncControllerTests {
         await owner.controller.fetch()
         #expect(owner.controller.notices.isEmpty && owner.controller.issues.isEmpty)
         #expect(owner.controller.shareStates[id] == nil, "sem convidados, o convite da dona some")
+        #expect(ownerLeft.ids.isEmpty, "o mural segue no iCloud da dona: o Live Share dela não sai de nada")
 
         // O servidor ainda mostra a zona à convidada (o convite voltou): a busca não adota o mural, que ela recusou.
         try await owner.cloud.share(zone: zoneName, owner: "ana", with: "bia", permission: .readWrite)
@@ -809,9 +977,13 @@ struct CloudSyncControllerTests {
         let tab = try #require(owner.tabs.open(.saved(id), title: "Casa"))
         await waitUntil("a aba carregar") { tab.session.model != nil }
         let model = try #require(tab.session.model)
+        let ownerLeft = BoardHookRecorder(leftCloudBy: owner.controller)
+        let secondLeft = BoardHookRecorder(leftCloudBy: second.controller)
+        let guestLeft = BoardHookRecorder(leftCloudBy: guest.controller)
 
         try await owner.controller.removeFromICloud(id)
 
+        #expect(ownerLeft.ids == [id], "quem tirou o mural do iCloud avisa o Live Share, mesmo sem aviso na tela")
         #expect(try await owner.diskManifest(id).cloud == nil, "o pacote fica só neste Mac")
         #expect(tab.session.cloud == nil)
         #expect(!model.isReadOnly)
@@ -834,8 +1006,10 @@ struct CloudSyncControllerTests {
         #expect(try await second.library.listSaved().isEmpty)
         #expect(second.controller.notices.count == 1)
         #expect(second.controller.notices.first?.message.contains("apagado do iCloud em outro Mac") == true)
+        #expect(secondLeft.ids == [id])
         await guest.controller.fetch()
         #expect(try await guest.library.listSaved().isEmpty, "quem recebeu o convite perde o mural")
+        #expect(guestLeft.ids == [id])
 
         // O servidor ainda mostra a zona (a confirmação do apagamento não chegou): a busca deste Mac não a adota, e o mural segue local.
         await owner.cloud.createZone(zoneName, owner: "ana")
@@ -1126,6 +1300,10 @@ struct CloudSyncControllerTests {
         #expect(!controller.isEnabled)
         #expect(controller.coordinator(for: .private) == nil)
         let id = BoardID()
+        controller.requestFetch()
+        await controller.refreshShare(for: id)
+        #expect(controller.shareStates.isEmpty)
+        #expect(await controller.currentUserRecordName() == nil)
         let info = BoardCloudInfo(database: .private, zoneName: CloudSchema.zoneName(for: id), zoneOwnerName: "x", permission: .owner)
         await #expect(throws: CloudSyncControllerError.disabled) { try await controller.track(id, cloud: info) }
         await #expect(throws: CloudSyncControllerError.disabled) { try await controller.deleteEverywhere(id) }
@@ -1286,6 +1464,22 @@ private final class SendingRecorder {
                 watch()
             }
         }
+    }
+}
+
+/// Anota os murais que um gancho do controlador avisou (`onBoardSent` ou `onBoardLeftCloud`), na ordem. Troca o ouvinte que o gancho tinha.
+@MainActor
+private final class BoardHookRecorder {
+    private(set) var ids: [BoardID] = []
+
+    /// Passa a anotar o que `onBoardSent` avisa.
+    init(sentBy controller: CloudSyncController) {
+        controller.onBoardSent = { [self] id in ids.append(id) }
+    }
+
+    /// Passa a anotar o que `onBoardLeftCloud` avisa.
+    init(leftCloudBy controller: CloudSyncController) {
+        controller.onBoardLeftCloud = { [self] id in ids.append(id) }
     }
 }
 
