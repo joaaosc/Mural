@@ -37,8 +37,8 @@ struct CloudSyncNotice: Identifiable, Equatable, Sendable {
 @MainActor
 @Observable
 final class CloudSyncController {
-    /// O container do app no iCloud.
-    static let containerIdentifier = "iCloud.com.joaocosta.Mural"
+    /// O container do app no iCloud. Sem isolamento: a pasta do iCloud Drive o lê fora do Main Actor.
+    nonisolated static let containerIdentifier = "iCloud.com.joaocosta.Mural"
 
     /// O nome do usuário no iCloud falso dos testes.
     nonisolated static let testUser = "ui-test"

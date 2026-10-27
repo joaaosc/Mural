@@ -13,17 +13,33 @@ nonisolated enum CloudAvailability {
     /// O valor `"CloudKit"` que a chave precisa listar.
     static let cloudKitService = "CloudKit"
 
+    /// O valor `"CloudDocuments"` que a chave precisa listar para o app guardar arquivos no iCloud Drive.
+    static let cloudDocumentsService = "CloudDocuments"
+
     /// O processo atual foi assinado com o entitlement de CloudKit.
     static var hasCloudKitEntitlement: Bool {
-        guard let task = SecTaskCreateFromSelf(nil),
-            let value = SecTaskCopyValueForEntitlement(task, servicesEntitlement as CFString, nil)
-        else { return false }
-        return listsCloudKit(value)
+        listsCloudKit(servicesValue)
+    }
+
+    /// O processo atual foi assinado com o entitlement do iCloud Drive (CloudDocuments).
+    static var hasCloudDocumentsEntitlement: Bool {
+        listsCloudDocuments(servicesValue)
+    }
+
+    /// O valor do entitlement de serviços do iCloud neste processo; `nil` sem ele.
+    private static var servicesValue: Any? {
+        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+        return SecTaskCopyValueForEntitlement(task, servicesEntitlement as CFString, nil)
     }
 
     /// O valor do entitlement de serviços do iCloud lista o CloudKit. Separado de `hasCloudKitEntitlement` para os testes
     /// conferirem a leitura sem depender de como o teste foi assinado.
     static func listsCloudKit(_ services: Any?) -> Bool {
         (services as? [String])?.contains(cloudKitService) ?? false
+    }
+
+    /// O valor do entitlement de serviços do iCloud lista o CloudDocuments (iCloud Drive).
+    static func listsCloudDocuments(_ services: Any?) -> Bool {
+        (services as? [String])?.contains(cloudDocumentsService) ?? false
     }
 }

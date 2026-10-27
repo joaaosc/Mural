@@ -111,6 +111,20 @@ enum LaunchConfiguration {
         return hasCloudKitEntitlement ? .cloudKit : .off
     }
 
+    /// Se o app guarda as cópias dos murais na pasta Mural do iCloud Drive: só com o entitlement do iCloud Drive e fora dos testes de
+    /// interface, do perfil manual e de desempenho e do app que hospeda os testes unitários, que não devem tocar o iCloud Drive de
+    /// quem os roda. Os testes do controlador o criam por conta própria, com uma pasta temporária.
+    static func mirrorsToICloudDrive(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        hasCloudDocumentsEntitlement: Bool = CloudAvailability.hasCloudDocumentsEntitlement
+    ) -> Bool {
+        let testArguments = ["-uiTesting", "-uiTestingKeep", "-manualTesting", "-performanceFixture"]
+        guard !arguments.contains(where: testArguments.contains) else { return false }
+        guard environment["XCTestConfigurationFilePath"] == nil else { return false }
+        return hasCloudDocumentsEntitlement
+    }
+
     #if DEBUG
     /// A demonstração do Live Share, para conferir a interface sem chamada do FaceTime: `-liveShareDemo`, e só junto de `-uiTesting`
     /// ou `-uiTestingKeep`, porque ela depende do iCloud falso. Só existe nas compilações de desenvolvimento.
