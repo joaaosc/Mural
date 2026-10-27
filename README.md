@@ -186,17 +186,34 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   janela, e **Sair do Mural**; na aba Painel, o atalho e o lugar do painel. Se o macOS pedir,
   "Permitir nos Ajustes do Sistema…" leva aos Itens de Início de Sessão.
 
-## Murais compartilhados pelo iCloud (em construção)
+## Murais compartilhados pelo iCloud
 
-- **Só o mural posto no iCloud sincroniza**; os outros continuam só no Mac. Cada mural compartilhado é
-  uma zona do CloudKit, sincronizada pelo `CKSyncEngine`, sem servidor próprio e dentro do sandbox.
+- **Compartilhar** (botão da barra da janela, ou Arquivo › Compartilhar…): o popover mostra o estado da
+  sincronização e quem tem acesso. **Convidar pessoas…** abre o convite do iCloud: por link ou para pessoas
+  escolhidas, com permissão por pessoa (editar ou só ver). Quem recebe abre o link e o mural aparece no Mac.
+- **Só o mural posto no iCloud sincroniza**; os outros continuam só no Mac. O mural da pessoa no iCloud
+  aparece em todos os Macs dela. Cada mural é uma zona do CloudKit, sincronizada pelo `CKSyncEngine`, sem
+  servidor próprio e dentro do sandbox. Parar de compartilhar só tira as pessoas; **Tirar do iCloud…** deixa o
+  mural só neste Mac; quem recebeu pode **Sair do mural compartilhado**.
+- **Live Share**: numa chamada do FaceTime (ou chamando pessoas pela folha do sistema), quem foi convidado
+  vê o cursor, o arrasto e o cartão aberto de cada pessoa. A presença é imediata; o conteúdo continua indo
+  pelo iCloud e chega em poucos segundos por edição. Quem está na chamada sem convite não vê nem envia nada e
+  pode pedir acesso.
+- **Cópias no iCloud Drive**: a pasta Mural do iCloud Drive guarda uma cópia (`.mural`) de cada mural da
+  pessoa; os recebidos de outras pessoas não. Só o Mac onde o mural mudou regrava a cópia, e ela só sai da
+  pasta quando a pessoa exclui o mural. Abrir uma cópia pelo Finder abre o mural, se ele está no Mac. Dá para
+  desligar em Ajustes › Geral (as cópias que já existem ficam).
 - **Duas edições ao mesmo tempo** se juntam campo a campo: texto por linha, lista por item; o que não
   dá para juntar vira uma cópia de conflito, sem perder o que cada pessoa escreveu.
 - **Só leitura**: quem só pode ver recebe as mudanças das outras pessoas, mas nada do que faz muda o
   mural compartilhado. Frases curtas, prévias de link e capas de música continuam de cada Mac.
-- Hoje a barra da janela mostra o estado da sincronização. Falta o convite para outra pessoa, o segundo Mac
-  adotar um mural criado no primeiro e o modo só leitura na interface.
-- Os testes usam um iCloud em memória; o app aberto só para hospedar os testes não sincroniza.
+- **Antes de cada TestFlight ou envio à loja com campo novo no iCloud**: num build de desenvolvimento,
+  Arquivo › Preparar o Esquema do iCloud…, e depois "Deploy Schema Changes" no CloudKit Console
+  (container `iCloud.com.joaocosta.Mural`). Sem isso, compartilhar falha em produção.
+- Os testes usam um iCloud em memória; o app aberto só para hospedar os testes não sincroniza. Com
+  `-uiTesting -liveShareDemo` (só em desenvolvimento) duas pessoas simuladas entram no Live Share, para
+  conferir a interface sem chamada. Convite e Live Share de verdade só se conferem com duas contas do iCloud
+  (notas para a revisão em `Docs/AppReviewNotes.md`).
 
 ## Requisitos
 
@@ -208,9 +225,11 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 - Para tocar e listar faixas do Apple Music: o serviço MusicKit ligado no App ID do app
   (developer.apple.com › Certificates, Identifiers & Profiles › Identifiers › App Services ›
   MusicKit). Sem ele o build passa e o cartão aparece, mas tocar mostra um erro.
-- Para o iCloud: o App ID com iCloud (CloudKit, container `iCloud.com.joaocosta.Mural`) e Push
-  Notifications, e um perfil de provisionamento que inclua os dois (um build com
-  `-allowProvisioningUpdates` os registra). Sem o entitlement do CloudKit, a sincronização fica desligada.
+- Para o iCloud: o App ID com iCloud (CloudKit e iCloud Documents, container `iCloud.com.joaocosta.Mural`),
+  Push Notifications e Group Activities (SharePlay), e um perfil de provisionamento que inclua tudo (um build
+  com `-allowProvisioningUpdates` os registra). Sem o entitlement do CloudKit, a sincronização fica desligada;
+  sem o do iCloud Documents, não há cópias no iCloud Drive. A pasta Mural só aparece no iCloud Drive depois
+  de o número da build subir (`CLOUD_BUILD_NUMBER`).
 
 ## Estrutura
 
