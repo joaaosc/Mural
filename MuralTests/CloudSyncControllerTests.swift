@@ -1485,7 +1485,7 @@ private final class BoardHookRecorder {
 
 /// Biblioteca temporária, abas, entrega e controlador, ligados como no app, com o iCloud falso.
 @MainActor
-private final class SyncEnvironment {
+final class SyncEnvironment {
     /// A espera entre gravar e enviar nos testes, bem menor que a de uso (1 s).
     static let sendDelay: Duration = .milliseconds(100)
 
@@ -1649,7 +1649,7 @@ private final class SyncEnvironment {
 }
 
 /// O host do segundo Mac: guarda o mural em memória e junta o que chega com `BoardMerge.apply`, como o app de verdade faz.
-private actor RemoteMacHost: BoardSyncHost {
+actor RemoteMacHost: BoardSyncHost {
     private(set) var board = Board()
     private var name: String
     private let itemsDirectory: URL
@@ -1680,7 +1680,7 @@ private actor RemoteMacHost: BoardSyncHost {
 }
 
 /// O segundo Mac do mesmo usuário: outro coordenador e outro motor falso sobre o mesmo iCloud falso.
-private struct RemoteMac {
+struct RemoteMac {
     let host: RemoteMacHost
     let coordinator: BoardSyncCoordinator
     let engine: InMemorySyncEngine

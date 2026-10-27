@@ -24,6 +24,9 @@ struct CloudSyncNotice: Identifiable, Equatable, Sendable {
     var message: String
     /// O título do alerta. O padrão é o de um mural que saiu do iCloud.
     var title = "Mural fora do iCloud"
+    /// O endereço do convite cujo acesso a pessoa pode pedir ao dono (`CloudSyncController.requestAccess(to:)`); `nil` nos demais
+    /// avisos. A interface mostra o botão de pedir acesso quando há um.
+    var requestAccessURL: URL?
 }
 
 /// O controlador da sincronização no app: monta, para cada banco do iCloud (privado e compartilhado), o coordenador e o motor, liga
@@ -466,6 +469,13 @@ final class CloudSyncController {
         post(CloudSyncNotice(message: message, title: "Convite do iCloud"))
     }
 
+    /// Avisa a pessoa de um problema do Live Share. Não traz mural: não é um mural saindo do iCloud, então nada sai de `shareStates` e
+    /// o Live Share não é chamado (`onBoardLeftCloud`).
+    /// - Parameter requestAccessURL: o convite cujo acesso a pessoa pode pedir ao dono, quando o aviso é de falta de acesso.
+    func postLiveShareNotice(_ message: String, requestAccessURL: URL? = nil) {
+        post(CloudSyncNotice(message: message, title: "Live Share", requestAccessURL: requestAccessURL))
+    }
+
     // MARK: Convites
 
     /// Recebe os convites que uma busca trouxe. Voltam logo (o motor os entrega dentro do seu executor): o trabalho entra na fila,
@@ -715,6 +725,58 @@ final class CloudSyncController {
     private static func displayName(of identity: CKUserIdentity) -> String? {
         guard let name = identity.nameComponents?.formatted(), !name.isEmpty else { return nil }
         return name
+    }
+
+    // MARK: Entrar pelo Live Share
+
+    private static let noAccessMessage = "Você ainda não tem acesso a este mural. Peça acesso a quem compartilhou."
+
+    /// A pessoa entrou num Live Share de um mural que não está neste Mac, e a atividade trouxe o endereço do convite do iCloud. Lê o
+    /// convite: quem não está nele (ou foi removido) recebe o aviso com o pedido de acesso (`requestAccess(to:)`); quem está aceita o
+    /// convite e adota o mural (`acceptShare(_:)`, que também abre a aba).
+    ///
+    /// Só com o iCloud de verdade (`.cloudKit`); nos outros modos devolve `false`. Não tem teste automático: o convite é do CloudKit e
+    /// só se confere com duas contas do iCloud.
+    /// - Returns: o mural do convite ficou neste Mac, no iCloud.
+    func acceptShare(at url: URL) async -> Bool {
+        guard mode == .cloudKit, let container = cloudContainer else { return false }
+        let metadata: CKShare.Metadata
+        do {
+            metadata = try await container.shareMetadata(for: url)
+        } catch {
+            Self.log.error("Convite do Live Share não lido: \(String(describing: error), privacy: .public)")
+            postLiveShareNotice(Self.noAccessMessage, requestAccessURL: url)
+            return false
+        }
+        guard metadata.participantStatus != .unknown, metadata.participantStatus != .removed else {
+            postLiveShareNotice(Self.noAccessMessage, requestAccessURL: url)
+            return false
+        }
+        await acceptShare(metadata)
+        guard let id = CloudSchema.boardID(fromZoneName: metadata.share.recordID.zoneID.zoneName) else { return false }
+        return (try? await registry.library.open(.saved(id)))?.manifest.cloud != nil
+    }
+
+    /// Pede ao dono do mural acesso ao convite (a pessoa que abriu o Live Share não está nele) e avisa o resultado. Só com o iCloud de
+    /// verdade; nos outros modos não faz nada. Também sem teste automático: o pedido é do CloudKit.
+    func requestAccess(to url: URL) async {
+        guard mode == .cloudKit, let container = cloudContainer else { return }
+        switch await Self.requestAccessResult(for: url, in: container) {
+        case .success:
+            postLiveShareNotice("Pedido de acesso enviado. Quando quem compartilhou aceitar, o convite chega a você.")
+        case .failure(let error):
+            Self.log.error("Pedido de acesso não enviado: \(String(describing: error), privacy: .public)")
+            postLiveShareNotice("Não foi possível pedir acesso: \(error.localizedDescription)")
+        }
+    }
+
+    /// Roda o pedido de acesso e espera o resultado. Fora do Main Actor: o bloco do CloudKit volta numa fila qualquer.
+    private nonisolated static func requestAccessResult(for url: URL, in container: CKContainer) async -> Result<Void, any Error> {
+        await withCheckedContinuation { continuation in
+            let operation = CKShareRequestAccessOperation(shareURLs: [url])
+            operation.shareAccessRequestResultBlock = { continuation.resume(returning: $0) }
+            container.add(operation)
+        }
     }
 
     // MARK: Convite de teste
