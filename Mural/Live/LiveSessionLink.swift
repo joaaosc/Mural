@@ -107,13 +107,15 @@ final class GroupSessionLink: LiveSessionLink {
         session.join()
     }
 
-    /// Deixa a sessão depois de as mensagens confiáveis em fila saírem. Não faz nada se ela já terminou.
+    /// Deixa a sessão depois de as mensagens confiáveis em fila saírem. Não faz nada se ela já terminou, agora ou quando a fila
+    /// esvaziar: `leave()` numa sessão encerrada não é permitido.
     func leave() {
         guard state != .invalidated else { return }
         let pending = reliableSends
         let session = session
         Task {
             await pending?.value
+            if case .invalidated = session.state { return }
             session.leave()
         }
     }
