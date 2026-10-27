@@ -101,7 +101,8 @@ git tag -a "$tag" -m "Mural $version"
 
 pending="$(git rev-list --count "$remote/main..main")"
 echo "Pronto: $tag, com $pending commits na main ainda não enviados para $remote:"
-git log --oneline "$remote/main..main" | head -n 20
+# `-n 20`, e não `| head`: o head fecha a saída antes de o git terminar, e com `pipefail` o script parava aqui, sem enviar.
+git log --oneline -n 20 "$remote/main..main"
 (( pending > 20 )) && echo "  … e mais $(( pending - 20 ))"
 
 if ! $push; then
