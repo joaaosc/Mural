@@ -434,6 +434,126 @@ struct LiveShareControllerTests {
         await room.env.finish()
     }
 
+    #if DEBUG
+    // MARK: Demonstração
+
+    @Test("Demonstração: Bia e Caio aparecem conferidos, o Caio com o foco no cartão, e leave() volta a idle")
+    func demoShowsBothPeopleAndLeaves() async throws {
+        let room = try await Self.makeRoom()
+        defer { room.env.removeFiles() }
+        let tab = try #require(room.env.tabs.open(.saved(room.id), title: "Ao vivo"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let card = try #require(tab.session.model?.rootItems.first)
+        let starter = LiveShareDemoStarter(tabs: room.env.tabs)
+        starter.controller = room.live
+
+        let outcome = try await starter.start(MuralLiveActivity(boardID: room.id, shareURL: nil), in: nil)
+
+        #expect(starter.isInCall)
+        #expect(outcome == .started)
+        #expect(room.live.phase == .live(room.id))
+        let peers = room.live.peers(on: room.id)
+        #expect(peers.count == 2)
+        let bia = try #require(peers.first { $0.id == LiveShareDemoLink.bia })
+        let caio = try #require(peers.first { $0.id == LiveShareDemoLink.caio })
+        #expect(bia.isVerified && caio.isVerified)
+        #expect(bia.name == CloudSyncController.testGuest, "vale o nome do convite, não o que o Mac da Bia diz")
+        #expect(caio.name == CloudSyncController.testUser, "o dono do mural também é nomeado pelo convite")
+        #expect(bia.focus == nil)
+        #expect(caio.focus == LiveFocus(itemID: card.id, isEditing: true))
+        #expect(room.env.controller.liveBoards == [room.id])
+
+        await waitUntil("o ponteiro da Bia e o arrasto do Caio") {
+            let now = room.live.peers(on: room.id)
+            return now.first { $0.id == LiveShareDemoLink.bia }?.pointer != nil
+                && now.first { $0.id == LiveShareDemoLink.caio }?.drag?.id == card.id
+        }
+
+        room.live.leave()
+
+        #expect(room.live.phase == .idle)
+        #expect(room.live.presence == nil)
+        #expect(room.env.controller.liveBoards.isEmpty)
+        await room.env.finish()
+    }
+
+    @Test("Demonstração, a sessão sozinha: o hello dos dois, o movimento com o arrasto do cartão e leave() que para tudo")
+    func demoLinkTalksUntilItLeaves() async throws {
+        let boardID = BoardID()
+        let card = Self.note("um")
+        let link = LiveShareDemoLink(activity: MuralLiveActivity(boardID: boardID, shareURL: nil), card: card)
+        let recorder = DemoRecorder()
+        link.connect(recorder.handlers)
+        #expect(link.state == .waiting)
+
+        link.join()
+
+        #expect(link.state == .joined)
+        #expect(recorder.states == [.joined])
+        #expect(recorder.participants == [Set([LiveShareDemoLink.bia, LiveShareDemoLink.caio])])
+        let biaHello = Self.hello(boardID, user: CloudSyncController.testGuest, name: "Bia")
+        let caioHello = Self.hello(
+            boardID, user: CloudSyncController.testUser, name: "Caio", focus: LiveFocus(itemID: card.id, isEditing: true))
+        #expect(recorder.events.map { $0.event } == [.hello(biaHello), .hello(caioHello)])
+        #expect(recorder.events.map { $0.peer } == [LiveShareDemoLink.bia, LiveShareDemoLink.caio])
+
+        await waitUntil("o ponteiro da Bia e o arrasto do Caio") {
+            recorder.motions.contains { $0.peer == LiveShareDemoLink.bia } && !recorder.drags.isEmpty
+        }
+        #expect(recorder.motions.allSatisfy { $0.peer == LiveShareDemoLink.bia || $0.peer == LiveShareDemoLink.caio })
+        let drag = try #require(recorder.drags.first)
+        #expect(drag.kind == .item)
+        #expect(drag.id == card.id)
+        #expect((card.position.x...(card.position.x + 120)).contains(drag.x))
+        #expect((card.position.y...(card.position.y + 60)).contains(drag.y))
+
+        link.leave()
+
+        #expect(link.state == .invalidated)
+        #expect(recorder.states == [.joined, .invalidated])
+        let sent = recorder.motions.count
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(recorder.motions.count == sent, "a tarefa parou")
+        link.leave()
+        #expect(recorder.states == [.joined, .invalidated], "sair de novo não avisa de novo")
+    }
+
+    @Test("Demonstração sem cartão solto: só o ponteiro da Bia se mexe, e o Caio chega sem foco")
+    func demoWithoutACardMovesOnlyBiasPointer() async throws {
+        let boardID = BoardID()
+        let link = LiveShareDemoLink(activity: MuralLiveActivity(boardID: boardID, shareURL: nil), card: nil)
+        let recorder = DemoRecorder()
+        link.connect(recorder.handlers)
+
+        link.join()
+        await waitUntil("alguns passos do ponteiro") { recorder.motions.count >= 4 }
+        link.leave()
+
+        #expect(recorder.motions.allSatisfy { $0.peer == LiveShareDemoLink.bia })
+        #expect(recorder.drags.isEmpty)
+        let biaHello = Self.hello(boardID, user: CloudSyncController.testGuest, name: "Bia")
+        let caioHello = Self.hello(boardID, user: CloudSyncController.testUser, name: "Caio")
+        #expect(recorder.events.map { $0.event } == [.hello(biaHello), .hello(caioHello)], "sem arrasto, nem fim de arrasto")
+    }
+
+    @Test("Demonstração: o roteiro segue o tempo, com uma volta do ponteiro a cada 4 s e um arrasto de 2 s a cada 6 s")
+    func demoScriptFollowsTheTime() {
+        func isClose(_ point: CGPoint, _ x: Double, _ y: Double) -> Bool {
+            abs(point.x - x) < 0.001 && abs(point.y - y) < 0.001
+        }
+        #expect(isClose(LiveShareDemoLink.biaPointer(at: 0), 520, 260))
+        #expect(isClose(LiveShareDemoLink.biaPointer(at: 1), 360, 380))
+        #expect(isClose(LiveShareDemoLink.biaPointer(at: 2), 200, 260))
+        #expect(isClose(LiveShareDemoLink.biaPointer(at: 4), 520, 260), "uma volta inteira a cada 4 s")
+        #expect(LiveShareDemoLink.caioDragProgress(at: 0) == 0)
+        #expect(LiveShareDemoLink.caioDragProgress(at: 1) == 0.5)
+        #expect(LiveShareDemoLink.caioDragProgress(at: 2) == nil, "depois de 2 s ele larga o cartão")
+        #expect(LiveShareDemoLink.caioDragProgress(at: 5.9) == nil)
+        #expect(LiveShareDemoLink.caioDragProgress(at: 6) == 0, "e arrasta de novo a cada 6 s")
+        #expect(LiveShareDemoLink.caioDragProgress(at: 7) == 0.5)
+    }
+    #endif
+
     // MARK: Apoio
 
     /// O dono com o convidado de teste convidado, o controlador do Live Share e um início falso.
@@ -587,3 +707,39 @@ private final class FakeStarter: LiveActivityStarter {
         return .started
     }
 }
+
+#if DEBUG
+/// Anota o que a sessão da demonstração avisa, no lugar do controlador.
+@MainActor
+private final class DemoRecorder {
+    struct Event {
+        var event: LiveEvent
+        var peer: UUID
+    }
+
+    struct Motion {
+        var motion: LiveMotion
+        var peer: UUID
+    }
+
+    private(set) var states: [LiveSessionState] = []
+    private(set) var participants: [Set<UUID>] = []
+    private(set) var events: [Event] = []
+    private(set) var motions: [Motion] = []
+
+    /// Os arrastos recebidos, na ordem.
+    var drags: [LiveDrag] {
+        motions.compactMap { entry -> LiveDrag? in
+            if case .drag(_, let drag) = entry.motion { drag } else { nil }
+        }
+    }
+
+    var handlers: LiveSessionHandlers {
+        LiveSessionHandlers(
+            stateChanged: { [self] in states.append($0) },
+            participantsChanged: { [self] in participants.append($0) },
+            event: { [self] in events.append(Event(event: $0, peer: $1)) },
+            motion: { [self] in motions.append(Motion(motion: $0, peer: $1)) })
+    }
+}
+#endif

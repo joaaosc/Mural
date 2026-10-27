@@ -111,6 +111,14 @@ enum LaunchConfiguration {
         return hasCloudKitEntitlement ? .cloudKit : .off
     }
 
+    #if DEBUG
+    /// A demonstração do Live Share, para conferir a interface sem chamada do FaceTime: `-liveShareDemo`, e só junto de `-uiTesting`
+    /// ou `-uiTestingKeep`, porque ela depende do iCloud falso. Só existe nas compilações de desenvolvimento.
+    static func isLiveShareDemo(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {
+        arguments.contains("-liveShareDemo") && (arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep"))
+    }
+    #endif
+
     /// Se o detalhe de um link carrega a página de verdade: nos testes de interface, não; ele mostra uma página
     /// local de exemplo (`FixtureLinkPage`), sem rede.
     static func loadsLivePages(arguments: [String] = ProcessInfo.processInfo.arguments) -> Bool {

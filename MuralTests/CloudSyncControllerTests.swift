@@ -1423,6 +1423,18 @@ struct CloudSyncControllerTests {
                 == .cloudKit)
     }
 
+    #if DEBUG
+    @Test("A demonstração do Live Share só liga com -liveShareDemo junto dos testes de interface, o iCloud falso")
+    func launchConfigurationEnablesTheLiveShareDemoOnlyWithTheFakeCloud() {
+        #expect(LaunchConfiguration.isLiveShareDemo(arguments: ["-uiTesting", "-liveShareDemo"]))
+        #expect(LaunchConfiguration.isLiveShareDemo(arguments: ["-uiTestingKeep", "-liveShareDemo"]))
+        #expect(!LaunchConfiguration.isLiveShareDemo(arguments: ["-liveShareDemo"]), "sem o iCloud falso a demonstração não vale")
+        #expect(!LaunchConfiguration.isLiveShareDemo(arguments: ["-manualTesting", "-liveShareDemo"]))
+        #expect(!LaunchConfiguration.isLiveShareDemo(arguments: ["-uiTesting"]), "sem o argumento, nada muda")
+        #expect(!LaunchConfiguration.isLiveShareDemo(arguments: []))
+    }
+    #endif
+
     @Test("O entitlement vale só se a lista de serviços do iCloud traz CloudKit")
     func entitlementValueMustListCloudKit() {
         #expect(CloudAvailability.listsCloudKit(["CloudKit", "CloudDocuments"]))
