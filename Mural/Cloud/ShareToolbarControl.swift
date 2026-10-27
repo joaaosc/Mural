@@ -15,22 +15,27 @@ struct ShareToolbarControl: View {
     let tabs: MuralTabs
     let sync: CloudSyncController
     @Binding var isPresented: Bool
+    /// O Live Share do app; `nil` fora dele (nas prévias, por exemplo).
+    @Environment(LiveShareController.self) private var liveShare: LiveShareController?
 
     var body: some View {
         let display = ShareDisplay(tab: tab, sync: sync)
         // O papel e o estado vêm do manifesto, que só se conhece depois de o mural carregar.
         let isLoaded = tab.session.model != nil
+        // Ao vivo: o símbolo muda. `isLive` lê só a fase do controlador, então o botão não se redesenha a cada movimento de ponteiro.
+        let isLive = liveShare?.isLive(tab.boardID) == true
+        let symbolName = isLive ? "person.2.wave.2.fill" : display.buttonSymbolName
         Button {
             isPresented.toggle()
         } label: {
-            ShareButtonLabel(symbolName: display.buttonSymbolName, hasWarning: isLoaded && display.status.isWarning)
+            ShareButtonLabel(symbolName: symbolName, hasWarning: isLoaded && display.status.isWarning)
         }
         .disabled(!isLoaded)
         .help("Compartilhar")
-        .accessibilityLabel(isLoaded ? display.accessibilityLabel : "Compartilhar \(tab.title)")
+        .accessibilityLabel(isLoaded ? display.accessibilityLabel + (isLive ? ", ao vivo" : "") : "Compartilhar \(tab.title)")
         .accessibilityIdentifier("share-button")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            LiveSharePopover(tab: tab, tabs: tabs, sync: sync, dismiss: { isPresented = false })
+            LiveSharePopover(tab: tab, tabs: tabs, sync: sync, liveShare: liveShare, dismiss: { isPresented = false })
         }
     }
 }
@@ -51,6 +56,8 @@ private struct LiveSharePopover: View {
     let tab: BoardTab
     let tabs: MuralTabs
     let sync: CloudSyncController
+    /// O Live Share do app, passado pelo botão: o ambiente pode não chegar ao conteúdo de um popover. `nil` esconde a seção.
+    let liveShare: LiveShareController?
     let dismiss: () -> Void
 
     /// O convite que o iCloud já tem do mural, lido ao abrir o popover: com ele o botão passa a "Gerenciar pessoas…". Relido a cada
@@ -65,9 +72,34 @@ private struct LiveSharePopover: View {
             onLeave: { confirm { await tabs.requestDelete(tab.route, name: tab.title) } },
             shareItem: shareItem,
             // O convidado de teste é só do iCloud falso dos testes de interface.
-            onInviteTestGuest: sync.mode == .inMemory ? { try await sync.inviteTestGuest(to: tab.route) } : nil
+            onInviteTestGuest: sync.mode == .inMemory ? { try await sync.inviteTestGuest(to: tab.route) } : nil,
+            live: liveDisplay,
+            onStartLive: startLive,
+            onLeaveLive: { liveShare?.leave() }
         )
         .task { await loadExistingShare() }
+    }
+
+    /// A seção do Live Share, lida agora do controlador. `isInCall` não é observável: vale o que havia ao montar o conteúdo, que é
+    /// refeito a cada abertura do popover.
+    private var liveDisplay: LiveShareDisplay? {
+        guard let liveShare else { return nil }
+        let id = tab.boardID
+        let model = tab.session.model
+        // Quem disse ser alguém fora do convite não entra na lista: só na contagem de quem está sem acesso.
+        let unverifiedCount = liveShare.presence.flatMap { $0.boardID == id ? $0.unverifiedCount : nil } ?? 0
+        return LiveShareDisplay.make(
+            phase: liveShare.phase, boardID: id, peers: liveShare.peers(on: id), unverifiedCount: unverifiedCount,
+            isShared: ShareDisplay(tab: tab, sync: sync).isShared, accountAvailable: sync.accountAvailable,
+            isInCall: liveShare.isInCall, itemTitle: { model?.item(id: $0)?.title })
+    }
+
+    /// Fecha o popover e começa o Live Share deste mural: a folha do sistema aparece sem o popover na frente.
+    private func startLive() {
+        guard let liveShare else { return }
+        dismiss()
+        let id = tab.boardID
+        Task { await liveShare.start(id) }
     }
 
     /// O item do botão Convidar: só com o iCloud de verdade e num mural salvo (o rascunho de exemplo ainda não é da pessoa).

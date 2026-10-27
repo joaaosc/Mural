@@ -132,9 +132,18 @@ struct MuralWindowView: View {
             isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }),
             presenting: alert
         ) { alert in
-            // Aviso do iCloud: o OK o dispensa. Os outros alertas ficam com o botão padrão.
+            // Aviso do iCloud: o OK o dispensa. Os outros alertas ficam com o botão padrão. O aviso de falta de acesso ao Live Share
+            // traz o convite e oferece pedir acesso ao dono do mural.
             if let noticeID = alert.noticeID {
-                Button("OK") { CloudSyncController.current?.dismissNotice(noticeID) }
+                if let url = alert.requestAccessURL {
+                    Button("Pedir Acesso") {
+                        CloudSyncController.current?.dismissNotice(noticeID)
+                        Task { await CloudSyncController.current?.requestAccess(to: url) }
+                    }
+                    Button("Agora Não", role: .cancel) { CloudSyncController.current?.dismissNotice(noticeID) }
+                } else {
+                    Button("OK") { CloudSyncController.current?.dismissNotice(noticeID) }
+                }
             }
         } message: { alert in
             Text(alert.message)
@@ -227,7 +236,8 @@ struct MuralWindowView: View {
     /// Mostra o aviso mais antigo do iCloud quando a janela não tem outro alerta na frente.
     private func presentNextNotice() {
         guard alert == nil, let notice = CloudSyncController.current?.notices.first else { return }
-        alert = WindowAlert(title: notice.title, message: notice.message, noticeID: notice.id)
+        alert = WindowAlert(
+            title: notice.title, message: notice.message, noticeID: notice.id, requestAccessURL: notice.requestAccessURL)
     }
 
     private func createBoard() {
@@ -294,6 +304,8 @@ private struct WindowAlert: Identifiable {
     let message: String
     /// O aviso do iCloud que este alerta mostra; `nil` nos demais.
     var noticeID: UUID?
+    /// O convite cujo acesso a pessoa pode pedir ao dono (o aviso de falta de acesso ao Live Share); `nil` nos demais.
+    var requestAccessURL: URL?
 }
 
 /// O conteúdo de uma aba: o mural, ou o carregamento, ou o erro com as saídas possíveis.
