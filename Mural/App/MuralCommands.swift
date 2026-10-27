@@ -22,6 +22,24 @@ struct MuralCommands: Commands {
         }
     }
 
+    #if DEBUG
+    /// Arquivo › Preparar o Esquema do iCloud…: grava o esquema de exemplo no iCloud de desenvolvimento e avisa o resultado
+    /// (`CloudSyncController.prepareSchema()`). Não existe nas compilações de distribuição.
+    private func prepareCloudSchema() {
+        guard let sync = CloudSyncController.current else { return }
+        Task {
+            do {
+                try await sync.prepareSchema()
+                sync.postSchemaNotice(
+                    "O esquema foi gravado no ambiente de desenvolvimento. "
+                        + "Publique-o em produção no CloudKit Console (Deploy Schema Changes).")
+            } catch {
+                sync.postSchemaNotice("Não foi possível preparar o esquema: \(error.localizedDescription)")
+            }
+        }
+    }
+    #endif
+
     var body: some Commands {
         // Os comandos existem mesmo sem janelas: daqui as abas e o delegate conseguem abrir a janela.
         let _ = tabs.registerWindowOpener { [openWindow] in openWindow(id: MuralWindowView.sceneID) }
@@ -81,6 +99,11 @@ struct MuralCommands: Commands {
             // `nil`) o item fica desabilitado; com `-uiTesting` o controlador existe e usa o iCloud falso.
             Button("Compartilhar…") { tabs.requestShareSelected() }
                 .disabled(!tabs.canShareSelected)
+            #if DEBUG
+            // Só nas compilações de desenvolvimento, e só com o iCloud de verdade (`CloudSyncMode.cloudKit`).
+            Button("Preparar o Esquema do iCloud…", action: prepareCloudSchema)
+                .disabled(CloudSyncController.current?.mode != .cloudKit)
+            #endif
             Button(BoardDeletionRequest.menuTitle(role: tabs.role(for: tabs.selected?.session.cloud))) {
                 Task { await tabs.requestDeleteSelected() }
             }

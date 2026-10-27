@@ -483,6 +483,13 @@ final class CloudSyncController {
         post(CloudSyncNotice(message: message, title: "Live Share", requestAccessURL: requestAccessURL))
     }
 
+    #if DEBUG
+    /// Avisa a pessoa do resultado de `prepareSchema()`. Não traz mural, como o aviso do Live Share.
+    func postSchemaNotice(_ message: String) {
+        post(CloudSyncNotice(message: message, title: "Esquema do iCloud"))
+    }
+    #endif
+
     // MARK: Convites
 
     /// Recebe os convites que uma busca trouxe. Voltam logo (o motor os entrega dentro do seu executor): o trabalho entra na fila,
@@ -928,6 +935,60 @@ final class CloudSyncController {
     private static func scope(of zone: CloudZoneID) -> CloudDatabaseScope {
         zone.ownerName == CloudZoneID.defaultOwnerName ? .private : .shared
     }
+
+    #if DEBUG
+    // MARK: Esquema do iCloud
+
+    /// **Só nas compilações de desenvolvimento.** Prepara o esquema do iCloud para ser publicado em produção: grava um mural de exemplo
+    /// com todos os tipos de registro e todas as chaves (`CloudSchemaSample`) e apaga a zona em seguida.
+    ///
+    /// O CloudKit de desenvolvimento cria o esquema na primeira gravação de cada campo, mas a produção (TestFlight e loja) só aceita o
+    /// que foi publicado no CloudKit Console (Deploy Schema Changes). Rode antes de cada TestFlight ou envio à loja que traga campo ou
+    /// tipo de registro novo e, depois, publique o esquema no Console.
+    ///
+    /// A zona se chama `esquema-<UUID>`, e não `mural-<UUID>`: com o nome de mural, o motor de sincronização deste mesmo app a adotaria
+    /// como um mural recebido. O esquema é do container, e não da zona, então o resultado é o mesmo. Se o app fechar no meio, a zona
+    /// fica no iCloud (o app a ignora) e pode ser apagada no CloudKit Console.
+    ///
+    /// Não tem teste automático: grava no CloudKit de verdade, e só se confere com uma conta do iCloud.
+    /// - Throws: `CloudSyncControllerError.disabled` fora do modo `.cloudKit`; ou o primeiro erro do CloudKit ao criar a zona, gravar
+    ///   os registros ou apagar a zona. A zona é apagada também quando a gravação falha.
+    func prepareSchema() async throws {
+        guard mode == .cloudKit, let container = cloudContainer else { throw CloudSyncControllerError.disabled }
+        let database = container.privateCloudDatabase
+        let zoneID = CloudZoneID(name: "esquema-\(UUID().uuidString)").ckZoneID
+        let mediaFile = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: mediaFile) }
+        try Data("Mural".utf8).write(to: mediaFile)
+
+        _ = try await database.save(CKRecordZone(zoneID: zoneID))
+        do {
+            let records = try CloudSchemaSample.records(in: CloudZoneID(zoneID), mediaFile: mediaFile).map { try $0.makeCKRecord() }
+            let result = try await database.modifyRecords(saving: records, deleting: [])
+            if let error = Self.firstError(in: result.saveResults, order: records.map(\.recordID)) { throw error }
+        } catch {
+            // O erro que vale é o da gravação: se a zona também não for apagada, só se registra.
+            do {
+                try await database.deleteRecordZone(withID: zoneID)
+            } catch let cleanupError {
+                Self.log.error("Zona do esquema não apagada: \(String(describing: cleanupError), privacy: .public)")
+            }
+            throw error
+        }
+        try await database.deleteRecordZone(withID: zoneID)
+        Self.log.notice("Esquema do iCloud gravado no ambiente de desenvolvimento")
+    }
+
+    /// O primeiro erro dos resultados, na ordem dos registros. Numa gravação atômica, a falha de um registro faz os outros voltarem
+    /// com `batchRequestFailed`: esse só vale se não houver a causa.
+    private static func firstError(in results: [CKRecord.ID: Result<CKRecord, any Error>], order: [CKRecord.ID]) -> (any Error)? {
+        let errors = order.compactMap { id -> (any Error)? in
+            if case .failure(let error)? = results[id] { return error }
+            return nil
+        }
+        return errors.first { ($0 as? CKError)?.code != .batchRequestFailed } ?? errors.first
+    }
+    #endif
 
     // MARK: Interno
 
