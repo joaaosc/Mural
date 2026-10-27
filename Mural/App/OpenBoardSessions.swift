@@ -1,4 +1,5 @@
 import AppKit
+import CloudKit
 import Foundation
 
 /// Janelas de mural abertas, para que sair do app (⌘Q, logout, reinício) espere a
@@ -160,6 +161,12 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         guard let sync = cloudSync() else { return }
         Task { @MainActor in await sync.fetch() }
+    }
+
+    /// A pessoa abriu o link de um convite do iCloud: o controlador o aceita e abre o mural numa aba (sem sincronização, nada).
+    func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        guard let sync = cloudSync() else { return }
+        Task { @MainActor in await sync.acceptShare(metadata) }
     }
 
     /// Clique no ícone do Dock sem janelas abertas, ou abrir o app pelo Finder ou pelo Spotlight enquanto ele roda só

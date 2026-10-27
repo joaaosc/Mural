@@ -54,10 +54,19 @@ private struct LoadedRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// As abas da janela: novo mural, importação e rascunho promovido passam por elas.
     @Environment(MuralTabs.self) private var tabs: MuralTabs?
+    /// O Live Share do app; `nil` fora dele (nas prévias, por exemplo).
+    @Environment(LiveShareController.self) private var liveShare: LiveShareController?
     @Environment(\.undoManager) private var undoManager
 
     private var path: [Destination] { session.path }
     private var filter: BoardFilter? { session.filter }
+
+    /// O cartão que esta pessoa abriu, para o Live Share: a nota ou o post-it em edição; senão a página de cartão no topo; senão nada.
+    private var liveFocus: LiveFocus? {
+        if let editingID = session.editingItemID { return LiveFocus(itemID: editingID, isEditing: true) }
+        if case .item(let id)? = path.last { return LiveFocus(itemID: id, isEditing: false) }
+        return nil
+    }
 
     private var hero: HeroContext {
         HeroContext(namespace: heroNamespace, isEnabled: !reduceMotion, presented: Set(path.map(\.id)))
@@ -235,12 +244,17 @@ private struct LoadedRootView: View {
         .onChange(of: session.editingItemID) { _, editingItemID in
             restoreCanvasFocus(afterEditing: editingItemID)
         }
+        // Live Share: o cartão que esta pessoa abriu, para as outras verem o selo dela nele.
+        .onChange(of: liveFocus, initial: true) { _, focus in liveShare?.focusChanged(focus, in: session.boardID) }
         .task {
             setupPreviewCoordinators()
         }
         .onDisappear {
             linkPreviewCoordinator?.cancelAll()
             musicArtworkCoordinator?.cancelAll()
+            // Live Share: sem o mural na janela, o ponteiro e o cartão aberto daqui deixam de valer.
+            liveShare?.pointerMoved(to: nil, in: session.boardID)
+            liveShare?.focusChanged(nil, in: session.boardID)
         }
     }
 

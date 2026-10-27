@@ -23,6 +23,8 @@ struct MuralWindowView: View {
     @State private var isNewBoardPresented = false
     @State private var boardNameDraft = ""
     @State private var isPackageImporterPresented = false
+    /// O popover do botão Compartilhar está aberto (pelo botão ou por Arquivo › Compartilhar…).
+    @State private var isSharePresented = false
     @State private var alert: WindowAlert?
 
     private enum WindowRole {
@@ -30,15 +32,10 @@ struct MuralWindowView: View {
     }
 
     /// Largura do item da faixa na barra da janela: tudo menos os semáforos e o botão da barra lateral à
-    /// esquerda e o "+" à direita. Um item da barra não estica sozinho; ele usa a largura pedida.
+    /// esquerda, o botão Compartilhar (quando o mural da aba pode ser compartilhado) e o "+" à direita. Um item
+    /// da barra não estica sozinho; ele usa a largura pedida.
     private var stripItemWidth: CGFloat {
-        max(0, windowWidth - 150 - 70 - (syncedSession == nil ? 0 : SyncStatusIndicator.toolbarWidth))
-    }
-
-    /// A sessão da aba ativa quando o mural dela está no iCloud: só ela ganha o indicador de sincronização.
-    private var syncedSession: BoardWindowSession? {
-        guard let session = tabs.selected?.session, session.cloud != nil else { return nil }
-        return session
+        max(0, windowWidth - 150 - 70 - (tabs.shareTarget == nil ? 0 : ShareToolbarControl.toolbarWidth))
     }
 
     /// Com a barra lateral aberta, as abas começam depois dela (e da linha divisória), como no Safari. A conta
@@ -105,10 +102,12 @@ struct MuralWindowView: View {
             }
             // O vidro do sistema cobriria também o recuo sobre a barra lateral: a faixa desenha o próprio vidro.
             .sharedBackgroundVisibility(.hidden)
-            if let session = syncedSession {
+            // O botão Compartilhar tem a cápsula de vidro própria: o espaço fixo o separa da cápsula do "+".
+            if let target = tabs.shareTarget {
                 ToolbarItem(placement: .primaryAction) {
-                    SyncStatusIndicator(issue: CloudSyncController.current?.issues[session.boardID])
+                    ShareToolbarControl(tab: target.tab, tabs: tabs, sync: target.sync, isPresented: $isSharePresented)
                 }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
@@ -133,29 +132,38 @@ struct MuralWindowView: View {
             isPresented: Binding(get: { alert != nil }, set: { if !$0 { alert = nil } }),
             presenting: alert
         ) { alert in
-            // Aviso do iCloud: o OK o dispensa. Os outros alertas ficam com o botão padrão.
+            // Aviso do iCloud: o OK o dispensa. Os outros alertas ficam com o botão padrão. O aviso de falta de acesso ao Live Share
+            // traz o convite e oferece pedir acesso ao dono do mural.
             if let noticeID = alert.noticeID {
-                Button("OK") { CloudSyncController.current?.dismissNotice(noticeID) }
+                if let url = alert.requestAccessURL {
+                    Button("Pedir Acesso") {
+                        CloudSyncController.current?.dismissNotice(noticeID)
+                        Task { await CloudSyncController.current?.requestAccess(to: url) }
+                    }
+                    Button("Agora Não", role: .cancel) { CloudSyncController.current?.dismissNotice(noticeID) }
+                } else {
+                    Button("OK") { CloudSyncController.current?.dismissNotice(noticeID) }
+                }
             }
         } message: { alert in
             Text(alert.message)
         }
         .confirmationDialog(
-            tabs.deletionRequest.map { "Excluir “\($0.name)”?" } ?? "",
+            tabs.deletionRequest?.title ?? "",
             isPresented: Binding(
                 get: { tabs.deletionRequest != nil }, set: { if !$0 { tabs.deletionRequest = nil } }),
             titleVisibility: .visible,
             presenting: tabs.deletionRequest
         ) { request in
-            Button(request.isDraft ? "Descartar" : "Mover para o Lixo", role: .destructive) { delete(request) }
+            Button(request.confirmTitle, role: request.isDestructive ? .destructive : nil) { delete(request) }
             Button("Cancelar", role: .cancel) {}
         } message: { request in
-            Text(
-                request.isDraft
-                    ? "O rascunho de exemplo será descartado e não poderá ser recuperado."
-                    : "O mural e os arquivos guardados nele vão para o Lixo do Mac.")
+            Text(request.message)
         }
         .onChange(of: tabs.request) { _, _ in consumeRequest() }
+        // O popover é do mural da aba: trocar de aba, ou o botão perder o sentido (mural excluído, ainda carregando), o fecha.
+        .onChange(of: tabs.selectedID) { _, _ in isSharePresented = false }
+        .onChange(of: tabs.canShareSelected) { _, canShare in if !canShare { isSharePresented = false } }
         // Os avisos de murais que saíram do iCloud usam o alerta da janela, um de cada vez.
         .onChange(of: CloudSyncController.current?.notices, initial: true) { _, _ in presentNextNotice() }
         .onChange(of: alert?.id) { _, id in if id == nil { presentNextNotice() } }
@@ -219,32 +227,18 @@ struct MuralWindowView: View {
             isNewBoardPresented = true
         case .openPackage:
             isPackageImporterPresented = true
-        #if DEBUG
-        case .putInCloud(let route):
-            putInCloud(route)
-        #endif
+        case .share(let route):
+            // O pedido vale para a aba que estava ativa ao pedir; quem trocou de aba nesse meio-tempo não vê o popover de outro mural.
+            isSharePresented = tabs.selected?.route == route && tabs.canShareSelected
         }
     }
 
     /// Mostra o aviso mais antigo do iCloud quando a janela não tem outro alerta na frente.
     private func presentNextNotice() {
         guard alert == nil, let notice = CloudSyncController.current?.notices.first else { return }
-        alert = WindowAlert(title: "Mural fora do iCloud", message: notice.message, noticeID: notice.id)
+        alert = WindowAlert(
+            title: notice.title, message: notice.message, noticeID: notice.id, requestAccessURL: notice.requestAccessURL)
     }
-
-    #if DEBUG
-    /// Depuração: pede ao controlador que ponha o mural no iCloud e mostra o erro, se houver.
-    private func putInCloud(_ route: BoardRoute) {
-        guard let sync = CloudSyncController.current else { return }
-        Task {
-            do {
-                try await sync.putInCloud(route)
-            } catch {
-                alert = WindowAlert(title: "Não foi possível pôr o mural no iCloud", message: error.localizedDescription)
-            }
-        }
-    }
-    #endif
 
     private func createBoard() {
         isNewBoardPresented = false
@@ -259,19 +253,21 @@ struct MuralWindowView: View {
         }
     }
 
+    /// Faz o que o diálogo confirmou (excluir, sair do mural recebido ou tirar do iCloud); o erro vira o alerta da janela.
     private func delete(_ request: BoardDeletionRequest) {
         tabs.deletionRequest = nil
         Task {
             do {
-                try await tabs.deleteBoard(request.route)
+                try await tabs.perform(request)
             } catch {
-                alert = WindowAlert(title: "Não foi possível excluir o mural", message: error.localizedDescription)
+                alert = WindowAlert(title: request.failureTitle, message: error.localizedDescription)
             }
         }
     }
 
     private func importPackage(from source: URL) {
         Task {
+            if await openExistingBoard(forPackageAt: source) { return }
             do {
                 let library = tabs.registry.library
                 let result = try await MuralPackageImport.importAsCopy(from: source, using: library)
@@ -286,6 +282,19 @@ struct MuralWindowView: View {
                 alert = WindowAlert(title: "Não foi possível importar o mural", message: error.localizedDescription)
             }
         }
+    }
+
+    /// Um `.mural` de um mural que este Mac já tem salvo (a cópia da pasta Mural do iCloud Drive, por exemplo) abre a aba do mural que
+    /// já existe, sem importar uma segunda cópia nem alerta. O id vem do manifesto do pacote.
+    /// - Returns: `true` se abriu o mural que já existe.
+    private func openExistingBoard(forPackageAt source: URL) async -> Bool {
+        let manifest = await SecurityScopedAccess.withAccess(to: [source]) {
+            await DriveMirror.manifest(ofPackageAt: source)
+        }
+        guard let id = manifest?.id, let existing = try? await tabs.registry.library.open(.saved(id)) else { return false }
+        tabs.open(.saved(id), title: existing.manifest.name)
+        tabs.showWindow()
+        return true
     }
 
     private static func workspaceNotice(for status: BoardPortableWorkspaceStatus) -> String {
@@ -309,6 +318,8 @@ private struct WindowAlert: Identifiable {
     let message: String
     /// O aviso do iCloud que este alerta mostra; `nil` nos demais.
     var noticeID: UUID?
+    /// O convite cujo acesso a pessoa pode pedir ao dono (o aviso de falta de acesso ao Live Share); `nil` nos demais.
+    var requestAccessURL: URL?
 }
 
 /// O conteúdo de uma aba: o mural, ou o carregamento, ou o erro com as saídas possíveis.

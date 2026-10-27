@@ -145,6 +145,64 @@ struct MuralTabsTests {
         await tabs.closeAll()
     }
 
+    @Test("Fechar uma aba avisa onBoardClosed com o mural dela; fechar uma aba que não existe não avisa")
+    func closeReportsTheClosedBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        let tabA = try #require(tabs.open(try await library.createNamedBoard("A")))
+        let tabB = try #require(tabs.open(try await library.createNamedBoard("B")))
+        let closed = ClosedBoards()
+        tabs.onBoardClosed = { closed.ids.append($0) }
+
+        tabs.close(UUID())
+        #expect(closed.ids.isEmpty, "sem aba, nada saiu")
+        tabs.close(tabA.id)
+        #expect(closed.ids == [tabA.boardID])
+        tabs.close(tabB.id)
+        #expect(closed.ids == [tabA.boardID, tabB.boardID], "a última aba também avisa, antes de a janela fechar")
+    }
+
+    @Test("Fechar todas as abas avisa onBoardClosed com o mural de cada uma")
+    func closeAllReportsEveryBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        for name in ["A", "B", "C"] { _ = try #require(tabs.open(try await library.createNamedBoard(name))) }
+        let open = tabs.tabs.map(\.boardID)
+        #expect(open.count == 3)
+        let closed = ClosedBoards()
+        tabs.onBoardClosed = { closed.ids.append($0) }
+
+        await tabs.closeAll()
+        #expect(closed.ids == open, "um aviso por mural, na ordem das abas")
+        #expect(tabs.tabs.isEmpty)
+
+        await tabs.closeAll()
+        #expect(closed.ids == open, "sem abas, não há mais o que avisar")
+    }
+
+    @Test("Promover o rascunho avisa onBoardClosed com o mural que saiu da aba, e não com o novo; rota que não é mural não avisa")
+    func replaceReportsTheOldBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        let tabA = try #require(tabs.open(try await library.createNamedBoard("A")))
+        _ = tabs.open(try await library.createNamedBoard("B"))
+        let promoted = try await library.createNamedBoard("A promovido")
+        let closed = ClosedBoards()
+        tabs.onBoardClosed = { closed.ids.append($0) }
+
+        tabs.replace(tabA.id, with: .library)
+        #expect(closed.ids.isEmpty, "a biblioteca não é uma aba: nada mudou")
+        tabs.replace(tabA.id, with: promoted)
+        #expect(closed.ids == [tabA.boardID])
+        #expect(tabs.tab(for: tabA.boardID) == nil)
+        #expect(tabs.tabs.first?.route == promoted)
+        tabs.onBoardClosed = nil
+        await tabs.closeAll()
+    }
+
     @Test("Restauração: mural repetido e biblioteca ficam de fora; só a aba ativa carrega")
     func restoreSkipsInvalidAndLoadsOnlySelected() async throws {
         let (library, directory) = try makeLibrary()
@@ -261,10 +319,10 @@ struct MuralTabsTests {
         let route = try await library.createNamedBoard("Pedido")
         _ = tabs.open(route, title: "Pedido")
 
-        tabs.requestDeleteSelected()
+        await tabs.requestDeleteSelected()
         #expect(tabs.deletionRequest == BoardDeletionRequest(route: route, name: "Pedido"))
         #expect(opened == 1)
-        tabs.requestDelete(.library, name: "Murais")
+        await tabs.requestDelete(.library, name: "Murais")
         #expect(tabs.deletionRequest?.route == route, "a biblioteca não se exclui")
         #expect(try await library.listSaved().count == 1, "nada é excluído antes da confirmação")
         await tabs.closeAll()
@@ -287,6 +345,55 @@ struct MuralTabsTests {
         #expect(try await library.lifecycleState()?.lifecycle == .discarded)
     }
 
+    @Test("Confirmar a exclusão só deste Mac avisa onBoardDeletedByUser; deleteBoard direto e pedido com erro não avisam")
+    func performingLocalDeletionReportsTheBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        tabs.removeBoardCaches = { _ in }
+        let deleted = DeletedBoards()
+        tabs.onBoardDeletedByUser = { deleted.ids.append($0) }
+        let doomed = try await library.createNamedBoard("Excluir")
+        let swept = try await library.createNamedBoard("Sincronização")
+        guard case .saved(let doomedID) = doomed else {
+            Issue.record("rota inesperada")
+            return
+        }
+
+        try await tabs.deleteBoard(swept)
+        #expect(deleted.ids.isEmpty, "a exclusão por outro caminho (como a sincronização) não é da pessoa")
+        // Sem sincronização ligada, sair do mural recebido e tirar do iCloud recusam, e nada é avisado.
+        await #expect(throws: CloudSyncControllerError.disabled) {
+            try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir", kind: .leave))
+        }
+        await #expect(throws: CloudSyncControllerError.disabled) {
+            try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir", kind: .removeFromICloud(participants: 0)))
+        }
+        await #expect(throws: CloudSyncControllerError.disabled) {
+            try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir", kind: .everywhere(participants: 0)))
+        }
+        #expect(deleted.ids.isEmpty)
+
+        try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir"))
+        #expect(deleted.ids == [doomedID])
+        #expect(try await library.listSaved().isEmpty)
+    }
+
+    @Test("libraryDidChange avisa onLibraryChanged e muda a revisão da lista")
+    func libraryChangeIsReported() throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        var calls = 0
+        tabs.onLibraryChanged = { calls += 1 }
+        let before = tabs.libraryRevision
+
+        tabs.libraryDidChange()
+
+        #expect(calls == 1)
+        #expect(tabs.libraryRevision == before &+ 1)
+    }
+
     @Test("Dentro do app, mover para o Lixo funciona e diz onde o item foi parar")
     func trashWorksInsideTheSandbox() throws {
         let item = FileManager.default.temporaryDirectory
@@ -305,4 +412,16 @@ struct MuralTabsTests {
 @MainActor
 private final class WindowCloses {
     var count = 0
+}
+
+/// Anota os murais que `MuralTabs.onBoardClosed` avisou, na ordem.
+@MainActor
+private final class ClosedBoards {
+    var ids: [BoardID] = []
+}
+
+/// Os murais que a pessoa excluiu, como `onBoardDeletedByUser` os avisou.
+@MainActor
+private final class DeletedBoards {
+    var ids: [BoardID] = []
 }

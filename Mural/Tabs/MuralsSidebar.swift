@@ -33,8 +33,10 @@ struct MuralsSidebar: View {
                     .accessibilityAddTraits(.isHeader)
                 ForEach(entries, id: \.route) { entry in
                     SidebarMuralRow(
-                        entry: entry, isSelected: tabs.selected?.route == entry.route, action: { open(entry) },
-                        onDelete: { tabs.requestDelete(entry.route, name: entry.manifest.name) })
+                        entry: entry, isSelected: tabs.selected?.route == entry.route, role: tabs.role(for: entry.manifest.cloud),
+                        action: { open(entry) },
+                        onDelete: { Task { await tabs.requestDelete(entry.route, name: entry.manifest.name) } },
+                        onRemoveFromICloud: { Task { await tabs.requestRemoveFromICloud(entry.route, name: entry.manifest.name) } })
                 }
                 if !unreadable.isEmpty {
                     Label(
@@ -105,8 +107,11 @@ extension BoardRoute {
 private struct SidebarMuralRow: View {
     let entry: BoardLibraryEntry
     let isSelected: Bool
+    /// O papel da pessoa no mural do iCloud (`MuralTabs.role(for:)`): `nil` num mural só deste Mac.
+    let role: BoardCloudInfo.Database?
     var action: () -> Void
     var onDelete: () -> Void
+    var onRemoveFromICloud: () -> Void
 
     @State private var isHovering = false
 
@@ -125,13 +130,20 @@ private struct SidebarMuralRow: View {
         .contextMenu {
             Button("Abrir", action: action)
             Divider()
-            Button(entry.route.isDraft ? "Descartar Rascunho…" : "Excluir Mural…", role: .destructive, action: onDelete)
+            if role == .private {
+                Button("Tirar do iCloud…", action: onRemoveFromICloud)
+            }
+            Button(deleteTitle, role: .destructive, action: onDelete)
         }
         .accessibilityIdentifier(
             entry.route.isDraft
                 ? "welcome-draft-entry" : "saved-board-entry-\(entry.manifest.id.rawValue.uuidString)"
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var deleteTitle: String {
+        entry.route.isDraft ? "Descartar Rascunho…" : BoardDeletionRequest.menuTitle(role: role)
     }
 
     private var background: AnyShapeStyle {

@@ -30,7 +30,8 @@ struct BoardTabStrip: View {
                         onSelect: { tabs.select(tab.id) },
                         onClose: { tabs.close(tab.id) },
                         onCloseOthers: { tabs.closeOthers(tab.id) },
-                        onDelete: { tabs.requestDelete(tab.route, name: tab.title) }
+                        deleteTitle: BoardDeletionRequest.menuTitle(role: tabs.role(for: tab.session.cloud)),
+                        onDelete: { Task { await tabs.requestDelete(tab.route, name: tab.title) } }
                     )
                     .frame(width: tabWidth, height: Self.height)
                 }
@@ -61,6 +62,8 @@ struct BoardTabButton: View {
     var onSelect: () -> Void
     var onClose: () -> Void
     var onCloseOthers: () -> Void = {}
+    /// O rótulo do item que exclui o mural: o de quem recebeu o convite é "Sair do Mural Compartilhado…".
+    var deleteTitle = "Excluir Mural…"
     var onDelete: () -> Void = {}
 
     @State private var isHovering = false
@@ -97,7 +100,7 @@ struct BoardTabButton: View {
             Button("Fechar outras abas", action: onCloseOthers)
                 .disabled(!canCloseOthers)
             Divider()
-            Button("Excluir Mural…", role: .destructive, action: onDelete)
+            Button(deleteTitle, role: .destructive, action: onDelete)
         }
         .help(title)
         .accessibilityIdentifier("board-tab")

@@ -426,7 +426,8 @@ struct CloudKitConversionTests {
         set(bad, "x", Date() as NSDate)
         let removed = ckRecord(name: "33333333-2222-3333-4444-555555555555").recordID
 
-        let outcome = CloudKitMapping.fetchOutcome(modifications: [bad, good], deletions: [removed])
+        let outcome = CloudKitMapping.fetchOutcome(
+            modifications: [bad, good], deletions: [(recordID: removed, recordType: CloudSchema.RecordType.card.rawValue)])
 
         #expect(outcome.saved == [try CloudRecord(good)])
         #expect(outcome.deleted == [CloudRecordID(removed)])
@@ -443,6 +444,156 @@ struct CloudKitConversionTests {
         #expect(outcome.saved.isEmpty && outcome.deleted.isEmpty && outcome.zones.isEmpty)
     }
 
+    // MARK: Convite
+
+    /// O convite de uma zona, criado sem conta, só com o título. O CloudKit põe quem o cria como dono e como usuário atual, e esse
+    /// único participante é o dono: sem o `participants` do resumo o dono não aparece.
+    private func ckShare(title: String? = nil, owner: String = CKCurrentUserDefaultName) -> CKShare {
+        let share = CKShare(recordZoneID: CKRecordZone.ID(zoneName: Self.zoneName, ownerName: owner))
+        if let title { share[CKShare.SystemFieldKey.title] = title as NSString }
+        return share
+    }
+
+    @Test("O convite da zona vai para os convites da leva, não para os registros, e o cartão da mesma leva segue normal")
+    func shareIsSeparatedFromTheBoardRecords() throws {
+        let card = ckRecord(name: "11111111-2222-3333-4444-555555555555")
+        set(card, "title", "bom" as NSString)
+        let share = ckShare(title: "Casa")
+        #expect(share.recordType == CKRecord.SystemType.share)
+        #expect(share.recordID.recordName == CKRecordNameZoneWideShare)
+
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [share, card], deletions: [])
+
+        #expect(outcome.saved == [try CloudRecord(card)], "o convite não vira registro do mural, nem ilegível")
+        #expect(outcome.deleted.isEmpty)
+        #expect(
+            outcome.shares == [
+                ShareSummary(
+                    zone: CloudZoneID(name: Self.zoneName), title: "Casa", currentUserPermission: .owner,
+                    ownerUserRecordName: CKCurrentUserDefaultName)
+            ])
+        #expect(outcome.zones == [CloudZoneID(name: Self.zoneName)], "só a zona do cartão: o convite não declara zona")
+    }
+
+    @Test("Só o convite na leva: nada segue para o coordenador, e nenhuma zona é declarada")
+    func aBatchWithOnlyTheShareHasNothingForTheCoordinator() {
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [ckShare(title: "Casa")], deletions: [])
+
+        #expect(outcome.saved.isEmpty && outcome.deleted.isEmpty && outcome.zones.isEmpty)
+        #expect(outcome.shares.count == 1)
+    }
+
+    @Test("Convite sem título, e do lado do convidado: a zona leva o dono como veio")
+    func shareKeepsTheZoneOwnerAndMissingTitle() {
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [ckShare(owner: "_dono")], deletions: [])
+
+        #expect(
+            outcome.shares == [
+                ShareSummary(
+                    zone: CloudZoneID(name: Self.zoneName, ownerName: "_dono"), currentUserPermission: .owner,
+                    ownerUserRecordName: CKCurrentUserDefaultName)
+            ])
+        #expect(outcome.shares.first?.title == nil && outcome.shares.first?.url == nil)
+    }
+
+    @Test("Registro de tipo de convite que não chega como CKShare sai da leva e não vira aviso nem resumo")
+    func shareTypedRecordWithoutShareClassIsDropped() {
+        let plain = CKRecord(
+            recordType: CKRecord.SystemType.share,
+            recordID: CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: CKRecordZone.ID(zoneName: Self.zoneName)))
+
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [plain], deletions: [])
+
+        #expect(outcome == CloudKitMapping.FetchOutcome())
+    }
+
+    @Test("Apagar o convite vira um resumo apagado da zona, e o apagamento de um registro do mural continua em `deleted`")
+    func shareDeletionBecomesADeletedSummary() {
+        let zone = CKRecordZone.ID(zoneName: Self.zoneName, ownerName: "_dono")
+        let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zone)
+        let cardID = CKRecord.ID(recordName: "33333333-2222-3333-4444-555555555555", zoneID: zone)
+
+        let outcome = CloudKitMapping.fetchOutcome(
+            modifications: [],
+            deletions: [(recordID: shareID, recordType: CKRecord.SystemType.share), (recordID: cardID, recordType: "Card")])
+
+        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(zone), isDeleted: true)])
+        #expect(outcome.deleted == [CloudRecordID(cardID)])
+        #expect(outcome.zones == [CloudZoneID(zone)])
+    }
+
+    @Test("O apagamento do convite também é reconhecido pelo nome do registro, se o tipo vier vazio")
+    func shareDeletionIsRecognizedByTheRecordName() {
+        let shareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: CKRecordZone.ID(zoneName: Self.zoneName))
+
+        let outcome = CloudKitMapping.fetchOutcome(modifications: [], deletions: [(recordID: shareID, recordType: "")])
+
+        #expect(outcome.shares == [ShareSummary(zone: CloudZoneID(name: Self.zoneName), isDeleted: true)])
+        #expect(outcome.deleted.isEmpty)
+    }
+
+    @Test("Sem participante para o usuário atual a permissão é nil")
+    func noCurrentParticipantMeansNoPermission() {
+        #expect(CloudKitMapping.permission(of: nil) == nil)
+    }
+
+    @Test("Convite criado sem conta: quem o cria é o dono e o usuário atual, o nome do dono vem vazio e a lista de convidados não o inclui")
+    func shareCreatedWithoutAnAccountListsNoGuests() {
+        let share = ckShare(title: "Casa")
+        #expect(share.participants.count == 1 && share.participants.first?.role == .owner, "o CloudKit lista o dono entre os participantes")
+
+        let summary = ShareSummary(share)
+
+        #expect(summary.currentUserPermission == .owner)
+        #expect(summary.participants.isEmpty, "o dono fica de fora")
+        #expect(summary.ownerDisplayName == nil, "componentes de nome vazios não viram nome")
+        #expect(!summary.isDeleted)
+    }
+
+    @Test("O resumo do convite copia o nome do registro de usuário do dono, como o CloudKit o dá")
+    func shareSummaryCopiesTheOwnerUserRecordName() {
+        let share = ckShare(title: "Casa", owner: "_dono")
+
+        let summary = ShareSummary(share)
+
+        #expect(summary.ownerUserRecordName == share.owner.userIdentity.userRecordID?.recordName)
+        #expect(summary.ownerUserRecordName == CKCurrentUserDefaultName, "convite criado aqui: marcador padrão no lugar do nome real")
+    }
+
+    @Test("Permissão do usuário atual: o dono vale como dono, o participante vale a permissão dele e sem permissão conhecida é nil")
+    func currentUserPermissionFollowsRoleAndPermission() {
+        let owner = CKShare.ParticipantRole.owner
+        let guest = CKShare.ParticipantRole.privateUser
+        let expected: [(CKShare.ParticipantRole, CKShare.ParticipantPermission, BoardCloudInfo.Permission?)] = [
+            (owner, .readWrite, .owner), (owner, .unknown, .owner),
+            (guest, .readWrite, .readWrite), (guest, .readOnly, .readOnly), (guest, .none, nil), (guest, .unknown, nil),
+        ]
+        for (role, permission, result) in expected {
+            let mapped = CloudKitMapping.permission(role: role, permission: permission)
+            #expect(mapped == result, "papel \(role.rawValue), permissão \(permission.rawValue)")
+        }
+    }
+
+    @Test("Permissão do CloudKit para a do app: editar e ver passam, e sem permissão conhecida não há equivalente")
+    func participantPermissionMapsToTheAppVocabulary() {
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.readWrite) == .readWrite)
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.readOnly) == .readOnly)
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.none) == nil)
+        #expect(BoardCloudInfo.Permission(CKShare.ParticipantPermission.unknown) == nil)
+    }
+
+    @Test("Nome para mostrar: sem componentes ou com componentes vazios é nil; com nome e sobrenome traz os dois")
+    func displayNameFromNameComponents() {
+        #expect(CloudKitMapping.displayName(from: nil) == nil)
+        #expect(CloudKitMapping.displayName(from: PersonNameComponents()) == nil)
+
+        var components = PersonNameComponents()
+        components.givenName = "Ana"
+        components.familyName = "Silva"
+        let name = CloudKitMapping.displayName(from: components)
+        #expect(name?.contains("Ana") == true && name?.contains("Silva") == true)
+    }
+
     @Test("A pendência vai e volta entre o coordenador e o `CKSyncEngine`")
     func pendingChangeRoundTrip() {
         let id = CloudRecordID(zone: CloudZoneID(name: Self.zoneName, ownerName: "_dono"), name: UUID().uuidString)
@@ -451,5 +602,83 @@ struct CloudKitConversionTests {
         }
         #expect(PendingChange.save(id).engineChange == .saveRecord(id.ckRecordID))
         #expect(PendingChange.delete(id).engineChange == .deleteRecord(id.ckRecordID))
+    }
+
+    // MARK: Adoção
+
+    @Test("Zona nova: no banco privado o mural é do dono; no compartilhado, só ver até o convite; zona que não é de mural fica de fora")
+    func adoptionInfoDependsOnTheDatabase() {
+        let boardZone = CloudZoneID(name: CloudSchema.zoneName(for: BoardID()), ownerName: "_dono")
+        let ownZone = CloudZoneID(name: CloudSchema.zoneName(for: BoardID()))
+
+        let own = CloudKitMapping.adoptionInfo(for: ownZone, scope: .private)
+        #expect(own?.database == .private && own?.permission == .owner && own?.zoneOwnerName == CloudZoneID.defaultOwnerName)
+        let received = CloudKitMapping.adoptionInfo(for: boardZone, scope: .shared)
+        #expect(received?.database == .shared && received?.permission == .readOnly && received?.zoneOwnerName == "_dono")
+        #expect(CloudKitMapping.adoptionInfo(for: CloudZoneID(name: "_defaultZone"), scope: .private) == nil)
+        #expect(CloudKitMapping.adoptionInfo(for: CloudZoneID(name: "outra-zona"), scope: .shared) == nil)
+    }
+
+    @Test("Busca sem as zonas recusadas: todas viram todas menos elas, a lista de exclusão soma, e a lista explícita perde as recusadas")
+    func fetchScopeLeavesDeclinedZonesOut() {
+        let a = CKRecordZone.ID(zoneName: "mural-A", ownerName: CKCurrentUserDefaultName)
+        let b = CKRecordZone.ID(zoneName: "mural-B", ownerName: CKCurrentUserDefaultName)
+        let c = CKRecordZone.ID(zoneName: "mural-C", ownerName: CKCurrentUserDefaultName)
+
+        #expect(CloudKitMapping.fetchScope(.all, excluding: []) == .all)
+        #expect(CloudKitMapping.fetchScope(.all, excluding: [b, a]) == .allExcluding([a, b]))
+        #expect(CloudKitMapping.fetchScope(.allExcluding([c]), excluding: [a]) == .allExcluding([a, c]))
+        #expect(CloudKitMapping.fetchScope(.zoneIDs([a, b, c]), excluding: [b]) == .zoneIDs([a, c]))
+    }
+
+    // MARK: Fila do motor
+
+    @Test("Trocar as pendências: sai o que o coordenador não devolveu e entra o que é novo, sem tocar nas outras zonas")
+    func pendingReplacementSwapsTheChangesOfTheZones() {
+        let first = CloudZoneID(name: "mural-A")
+        let second = CloudZoneID(name: "mural-B")
+        let kept = PendingChange.save(CloudRecordID(zone: first, name: "um"))
+        let dropped = PendingChange.save(CloudRecordID(zone: first, name: "dois"))
+        let elsewhere = PendingChange.save(CloudRecordID(zone: second, name: "tres"))
+        let added = PendingChange.delete(CloudRecordID(zone: first, name: "quatro"))
+
+        let replacement = CloudKitMapping.pendingReplacement(current: [kept, dropped, elsewhere], in: [first], with: [kept, added])
+
+        #expect(replacement.stale == [dropped])
+        #expect(replacement.new == [added])
+        let unchanged = CloudKitMapping.pendingReplacement(current: [kept], in: [first], with: [kept])
+        #expect(unchanged.stale.isEmpty && unchanged.new.isEmpty, "o que já está na fila não é refeito")
+    }
+
+    @Test("O apagamento do convite da zona (a saída do convidado) não sai com a troca; sai se o servidor o aceitou ou a zona acabou")
+    func pendingReplacementKeepsTheZoneShareDeletion() {
+        let zone = CloudZoneID(name: "mural-A", ownerName: "_dono")
+        let leaving = PendingChange.delete(CloudKitMapping.zoneShareRecordID(in: zone))
+        let ordinary = PendingChange.delete(CloudRecordID(zone: zone, name: "cartao"))
+        let otherZone = CloudZoneID(name: "mural-B", ownerName: "_dono")
+        let otherLeaving = PendingChange.delete(CloudKitMapping.zoneShareRecordID(in: otherZone))
+
+        // O coordenador não conhece a saída: devolver nada tira o apagamento comum da fila e deixa a saída.
+        let swapped = CloudKitMapping.pendingReplacement(current: [leaving, ordinary], in: [zone], with: [])
+        #expect(swapped.stale == [ordinary])
+        #expect(swapped.new.isEmpty)
+
+        // O servidor aceitou o apagamento, ou a zona foi apagada: agora ele sai. A saída de outra zona fica.
+        let settled = CloudKitMapping.pendingReplacement(
+            current: [leaving, ordinary, otherLeaving], in: [zone, otherZone], with: [], settled: [leaving.recordID])
+        #expect(settled.stale == [leaving, ordinary])
+        let otherZoneOnly = CloudKitMapping.pendingReplacement(current: [leaving, otherLeaving], in: [zone], with: [], settled: [])
+        #expect(otherZoneOnly.stale.isEmpty, "a saída de outra zona nem entra na troca")
+    }
+
+    @Test("O apagamento do convite tem o nome do registro de convite da zona, e só ele é reconhecido como saída do mural")
+    func zoneShareDeletionIsRecognizedByTheShareRecordName() {
+        let zone = CloudZoneID(name: "mural-A", ownerName: "_dono")
+        let id = CloudKitMapping.zoneShareRecordID(in: zone)
+
+        #expect(id.name == CKRecordNameZoneWideShare && id.zone == zone)
+        #expect(PendingChange(PendingChange.delete(id).engineChange)?.isZoneShareDeletion == true)
+        #expect(PendingChange.save(id).isZoneShareDeletion == false, "gravar um registro com esse nome não é sair do mural")
+        #expect(PendingChange.delete(CloudRecordID(zone: zone, name: "outro")).isZoneShareDeletion == false)
     }
 }

@@ -31,6 +31,13 @@ actor SyncTestGate {
     }
 }
 
+/// Um host que não implementa `adoptBoard`: vale a implementação padrão do protocolo, que recusa com `BoardSyncAdoptionError.unsupported`.
+struct SyncHostWithoutAdoption: BoardSyncHost {
+    func localBoard(_ id: BoardID) async -> LocalBoardSnapshot? { nil }
+    func applyRemote(_ id: BoardID, received: ReceivedChanges) async throws {}
+    func boardRemoved(_ id: BoardID, reason: BoardRemovalReason) async {}
+}
+
 /// O app de mentira dos testes de sincronização: guarda os murais em memória, junta o que chega com `BoardMerge.apply` (como o app
 /// de verdade fará), copia os arquivos para `Items/` e registra o que o coordenador pediu.
 actor SyncTestHost: BoardSyncHost {
@@ -45,16 +52,43 @@ actor SyncTestHost: BoardSyncHost {
         var itemsDirectory: URL
     }
 
+    /// Uma chamada de `adoptBoard`, também a que devolveu `false`.
+    struct Adoption: Equatable {
+        var board: BoardID
+        var cloud: BoardCloudInfo
+        var name: String?
+    }
+
+    /// O nome do mural adotado quando o coordenador não passa um.
+    static let adoptedDefaultName = "Mural do iCloud"
+
     private var entries: [BoardID: Entry] = [:]
     private var gate: SyncTestGate?
     private var failuresLeft = 0
+    /// Onde `adoptBoard` cria o `Items/` do mural adotado.
+    private let adoptedItemsDirectory: URL
 
     /// Cada chamada de `applyRemote`, na ordem em que foi concluída.
     private(set) var received: [ReceivedChanges] = []
     private(set) var removals: [Removal] = []
+    private(set) var adoptions: [Adoption] = []
+
+    /// - Parameter adoptedItemsDirectory: a pasta `Items/` do mural que o coordenador mandar adotar; por padrão, uma pasta temporária
+    ///   nova (o teste que quiser limpá-la passa a sua).
+    init(
+        adoptedItemsDirectory: URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuralSyncAdopted-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Items", isDirectory: true)
+    ) {
+        self.adoptedItemsDirectory = adoptedItemsDirectory
+    }
 
     func add(_ id: BoardID, name: String, board: Board, itemsDirectory: URL) {
         entries[id] = Entry(name: name, board: board, itemsDirectory: itemsDirectory)
+    }
+
+    func hasBoard(_ id: BoardID) -> Bool {
+        entries[id] != nil
     }
 
     func board(_ id: BoardID) -> Board {
@@ -113,5 +147,14 @@ actor SyncTestHost: BoardSyncHost {
 
     func boardRemoved(_ id: BoardID, reason: BoardRemovalReason) {
         removals.append(Removal(board: id, reason: reason))
+    }
+
+    /// Cria o mural vazio, com o nome dado ou `adoptedDefaultName`; `false` se o id já existe.
+    func adoptBoard(_ id: BoardID, cloud: BoardCloudInfo, name: String?) async throws -> Bool {
+        adoptions.append(Adoption(board: id, cloud: cloud, name: name))
+        guard entries[id] == nil else { return false }
+        try FileManager.default.createDirectory(at: adoptedItemsDirectory, withIntermediateDirectories: true)
+        entries[id] = Entry(name: name ?? Self.adoptedDefaultName, board: Board(), itemsDirectory: adoptedItemsDirectory)
+        return true
     }
 }

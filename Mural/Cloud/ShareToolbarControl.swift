@@ -1,0 +1,183 @@
+import CloudKit
+import MuralKit
+import MuralSync
+import SwiftUI
+
+/// O botão Compartilhar da barra da janela, no lugar do antigo ícone do iCloud: abre o popover com o estado da sincronização, quem
+/// tem acesso e as ações do papel da pessoa no mural. Fica numa cápsula própria, separada do "+" por um espaço fixo da barra.
+struct ShareToolbarControl: View {
+    /// A largura que o botão e o espaço fixo depois dele ocupam na barra da janela, para a faixa de abas ceder o lugar. Estimada (a
+    /// cápsula de vidro e o espaço fixo da barra não têm medida pública), com folga: faixa larga demais empurraria o "+" para o menu
+    /// de excesso da barra; larga de menos só deixa um vão. Conferir na janela.
+    static let toolbarWidth: CGFloat = 60
+
+    let tab: BoardTab
+    let tabs: MuralTabs
+    let sync: CloudSyncController
+    @Binding var isPresented: Bool
+    /// O Live Share do app; `nil` fora dele (nas prévias, por exemplo).
+    @Environment(LiveShareController.self) private var liveShare: LiveShareController?
+
+    var body: some View {
+        let display = ShareDisplay(tab: tab, sync: sync)
+        // O papel e o estado vêm do manifesto, que só se conhece depois de o mural carregar.
+        let isLoaded = tab.session.model != nil
+        // Ao vivo: o símbolo muda. `isLive` lê só a fase do controlador, então o botão não se redesenha a cada movimento de ponteiro.
+        let isLive = liveShare?.isLive(tab.boardID) == true
+        let symbolName = isLive ? "person.2.wave.2.fill" : display.buttonSymbolName
+        Button {
+            isPresented.toggle()
+        } label: {
+            ShareButtonLabel(symbolName: symbolName, hasWarning: isLoaded && display.status.isWarning)
+        }
+        .disabled(!isLoaded)
+        .help("Compartilhar")
+        .accessibilityLabel(isLoaded ? display.accessibilityLabel + (isLive ? ", ao vivo" : "") : "Compartilhar \(tab.title)")
+        .accessibilityIdentifier("share-button")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            LiveSharePopover(tab: tab, tabs: tabs, sync: sync, liveShare: liveShare, dismiss: { isPresented = false })
+        }
+    }
+}
+
+extension ShareDisplay {
+    /// O que o botão e o popover mostram do mural da aba, lido agora do manifesto e do controlador.
+    @MainActor
+    init(tab: BoardTab, sync: CloudSyncController) {
+        let id = tab.boardID
+        self.init(
+            boardName: tab.title, cloud: tab.session.cloud, share: sync.shareStates[id], issue: sync.issues[id],
+            isSending: sync.sendingBoards.contains(id), accountAvailable: sync.accountAvailable)
+    }
+}
+
+/// O popover ligado ao controlador. Lê o estado de dentro do próprio corpo, para acompanhar as mudanças com ele aberto.
+private struct LiveSharePopover: View {
+    let tab: BoardTab
+    let tabs: MuralTabs
+    let sync: CloudSyncController
+    /// O Live Share do app, passado pelo botão: o ambiente pode não chegar ao conteúdo de um popover. `nil` esconde a seção.
+    let liveShare: LiveShareController?
+    let dismiss: () -> Void
+
+    /// O convite que o iCloud já tem do mural, lido ao abrir o popover: com ele o botão passa a "Gerenciar pessoas…". Relido a cada
+    /// abertura, para o sistema receber o convite com a versão atual do servidor.
+    @State private var existingShare: CKShare?
+
+    var body: some View {
+        SharePopover(
+            display: ShareDisplay(tab: tab, sync: sync),
+            onRemoveFromICloud: { confirm { await tabs.requestRemoveFromICloud(tab.route, name: tab.title) } },
+            // Para quem recebeu o convite, o pedido de exclusão já vira "sair do mural".
+            onLeave: { confirm { await tabs.requestDelete(tab.route, name: tab.title) } },
+            shareItem: shareItem,
+            // O convidado de teste é só do iCloud falso dos testes de interface.
+            onInviteTestGuest: sync.mode == .inMemory ? { try await sync.inviteTestGuest(to: tab.route) } : nil,
+            live: liveDisplay,
+            onStartLive: startLive,
+            onLeaveLive: { liveShare?.leave() }
+        )
+        .task { await loadExistingShare() }
+    }
+
+    /// A seção do Live Share, lida agora do controlador. `isInCall` não é observável: vale o que havia ao montar o conteúdo, que é
+    /// refeito a cada abertura do popover.
+    private var liveDisplay: LiveShareDisplay? {
+        guard let liveShare else { return nil }
+        let id = tab.boardID
+        let model = tab.session.model
+        // Quem disse ser alguém fora do convite não entra na lista: só na contagem de quem está sem acesso.
+        let unverifiedCount = liveShare.presence.flatMap { $0.boardID == id ? $0.unverifiedCount : nil } ?? 0
+        return LiveShareDisplay.make(
+            phase: liveShare.phase, boardID: id, peers: liveShare.peers(on: id), unverifiedCount: unverifiedCount,
+            isShared: ShareDisplay(tab: tab, sync: sync).isShared, accountAvailable: sync.accountAvailable,
+            isInCall: liveShare.isInCall, itemTitle: { model?.item(id: $0)?.title })
+    }
+
+    /// Fecha o popover e começa o Live Share deste mural: a folha do sistema aparece sem o popover na frente.
+    private func startLive() {
+        guard let liveShare else { return }
+        dismiss()
+        let id = tab.boardID
+        Task { await liveShare.start(id) }
+    }
+
+    /// O item do botão Convidar: só com o iCloud de verdade e num mural salvo (o rascunho de exemplo ainda não é da pessoa).
+    private var shareItem: BoardShareItem? {
+        guard let service = sync.shareService, case .saved(let id) = tab.route else { return nil }
+        return service.item(for: id, share: existingShare)
+    }
+
+    /// Só o mural da própria pessoa no iCloud pode já ter convite; num mural só deste Mac a zona nem existe. Uma falha (sem rede, por
+    /// exemplo) deixa o botão "Convidar pessoas…", que busca o convite de novo na hora de convidar.
+    private func loadExistingShare() async {
+        guard let service = sync.shareService, case .saved(let id) = tab.route, tab.session.cloud?.database == .private else { return }
+        existingShare = try? await service.existingShare(for: id)
+    }
+
+    /// Fecha o popover e pede a confirmação à janela, para o diálogo aparecer sem o popover na frente.
+    private func confirm(_ request: @escaping @MainActor () async -> Void) {
+        dismiss()
+        Task { await request() }
+    }
+}
+
+/// O ícone do botão: o símbolo do estado e, quando há um problema, um selo laranja no canto.
+struct ShareButtonLabel: View {
+    let symbolName: String
+    let hasWarning: Bool
+
+    var body: some View {
+        Label("Compartilhar", systemImage: symbolName)
+            .labelStyle(.iconOnly)
+            .overlay(alignment: .topTrailing) {
+                if hasWarning {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .offset(x: 3, y: -2)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+// MARK: Previews
+
+#Preview("Botão", traits: .fixedLayout(width: 380, height: 100)) {
+    ShareButtonGallery()
+}
+
+#Preview("Botão (escuro)", traits: .fixedLayout(width: 380, height: 100)) {
+    ShareButtonGallery()
+        .preferredColorScheme(.dark)
+}
+
+/// O botão sem compartilhar, compartilhado e com aviso, na cápsula de vidro da barra.
+private struct ShareButtonGallery: View {
+    private let states: [(title: String, symbolName: String, hasWarning: Bool)] = [
+        ("Não compartilhado", "person.crop.circle.badge.plus", false),
+        ("Compartilhado", "person.2.fill", false),
+        ("Com aviso", "person.2.fill", true),
+    ]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 28) {
+            ForEach(states, id: \.title) { state in
+                VStack(spacing: 8) {
+                    Button {
+                    } label: {
+                        ShareButtonLabel(symbolName: state.symbolName, hasWarning: state.hasWarning)
+                    }
+                    .buttonStyle(.glass)
+                    Text(state.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
+    }
+}

@@ -296,6 +296,135 @@ struct SyncMetadataStoreTests {
         #expect(try await reopened.engineState(for: .shared) == sharedState)
     }
 
+    // MARK: Zonas recusadas
+
+    @Test("As zonas recusadas são uma lista por banco, em ordem fixa no disco, e voltam iguais também por outra instância")
+    func declinedZonesRoundTripPerScope() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let ownZone = CloudZoneID(name: "mural-5B0F4C2E-8C0B-4B1F-9D75-3E1A7F2A9C01")
+        let guestZoneB = CloudZoneID(name: "mural-AAAAAAAA-0000-4000-8000-000000000002", ownerName: "_b")
+        let guestZoneA = CloudZoneID(name: "mural-AAAAAAAA-0000-4000-8000-000000000001", ownerName: "_b")
+        #expect(try await store.declinedZones(for: .private).isEmpty, "sem arquivo, nada foi recusado")
+        #expect(!FileManager.default.fileExists(atPath: directory.path), "ler não cria pasta")
+
+        try await store.saveDeclinedZones([ownZone], for: .private)
+        try await store.saveDeclinedZones([guestZoneB, guestZoneA], for: .shared)
+
+        let reopened = SyncMetadataStore(directory: directory)
+        #expect(try await reopened.declinedZones(for: .private) == [ownZone])
+        #expect(try await reopened.declinedZones(for: .shared) == [guestZoneA, guestZoneB])
+        let data = try Data(contentsOf: directory.appendingPathComponent("declined-shared.json"))
+        let list = try #require(try JSONSerialization.jsonObject(with: data) as? [[String: String]])
+        #expect(
+            list == [
+                ["name": guestZoneA.name, "ownerName": "_b"], ["name": guestZoneB.name, "ownerName": "_b"],
+            ], "lista ordenada por dono e nome")
+        let files = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path))
+        #expect(files == ["declined-private.json", "declined-shared.json"], "a gravação atômica não deixa sobras")
+
+        // Gravar de novo troca a lista, e a vazia é uma lista (não some o arquivo, nem sobra o que foi tirado).
+        try await store.saveDeclinedZones([], for: .shared)
+        #expect(try await store.declinedZones(for: .shared).isEmpty)
+        #expect(try await store.declinedZones(for: .private) == [ownZone], "o outro banco não muda")
+    }
+
+    @Test("O mesmo conjunto de zonas recusadas dá sempre os mesmos bytes, qualquer que seja a ordem em que foi montado")
+    func declinedZonesGiveSameBytes() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let zones = (0..<50).map { CloudZoneID(name: "mural-\(UUID().uuidString)", ownerName: "_dono\($0 % 3)") }
+
+        try await store.saveDeclinedZones(Set(zones), for: .private)
+        try await store.saveDeclinedZones(Set(zones.reversed()), for: .shared)
+
+        let privateBytes = try Data(contentsOf: directory.appendingPathComponent("declined-private.json"))
+        let sharedBytes = try Data(contentsOf: directory.appendingPathComponent("declined-shared.json"))
+        #expect(privateBytes == sharedBytes)
+        #expect(try await store.declinedZones(for: .private) == Set(zones))
+    }
+
+    @Test("Arquivo de zonas recusadas ilegível dá erro próprio e continua no disco, intacto; gravar por cima conserta")
+    func corruptedDeclinedFileIsAnError() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let zone = CloudZoneID(name: "mural-5B0F4C2E-8C0B-4B1F-9D75-3E1A7F2A9C01")
+        try await store.saveDeclinedZones([zone], for: .private)
+        let url = directory.appendingPathComponent("declined-private.json")
+
+        for bytes in [Data("{ isto não é JSON".utf8), Data(), Data("{}".utf8), Data(#"[{"name":"x"}]"#.utf8)] {
+            try bytes.write(to: url)
+
+            let error = try await #require(throws: SyncMetadataStoreError.self) { try await store.declinedZones(for: .private) }
+
+            guard case .corrupted(let message) = error else {
+                Issue.record("esperava corrupted, veio \(error)")
+                continue
+            }
+            #expect(message.contains("declined-private.json"))
+            #expect(try Data(contentsOf: url) == bytes, "o arquivo ilegível continua como estava")
+        }
+        #expect(try await store.declinedZones(for: .shared).isEmpty, "o outro banco não é afetado")
+
+        try await store.saveDeclinedZones([zone], for: .private)
+        #expect(try await store.declinedZones(for: .private) == [zone])
+    }
+
+    @Test("Tirar uma zona das recusadas é pelo nome e só no banco pedido, e sem a zona na lista nada é gravado")
+    func undecliningRemovesTheZoneByNameInOneScope() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let kept = CloudZoneID(name: "mural-AAAAAAAA-0000-4000-8000-000000000001", ownerName: "_b")
+        let removed = CloudZoneID(name: "mural-AAAAAAAA-0000-4000-8000-000000000002", ownerName: "_b")
+        try await store.saveDeclinedZones([kept, removed], for: .shared)
+        try await store.saveDeclinedZones([removed], for: .private)
+
+        try await store.undeclineZone(CloudZoneID(name: removed.name, ownerName: "_outro"), for: .shared)
+
+        #expect(try await store.declinedZones(for: .shared) == [kept], "pelo nome, qualquer que seja o dono")
+        #expect(try await store.declinedZones(for: .private) == [removed], "o outro banco não muda")
+
+        let untouched = temporaryDirectory()
+        defer { cleanUp(untouched) }
+        try await SyncMetadataStore(directory: untouched).undeclineZone(kept, for: .shared)
+        #expect(!FileManager.default.fileExists(atPath: untouched.path), "sem lista de recusadas, nada é criado")
+    }
+
+    // MARK: Espera pela primeira busca
+
+    @Test("A espera pela primeira busca só vai ao disco quando ligada, e o estado gravado sem ela abre desligado")
+    func awaitingFirstFetchIsStoredOnlyWhenSet() async throws {
+        let directory = temporaryDirectory()
+        defer { cleanUp(directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let plain = BoardID()
+        let waiting = BoardID()
+        let both = BoardID()
+        try await store.save(BoardSyncState(cloud: SyncFixtures.cloudInfo), for: plain)
+        try await store.save(BoardSyncState(cloud: SyncFixtures.cloudInfo, isAwaitingFirstFetch: true), for: waiting)
+        try await store.save(BoardSyncState(cloud: SyncFixtures.cloudInfo, needsFullFetch: true, isAwaitingFirstFetch: true), for: both)
+
+        func object(_ id: BoardID) throws -> [String: Any] {
+            try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: stateFile(id, in: directory))) as? [String: Any])
+        }
+        #expect(try object(plain)["isAwaitingFirstFetch"] == nil && object(plain)["needsFullFetch"] == nil)
+        #expect(try object(waiting)["isAwaitingFirstFetch"] as? Bool == true && object(waiting)["needsFullFetch"] == nil)
+        #expect(try object(both)["isAwaitingFirstFetch"] as? Bool == true && object(both)["needsFullFetch"] as? Bool == true)
+
+        let reopened = SyncMetadataStore(directory: directory)
+        let loadedPlain = try #require(try await reopened.state(for: plain))
+        #expect(!loadedPlain.isAwaitingFirstFetch && !loadedPlain.needsFullFetch)
+        let loadedWaiting = try #require(try await reopened.state(for: waiting))
+        #expect(loadedWaiting.isAwaitingFirstFetch && !loadedWaiting.needsFullFetch)
+        let loadedBoth = try #require(try await reopened.state(for: both))
+        #expect(loadedBoth.isAwaitingFirstFetch && loadedBoth.needsFullFetch)
+        #expect(loadedWaiting == BoardSyncState(cloud: SyncFixtures.cloudInfo, isAwaitingFirstFetch: true))
+    }
+
     // MARK: Arquivo ilegível
 
     @Test("Arquivo ilegível dá erro próprio e continua no disco, intacto")
@@ -353,4 +482,17 @@ struct SyncMetadataStoreTests {
             #expect(try Data(contentsOf: url) == bytes)
         }
     }
+
+    @Test("A marca de mural adotado só vai ao disco quando ligada, e o estado gravado sem ela abre desligado")
+    func adoptedMarkIsStoredOnlyWhenSet() throws {
+        let cloud = BoardCloudInfo(
+            database: .private, zoneName: CloudSchema.zoneName(for: BoardID()), zoneOwnerName: CloudZoneID.defaultOwnerName,
+            permission: .owner)
+        let plain = try JSONEncoder().encode(BoardSyncState(cloud: cloud))
+        #expect(!String(decoding: plain, as: UTF8.self).contains("isAdopted"))
+        #expect(try JSONDecoder().decode(BoardSyncState.self, from: plain).isAdopted == false)
+        let adopted = try JSONEncoder().encode(BoardSyncState(cloud: cloud, isAdopted: true))
+        #expect(try JSONDecoder().decode(BoardSyncState.self, from: adopted).isAdopted)
+    }
+
 }

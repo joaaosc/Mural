@@ -490,7 +490,9 @@ struct TwoMacsTests {
         #expect(await macs.guest.coordinator.issues().isEmpty)
     }
 
-    @Test("O motor só busca zonas de murais que o Mac acompanha: o que chegou antes de acompanhar não se perde")
+    @Test(
+        "Zona de um mural que o Mac já tem como pacote local, sem acompanhar: a adoção dá conflito, o motor não a busca e o que chegou antes de acompanhar não se perde"
+    )
     func untrackedZonesAreNotFetched() async throws {
         let macs = try await TwoMacs.make(board: board(note("Nota")))
         defer { macs.cleanUp() }
@@ -502,6 +504,8 @@ struct TwoMacsTests {
 
         try await third.engine.fetchChanges()
         #expect(await third.board.items.isEmpty, "o mural ainda não é acompanhado: nada é entregue")
+        #expect(await third.host.adoptions.count == 1, "o motor tentou adotar, e o host recusou: o id já existe")
+        #expect(try await third.coordinator.isTracking(macs.boardID) == false)
 
         let info = BoardCloudInfo(
             database: .shared, zoneName: macs.zoneName, zoneOwnerName: TwoMacs.ownerUser, ownerDisplayName: "Ana", permission: .readWrite)
@@ -517,6 +521,329 @@ struct TwoMacsTests {
         await #expect(throws: InMemorySyncEngineError.notOwner) {
             try await macs.guest.engine.startZone(for: macs.boardID)
         }
+    }
+
+    // MARK: Zona nova
+
+    /// O segundo Mac do dono, já com o mural adotado e buscado inteiro. Quem chama apaga `root`.
+    private func adoptedSecondMac(of macs: TwoMacs) async throws -> TestMac {
+        let second = try await macs.makeSecondOwnerMac()
+        try await second.engine.fetchChanges()
+        return second
+    }
+
+    @Test("Segundo Mac do dono: a busca adota a zona sozinha, traz tudo (nome, cartões e mídia) e não envia nada")
+    func ownersSecondMacAdoptsTheZoneOnItsOwn() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota"), image()), name: "Casa", files: [Self.imageFile])
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let second = try await macs.makeSecondOwnerMac()
+        defer { try? FileManager.default.removeItem(at: second.root) }
+        let cloudBefore = await macs.cloudRecords()
+        #expect(await second.host.hasBoard(macs.boardID) == false)
+
+        try await second.engine.fetchChanges()
+
+        let ownerInfo = BoardCloudInfo(
+            database: .private, zoneName: macs.zoneName, zoneOwnerName: CloudZoneID.defaultOwnerName, permission: .owner)
+        #expect(await second.host.adoptions == [SyncTestHost.Adoption(board: macs.boardID, cloud: ownerInfo, name: nil)])
+        #expect(await second.name == "Casa", "o nome provisório foi trocado pelo do dono")
+        #expect(await second.board.items.map(SharedFieldPolicy.shared) == (await macs.owner.board).items.map(SharedFieldPolicy.shared))
+        #expect(second.fileContents(Self.imageFile) == "conteúdo de \(Self.imageFile)")
+        let state = try #require(try await second.store.state(for: macs.boardID))
+        #expect(!state.isAwaitingFirstFetch && !state.needsFullFetch && state.cloud == ownerInfo)
+        #expect(await second.coordinator.issues().isEmpty)
+        #expect(await second.engine.pending.isEmpty)
+        #expect(await macs.cloudRecords() == cloudBefore, "o segundo Mac não enviou nada")
+    }
+
+    @Test("Zona adotada ainda sem o registro do mural: o segundo Mac nunca cria o nome, e recebe o do dono quando ele chega")
+    func adoptedBoardNeverCreatesTheBoardRecord() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), name: "Casa")
+        defer { macs.cleanUp() }
+        // A zona existe, mas o dono ainda não enviou nada: a primeira busca do segundo Mac termina sem o registro do mural.
+        let second = try await macs.makeSecondOwnerMac()
+        defer { try? FileManager.default.removeItem(at: second.root) }
+        let ownerInfo = BoardCloudInfo(
+            database: .private, zoneName: macs.zoneName, zoneOwnerName: CloudZoneID.defaultOwnerName, permission: .owner)
+        #expect(try await second.coordinator.adoptZone(macs.ownerZone, cloud: ownerInfo, name: "Nome provisório") == .adopted)
+        try await second.engine.fetchChanges()
+
+        let state = try #require(try await second.store.state(for: macs.boardID))
+        #expect(!state.isAwaitingFirstFetch && state.isAdopted && state.baseName == nil)
+        #expect(try await second.coordinator.pendingChanges(for: macs.boardID).isEmpty, "o nome provisório não vira registro")
+        await second.engine.add(try await second.coordinator.pendingChanges(for: macs.boardID))
+        try await second.engine.sendChanges()
+        #expect(await macs.cloudRecord(CloudSchema.muralRecordName) == nil)
+
+        try await macs.settle(including: second)
+        #expect(await second.name == "Casa")
+        let mural = try #require(await macs.cloudRecord(CloudSchema.muralRecordName))
+        #expect(CardRecordMapping.boardName(from: mural) == "Casa")
+    }
+
+    @Test("Segundo Mac do dono: depois de adotar, as edições dos três Macs convergem")
+    func ownersSecondMacConvergesWithTheOthers() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Base")), name: "Casa")
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let second = try await adoptedSecondMac(of: macs)
+        defer { try? FileManager.default.removeItem(at: second.root) }
+
+        try await second.edit { $0.add(note("Do segundo Mac", x: 200)) }
+        try await macs.owner.edit { $0.add(note("Do primeiro Mac", x: 300)) }
+        try await macs.guest.edit { $0.add(note("Do convidado", x: 400)) }
+        try await macs.settle(including: second)
+
+        await macs.expectConverged()
+        let expected: Set<String> = ["Base", "Do segundo Mac", "Do primeiro Mac", "Do convidado"]
+        #expect(titles(await second.board) == expected)
+        #expect(titles(await macs.owner.board) == expected)
+        #expect(await second.board.items.map(SharedFieldPolicy.shared) == (await macs.owner.board).items.map(SharedFieldPolicy.shared))
+        #expect(await second.name == (await macs.owner.name))
+        #expect(await second.coordinator.issues().isEmpty)
+        let secondBoard = await second.board
+        TwoMacs.expectValidStructure(secondBoard, owner: "segundo Mac do dono")
+    }
+
+    @Test("O nome provisório do Mac que adota nunca sobe: o registro do mural no iCloud fica com o nome e a marca do dono")
+    func provisionalNameNeverReachesTheCloud() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), name: "Casa do dono")
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let before = try #require(await macs.cloudRecord(CloudSchema.muralRecordName))
+        let second = try await macs.makeSecondOwnerMac()
+        defer { try? FileManager.default.removeItem(at: second.root) }
+
+        // Adotado e ainda sem a primeira busca: o pacote tem um nome provisório e nada sobe, nem se o motor tentar.
+        let ownerInfo = BoardCloudInfo(
+            database: .private, zoneName: macs.zoneName, zoneOwnerName: CloudZoneID.defaultOwnerName, permission: .owner)
+        let adopted = try await second.coordinator.adoptZone(macs.ownerZone, cloud: ownerInfo, name: "Nome provisório")
+        #expect(adopted == .adopted)
+        await second.engine.add(try await second.coordinator.pendingChanges(for: macs.boardID))
+        try await second.engine.sendChanges()
+        #expect(await macs.cloudRecord(CloudSchema.muralRecordName) == before)
+        #expect(await second.name == "Nome provisório")
+
+        try await macs.settle(including: second)
+
+        let after = try #require(await macs.cloudRecord(CloudSchema.muralRecordName))
+        #expect(after == before, "nem o conteúdo nem a marca de alteração do registro mudaram")
+        #expect(CardRecordMapping.boardName(from: after) == "Casa do dono")
+        #expect(await second.name == "Casa do dono")
+        await macs.expectConverged()
+    }
+
+    @Test(
+        "Convidado que só foi convidado: a busca adota a zona como só leitura e, depois da primeira busca, vale a permissão do iCloud",
+        arguments: [InMemoryCloud.GuestPermission.readWrite, .readOnly])
+    func guestAdoptsAsReadOnlyAndThenGetsTheGrantedPermission(granted: InMemoryCloud.GuestPermission) async throws {
+        let macs = try await TwoMacs.make(
+            board: board(note("Base")), name: "Casa", guestPermission: granted, guestAdopts: true)
+        defer { macs.cleanUp() }
+        try await macs.owner.engine.sendChanges()
+        #expect(await macs.guest.host.hasBoard(macs.boardID) == false)
+
+        try await macs.guest.engine.fetchChanges()
+
+        let adoptedAs = BoardCloudInfo(
+            database: .shared, zoneName: macs.zoneName, zoneOwnerName: TwoMacs.ownerUser, permission: .readOnly)
+        #expect(await macs.guest.host.adoptions == [SyncTestHost.Adoption(board: macs.boardID, cloud: adoptedAs, name: nil)])
+        #expect(await macs.guest.name == "Casa")
+        #expect(titles(await macs.guest.board) == ["Base"])
+        let state = try #require(try await macs.guest.store.state(for: macs.boardID))
+        let expectedPermission: BoardCloudInfo.Permission = granted == .readWrite ? .readWrite : .readOnly
+        #expect(!state.isAwaitingFirstFetch && state.cloud.permission == expectedPermission && state.cloud.database == .shared)
+        #expect(await macs.guest.coordinator.issues().isEmpty)
+
+        try await macs.guest.edit { $0.add(note("Do convidado", x: 200)) }
+        try await macs.settle()
+
+        if granted == .readWrite {
+            await macs.expectConverged()
+            #expect(titles(await macs.owner.board) == ["Base", "Do convidado"], "depois da primeira busca ele passa a editar")
+        } else {
+            #expect(titles(await macs.owner.board) == ["Base"], "só leitura: a edição fica no Mac dele")
+            #expect(titles(await macs.guest.board) == ["Base", "Do convidado"])
+            #expect(await macs.guest.engine.pending.isEmpty)
+            #expect(await macs.guest.coordinator.issues().isEmpty)
+        }
+    }
+
+    @Test("Zona recusada não é adotada de novo pelo motor, e a recusa acaba quando o dono apaga a zona")
+    func declinedZoneStaysOutUntilTheServerDeletesIt() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let second = try await adoptedSecondMac(of: macs)
+        defer { try? FileManager.default.removeItem(at: second.root) }
+        #expect(try await second.coordinator.isTracking(macs.boardID))
+
+        // O segundo Mac abandona o mural sem apagar o do iCloud.
+        try await second.coordinator.declineZone(of: macs.boardID)
+        try await second.coordinator.stopTracking(macs.boardID)
+        try await second.engine.fetchChanges()
+
+        #expect(try await second.coordinator.isTracking(macs.boardID) == false)
+        #expect(await second.host.adoptions.count == 1, "o motor não tentou adotar de novo")
+        #expect(try await second.coordinator.declinedZones() == [macs.ownerZone])
+        #expect(await macs.cloudRecords().isEmpty == false, "o mural continua no iCloud do dono")
+
+        // O dono apaga o mural e a zona: o servidor confirmou, e a recusa deixa de valer.
+        try await macs.owner.coordinator.stopTracking(macs.boardID)
+        try await macs.owner.engine.deleteZone(for: macs.boardID)
+        try await second.engine.fetchChanges()
+
+        #expect(try await second.coordinator.declinedZones().isEmpty)
+        #expect(await macs.cloud.zones(for: TwoMacs.ownerUser, scope: .private).isEmpty)
+        #expect(await second.host.adoptions.count == 1)
+    }
+
+    @Test("O motor do dono apaga a zona: some o que estava pendente para ela, o convidado perde o mural e o motor dele recusa apagar")
+    func ownerEngineDeletesTheZone() async throws {
+        let macs = try await TwoMacs.make(board: board(note()))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        try await macs.owner.edit { $0.add(note("Pendente", x: 300)) }
+        #expect(await macs.owner.engine.pending.isEmpty == false)
+
+        try await macs.owner.coordinator.stopTracking(macs.boardID)
+        try await macs.owner.engine.deleteZone(for: macs.boardID)
+        try await macs.guest.engine.fetchChanges()
+
+        #expect(await macs.owner.engine.pending.isEmpty)
+        #expect(await macs.cloudRecords().isEmpty)
+        #expect(await macs.guest.host.removals == [SyncTestHost.Removal(board: macs.boardID, reason: .zoneDeleted)])
+        #expect(try await macs.guest.coordinator.boardIDs().isEmpty)
+        #expect(await macs.owner.host.removals.isEmpty, "quem apagou não recebe aviso de remoção")
+        await #expect(throws: InMemorySyncEngineError.notOwner) {
+            try await macs.guest.engine.deleteZone(for: macs.boardID)
+        }
+    }
+
+    @Test("O convidado sai do mural: o acesso dele acaba no iCloud, o dono continua com tudo e a zona recusada não volta")
+    func guestLeavesTheZone() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+
+        try await macs.guest.coordinator.declineZone(of: macs.boardID)
+        try await macs.guest.coordinator.stopTracking(macs.boardID)
+        await macs.guest.engine.leaveZone(macs.guestZone)
+        try await macs.guest.engine.fetchChanges()
+        try await macs.owner.engine.fetchChanges()
+
+        #expect(await macs.cloud.zones(for: TwoMacs.guestUser, scope: .shared).isEmpty)
+        #expect(await macs.cloud.zones(for: TwoMacs.ownerUser, scope: .private) == [macs.ownerZone])
+        #expect(await macs.guest.host.removals.isEmpty, "o convidado saiu por conta própria")
+        #expect(await macs.guest.host.adoptions.isEmpty)
+        #expect(try await macs.guest.coordinator.declinedZones().isEmpty, "o servidor confirmou: a zona sumiu para ele")
+        #expect(titles(await macs.owner.board) == ["Nota"])
+        #expect(await macs.cloudRecords().isEmpty == false)
+
+        // O dono não tem de quem sair: `leaveZone` só vale para o convidado.
+        await macs.owner.engine.leaveZone(macs.ownerZone)
+        #expect(await macs.cloud.zones(for: TwoMacs.ownerUser, scope: .private) == [macs.ownerZone])
+    }
+
+    @Test("Host que não adota zonas: o motor deixa a zona de fora, sem erro, como antes da adoção")
+    func engineSkipsZonesWhenTheHostCannotAdopt() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MuralNoAdoption-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SyncMetadataStore(directory: directory)
+        let coordinator = BoardSyncCoordinator(scope: .private, store: store, host: SyncHostWithoutAdoption())
+        let engine = InMemorySyncEngine(user: TwoMacs.ownerUser, scope: .private, cloud: macs.cloud, coordinator: coordinator)
+
+        try await engine.fetchChanges()
+        try await engine.fetchChanges()
+
+        #expect(try await coordinator.boardIDs().isEmpty)
+        #expect(await engine.pending.isEmpty)
+        #expect(try await store.boardIDs().isEmpty)
+    }
+
+    // MARK: Convites
+
+    @Test("Convites do motor falso: o convidado recebe a permissão, o dono e os convidados, e o dono recebe a si mesmo e os convidados")
+    func fakeEngineDeliversTheShares() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), guestPermission: .readOnly, guestTracksAs: .readOnly)
+        defer { macs.cleanUp() }
+        let ownerLog = ShareLog()
+        let guestLog = ShareLog()
+        await macs.owner.engine.setShareHandler { ownerLog.record($0) }
+        await macs.guest.engine.setShareHandler { guestLog.record($0) }
+
+        try await macs.owner.engine.sendChanges()
+        try await macs.owner.engine.fetchChanges()
+        try await macs.guest.engine.fetchChanges()
+
+        let guest = ShareSummary.Participant(
+            displayName: TwoMacs.guestUser, userRecordName: TwoMacs.guestUser, permission: .readOnly, isAccepted: true)
+        #expect(
+            ownerLog.all == [
+                [
+                    ShareSummary(
+                        zone: macs.ownerZone, currentUserPermission: .owner, ownerDisplayName: TwoMacs.ownerUser,
+                        ownerUserRecordName: TwoMacs.ownerUser, participants: [guest])
+                ]
+            ])
+        #expect(
+            guestLog.all == [
+                [
+                    ShareSummary(
+                        zone: macs.guestZone, currentUserPermission: .readOnly, ownerDisplayName: TwoMacs.ownerUser,
+                        ownerUserRecordName: TwoMacs.ownerUser, participants: [guest])
+                ]
+            ])
+
+        // O dono passa o convidado a editar: o convite seguinte já traz a permissão nova, para os dois.
+        try await macs.cloud.share(zone: macs.zoneName, owner: TwoMacs.ownerUser, with: TwoMacs.guestUser, permission: .readWrite)
+        try await macs.guest.engine.fetchChanges()
+        try await macs.owner.engine.fetchChanges()
+
+        #expect(guestLog.all.last?.first?.currentUserPermission == .readWrite)
+        #expect(ownerLog.all.last?.first?.participants.map(\.permission) == [.readWrite])
+    }
+
+    @Test("Convites do motor falso: o convidado recebe todos os convidados da zona, ordenados pelo nome, todos aceitos")
+    func fakeEngineListsEveryGuestToTheGuest() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")), guestPermission: .readOnly, guestTracksAs: .readOnly)
+        defer { macs.cleanUp() }
+        let guestLog = ShareLog()
+        await macs.guest.engine.setShareHandler { guestLog.record($0) }
+        try await macs.cloud.share(zone: macs.zoneName, owner: TwoMacs.ownerUser, with: "caio", permission: .readWrite)
+        try await macs.cloud.share(zone: macs.zoneName, owner: TwoMacs.ownerUser, with: "abel", permission: .readOnly)
+
+        try await macs.guest.engine.fetchChanges()
+
+        let share = try #require(guestLog.all.last?.first)
+        #expect(share.ownerUserRecordName == TwoMacs.ownerUser)
+        #expect(share.participants.map(\.userRecordName) == ["abel", TwoMacs.guestUser, "caio"], "pelo nome, com a própria pessoa")
+        #expect(share.participants.map(\.displayName) == ["abel", TwoMacs.guestUser, "caio"])
+        #expect(share.participants.map(\.permission) == [.readOnly, .readOnly, .readWrite])
+        #expect(share.participants.allSatisfy { $0.isAccepted })
+    }
+
+    @Test("Convites do motor falso: a zona do dono sem convidado sai como apagada, e quem perdeu o acesso não recebe mais convite")
+    func fakeEngineReportsAZoneWithoutGuestsAsDeleted() async throws {
+        let macs = try await TwoMacs.make(board: board(note("Nota")))
+        defer { macs.cleanUp() }
+        try await macs.settle()
+        let ownerLog = ShareLog()
+        let guestLog = ShareLog()
+        await macs.owner.engine.setShareHandler { ownerLog.record($0) }
+        await macs.guest.engine.setShareHandler { guestLog.record($0) }
+
+        try await macs.cloud.revoke(zone: macs.zoneName, owner: TwoMacs.ownerUser, from: TwoMacs.guestUser)
+        try await macs.owner.engine.fetchChanges()
+        try await macs.guest.engine.fetchChanges()
+
+        #expect(ownerLog.all == [[ShareSummary(zone: macs.ownerZone, isDeleted: true)]])
+        #expect(guestLog.all.isEmpty, "a zona já não aparece para o convidado")
+        #expect(await macs.guest.host.removals == [SyncTestHost.Removal(board: macs.boardID, reason: .accessRevoked)])
     }
 
     // MARK: Envio confirmado só em parte

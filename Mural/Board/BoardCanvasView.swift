@@ -65,6 +65,8 @@ struct BoardCanvasView: View {
     @GestureState private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityEnabled) private var accessibilityEnabled
+    /// O Live Share do app; `nil` fora dele (nas prévias, por exemplo).
+    @Environment(LiveShareController.self) private var liveShare: LiveShareController?
 
     /// Folga em volta dos cartões, para o mural não terminar colado no último.
     private static let margin: CGFloat = 240
@@ -177,6 +179,17 @@ struct BoardCanvasView: View {
             ) {
                 cardFrames(of: items, displayedSizes: itemSizes, sizeOverride: itemSizeOverride)
             }
+            // Live Share: o que as outras pessoas fazem neste mural (cursores, arrastos, cartões abertos), em pontos do mural, e o
+            // ponteiro daqui para elas. Fora de um Live Share nada é desenhado nem enviado.
+            .overlay(alignment: .topLeading) {
+                LivePresenceLayer(boardID: boardID, model: model, zoom: zoom.zoom)
+            }
+            .onContinuousHover(coordinateSpace: .named(Self.space)) { phase in
+                switch phase {
+                case .active(let point): liveShare?.pointerMoved(to: point, in: boardID)
+                case .ended: liveShare?.pointerMoved(to: nil, in: boardID)
+                }
+            }
             // Os arrastos medem neste espaço, em pontos do mural, sem o zoom.
             .coordinateSpace(.named(Self.space))
             .scaleEffect(zoom.zoom, anchor: .topLeading)
@@ -252,6 +265,7 @@ struct BoardCanvasView: View {
         .onChange(of: isMarqueeActive) { _, active in
             if active { hoveredFolder = nil }
         }
+        .onChange(of: liveDrag) { _, drag in liveShare?.dragChanged(drag, in: boardID) }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: hoveredFolder)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: filter)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: colorFilter)
@@ -677,4 +691,23 @@ private struct CardDrag {
 private struct FreeTextDrag: Equatable {
     var id: UUID
     var translation: CGSize
+}
+
+// MARK: Live Share
+
+extension BoardCanvasView {
+    /// O elemento que esta pessoa arrasta agora, para as outras verem: o cartão (ou, senão, o texto livre) e o canto superior esquerdo
+    /// de onde ele está, em pontos do mural. `nil` sem arrasto.
+    fileprivate var liveDrag: LiveDrag? {
+        if let drag, let item = model.item(id: drag.id) {
+            return LiveDrag(
+                kind: .item, id: item.id, x: item.position.x + drag.translation.width, y: item.position.y + drag.translation.height)
+        }
+        if let freeTextDrag, let freeText = model.freeText(id: freeTextDrag.id) {
+            return LiveDrag(
+                kind: .freeText, id: freeText.id, x: freeText.position.x + freeTextDrag.translation.width,
+                y: freeText.position.y + freeTextDrag.translation.height)
+        }
+        return nil
+    }
 }

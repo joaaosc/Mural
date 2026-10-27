@@ -23,12 +23,20 @@ struct MuralCommands: Commands {
     }
 
     #if DEBUG
-    /// Só um mural salvo, já carregado e ainda sem `cloud` pode ir ao iCloud. `CloudSyncController.current` é `nil` no app sem o
-    /// entitlement de CloudKit (o item fica desabilitado); com `-uiTesting` o controlador existe e usa o iCloud falso.
-    private var canPutSelectedInCloud: Bool {
-        guard CloudSyncController.current != nil, let session = tabs.selected?.session else { return false }
-        guard case .saved = session.route else { return false }
-        return session.model != nil && session.cloud == nil
+    /// Arquivo › Preparar o Esquema do iCloud…: grava o esquema de exemplo no iCloud de desenvolvimento e avisa o resultado
+    /// (`CloudSyncController.prepareSchema()`). Não existe nas compilações de distribuição.
+    private func prepareCloudSchema() {
+        guard let sync = CloudSyncController.current else { return }
+        Task {
+            do {
+                try await sync.prepareSchema()
+                sync.postSchemaNotice(
+                    "O esquema foi gravado no ambiente de desenvolvimento. "
+                        + "Publique-o em produção no CloudKit Console (Deploy Schema Changes).")
+            } catch {
+                sync.postSchemaNotice("Não foi possível preparar o esquema: \(error.localizedDescription)")
+            }
+        }
     }
     #endif
 
@@ -87,14 +95,21 @@ struct MuralCommands: Commands {
                 .disabled(!(actions?.canSaveCopy ?? false))
             Button("Renomear Mural…", action: { actions?.rename() })
                 .disabled(!(actions?.canRename ?? false))
-            Button("Excluir Mural…") { tabs.requestDeleteSelected() }
-                .disabled(tabs.selected == nil)
+            // Habilitado quando o botão Compartilhar da barra está: sem o entitlement de CloudKit (`CloudSyncController.current` é
+            // `nil`) o item fica desabilitado; com `-uiTesting` o controlador existe e usa o iCloud falso.
+            Button("Compartilhar…") { tabs.requestShareSelected() }
+                .disabled(!tabs.canShareSelected)
+            #if DEBUG
+            // Só nas compilações de desenvolvimento, e só com o iCloud de verdade (`CloudSyncMode.cloudKit`).
+            Button("Preparar o Esquema do iCloud…", action: prepareCloudSchema)
+                .disabled(CloudSyncController.current?.mode != .cloudKit)
+            #endif
+            Button(BoardDeletionRequest.menuTitle(role: tabs.role(for: tabs.selected?.session.cloud))) {
+                Task { await tabs.requestDeleteSelected() }
+            }
+            .disabled(tabs.selected == nil)
             Button("Retomar Rascunho de Exemplo") { Task { await tabs.resumeDraft() } }
                 .disabled(!tabs.resumeDraftAvailable)
-            #if DEBUG
-            Button("Pôr Este Mural no iCloud") { tabs.requestPutSelectedInCloud() }
-                .disabled(!canPutSelectedInCloud)
-            #endif
         }
         CommandGroup(replacing: .sidebar) {
             Button(tabs.isSidebarVisible ? "Ocultar Barra Lateral" : "Mostrar Barra Lateral") {

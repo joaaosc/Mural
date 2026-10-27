@@ -52,6 +52,16 @@ if ent.get('com.apple.developer.aps-environment') != 'production':
     errors.append('com.apple.developer.aps-environment deveria ser "production" na distribuição.')
 if ent.get('com.apple.developer.icloud-container-environment') == 'Development':
     errors.append('O iCloud está no ambiente Development; a distribuição usa Production.')
+# Murais compartilhados (CloudKit), cópias na pasta Mural do iCloud Drive (CloudDocuments) e Live Share (SharePlay).
+container = 'iCloud.com.joaocosta.Mural'
+for service in ('CloudKit', 'CloudDocuments'):
+    if service not in (ent.get('com.apple.developer.icloud-services') or []):
+        errors.append(f'Serviço do iCloud ausente: {service} (com.apple.developer.icloud-services).')
+for key in ('com.apple.developer.icloud-container-identifiers', 'com.apple.developer.ubiquity-container-identifiers'):
+    if container not in (ent.get(key) or []):
+        errors.append(f'{key} deveria trazer {container}.')
+if ent.get('com.apple.developer.group-session') is not True:
+    errors.append('Permissão do SharePlay ausente: com.apple.developer.group-session.')
 if 'Authority=Apple Distribution:' not in signature and 'Authority=3rd Party Mac Developer Application:' not in signature:
     errors.append('Exige assinatura Mac App Store de distribuição; desenvolvimento/Developer ID/ad hoc não servem.')
 if 'TeamIdentifier=33FPG9442W' not in signature:
@@ -62,6 +72,11 @@ if info.get('CFBundleIdentifier') != 'com.joaocosta.Mural':
 for key in ('NSRemindersFullAccessUsageDescription', 'NSAppleMusicUsageDescription'):
     if not info.get(key):
         errors.append(f'Descrição de uso ausente: {key}')
+if info.get('CKSharingSupported') is not True:
+    errors.append('CKSharingSupported deveria ser YES: sem ele o convite do iCloud não abre o app.')
+drive = (info.get('NSUbiquitousContainers') or {}).get(container) or {}
+if drive.get('NSUbiquitousContainerIsDocumentScopePublic') is not True or drive.get('NSUbiquitousContainerName') != 'Mural':
+    errors.append('NSUbiquitousContainers sem a pasta pública "Mural" do iCloud Drive.')
 manifest = app / 'Contents/Resources/PrivacyInfo.xcprivacy'
 if not manifest.exists():
     errors.append('PrivacyInfo.xcprivacy não foi incluído no produto.')

@@ -8,6 +8,8 @@ public enum CloudKitSyncEngineError: Error, Equatable, Sendable {
     case notStarted
     /// Só quem usa o banco privado cria e apaga zonas: o convidado recebe as do dono.
     case notOwner
+    /// Só quem usa o banco compartilhado sai de um mural: o dono o apaga ou o tira do iCloud.
+    case notGuest
 }
 
 /// O papel do `InMemorySyncEngine` com o iCloud de verdade: um `CKSyncEngine` por banco (privado ou compartilhado) que traduz os
@@ -26,10 +28,15 @@ public enum CloudKitSyncEngineError: Error, Equatable, Sendable {
 /// pendências do motor nas zonas do evento são trocadas pelas que o coordenador devolveu, como faz o `InMemorySyncEngine`. Um
 /// registro que o iCloud recusou por cota, permissão ou erro desconhecido não é reenviado na hora (seria um laço de recusas): volta na
 /// próxima chamada de `add(_:)`, que o app faz com `BoardSyncCoordinator.pendingChanges(for:)` ao gravar o mural e ao abrir. Uma
-/// falha passageira (sem rede, servidor ocupado) não é recusa: a pendência fica na fila e o motor tenta de novo.
+/// falha passageira (sem rede, servidor ocupado) não é recusa: a pendência fica na fila e o motor tenta de novo. A troca poupa o apagamento
+/// do convite que o convidado põe na fila ao sair do mural (`leaveZone(_:)`), que o coordenador não conhece.
 ///
 /// **Arquivos que chegam**: o `fileURL` de um `CKAsset` buscado só vale durante o evento. O coordenador entrega a
 /// `BoardSyncHost.applyRemote`, que copia para `Items/`, antes de `handleEvent` voltar; por isso nada é copiado aqui.
+///
+/// **Convites**: o `CKShare` da zona compartilhada chega junto dos registros, na busca e na busca completa. Ele não é parte do mural:
+/// é separado antes de converter (senão o `SyncCore` o marcaria como ilegível e o mural ganharia um aviso falso) e vai a quem foi
+/// ligado por `setShareHandler(_:)`, sem passar pelo coordenador.
 ///
 /// **Regra da Apple**: `handleEvent` não chama `fetchChanges` nem `sendChanges`. Pendências novas entram por `state.add(...)`, que
 /// agenda o envio sozinho; só `sendNow()` e `fetchNow()`, chamados de fora, forçam.
@@ -43,6 +50,8 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     private let coordinator: BoardSyncCoordinator
     private let store: SyncMetadataStore
     private var syncEngine: CKSyncEngine?
+    /// Quem recebe os convites que as buscas trazem; sem ninguém ligado, eles são descartados.
+    private var shareHandler: (@Sendable ([ShareSummary]) -> Void)?
 
     /// - Parameters:
     ///   - container: o container do app (`iCloud.com.joaocosta.Mural`), já criado por quem confere o entitlement.
@@ -75,9 +84,63 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         }
         let database = scope == .private ? container.privateCloudDatabase : container.sharedCloudDatabase
         syncEngine = CKSyncEngine(CKSyncEngine.Configuration(database: database, stateSerialization: serialization, delegate: self))
+        await adoptExistingZones(in: database)
+    }
+
+    /// Varredura de todas as zonas do banco, uma vez por execução: adota o mural cuja zona este Mac ainda não acompanha. Cobre o que
+    /// a adoção dentro do evento não vê — zona que já existia antes desta versão (o motor já tinha passado dela e descartado os
+    /// registros), convite aceito em outro Mac, adoção que falhou. A busca completa delas fica para `fetchNow()`, que o app chama
+    /// depois de ligar os motores. Sem rede, nada muda: a próxima execução tenta de novo.
+    private func adoptExistingZones(in database: CKDatabase) async {
+        do {
+            let zones = try await database.allRecordZones()
+            _ = await adopt(zones.map { CloudZoneID($0.zoneID) })
+        } catch {
+            Logger.sync.error(
+                "Varredura das zonas do banco \(self.scope.rawValue, privacy: .public) falhou: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    /// Adota as zonas de mural que este Mac não acompanha (`BoardSyncCoordinator.adoptZone`), com a permissão de partida de
+    /// `CloudKitMapping.adoptionInfo`. Zona recusada, já acompanhada ou que não é de mural fica como está.
+    /// - Returns: se alguma zona foi adotada (e precisa da busca completa).
+    private func adopt(_ zones: [CloudZoneID]) async -> Bool {
+        var adoptedAny = false
+        for zone in zones {
+            guard let cloud = CloudKitMapping.adoptionInfo(for: zone, scope: scope) else { continue }
+            do {
+                if try await coordinator.adoptZone(zone, cloud: cloud, name: nil) == .adopted {
+                    adoptedAny = true
+                    Logger.sync.notice("Zona adotada: \(zone.name, privacy: .public) no banco \(self.scope.rawValue, privacy: .public)")
+                }
+            } catch {
+                Logger.sync.error("Zona \(zone.name, privacy: .public) não adotada: \(String(describing: error), privacy: .public)")
+            }
+        }
+        return adoptedAny
+    }
+
+    /// A busca completa das zonas adotadas durante um evento, pedida depois dele. A Apple pede que `handleEvent` não chame
+    /// `fetchChanges`: a tarefa não é aguardada, e a espera curta a deixa começar depois que o evento termina.
+    private func scheduleFetchAfterAdoption() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            do {
+                try await self?.fetchNow()
+            } catch {
+                Logger.sync.error("Busca depois da adoção falhou: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     // MARK: Entrada pública
+
+    /// Liga quem recebe os convites (`CKShare`) que uma busca ou uma busca completa traz. O convite não é parte do mural, então não
+    /// passa pelo coordenador: vai direto a quem mostra o compartilhamento. O handler roda no actor deste motor e deve voltar logo.
+    public func setShareHandler(_ handler: @escaping @Sendable ([ShareSummary]) -> Void) {
+        shareHandler = handler
+    }
 
     /// Acrescenta pendências, como o app faz com o que `BoardSyncCoordinator.pendingChanges(for:)` devolve depois de gravar o mural.
     /// O motor agenda o envio sozinho.
@@ -114,6 +177,21 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         engine.state.add(pendingDatabaseChanges: [.deleteZone(zone.ckZoneID)])
     }
 
+    /// O convidado deixa o mural: apagar o convite da zona inteira (o `CKShare`) pelo banco compartilhado tira esta pessoa do convite,
+    /// e a zona some para ela sem afetar o dono nem os outros convidados. O apagamento fica na fila do motor, que o repete sem rede, e
+    /// a troca de pendências (`replacePending`) nunca o tira dali. Esquece o que o motor tinha para enviar à zona: sem acesso, nada
+    /// mais pode ser enviado. Quem chama faz antes `BoardSyncCoordinator.declineZone(of:)` e `stopTracking`, como com `deleteZone`:
+    /// enquanto o servidor não confirma, a busca que ainda mostrar a zona não a adota de novo.
+    /// - Throws: `CloudKitSyncEngineError.notStarted` ou `.notGuest` (banco privado).
+    public func leaveZone(_ zone: CloudZoneID) throws {
+        let engine = try requireEngine()
+        guard scope == .shared else { throw CloudKitSyncEngineError.notGuest }
+        Self.replacePending(in: [zone], with: [], engine: engine)
+        let leaving = PendingChange.delete(CloudKitMapping.zoneShareRecordID(in: zone))
+        guard !engine.state.pendingRecordZoneChanges.contains(leaving.engineChange) else { return }
+        engine.state.add(pendingRecordZoneChanges: [leaving.engineChange])
+    }
+
     /// Envia agora o que está pendente, sem esperar a agenda do motor. Fora de `handleEvent`, como a Apple pede.
     public func sendNow() async throws {
         try await requireEngine().sendChanges()
@@ -138,10 +216,9 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
             await handleAccountChange(change.changeType)
         case .fetchedDatabaseChanges(let changes):
             await handleZoneDeletions(changes.deletions, engine: syncEngine)
-            if !changes.modifications.isEmpty {
-                // Zona nova no banco compartilhado (convite aceito) fica para a Fase 3.
-                note("fetchedDatabaseChanges (zonas novas ou alteradas: \(changes.modifications.count))")
-            }
+            // Zona nova (convite aceito, mural do dono vindo de outro Mac dele): adotada aqui, antes de o motor buscar os registros
+            // dela. A busca completa garante o que o motor já tenha deixado passar.
+            if await adopt(changes.modifications.map { CloudZoneID($0.zoneID) }) { scheduleFetchAfterAdoption() }
         case .fetchedRecordZoneChanges(let changes):
             await handleFetched(changes, engine: syncEngine)
         case .sentRecordZoneChanges(let sent):
@@ -168,6 +245,18 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         case .didSendChanges: note("didSendChanges")
         @unknown default: note("evento desconhecido")
         }
+    }
+
+    /// As opções da próxima busca: as do motor, sem as zonas recusadas por este Mac (excluídas, abandonadas ou tiradas do iCloud),
+    /// até o servidor confirmar o apagamento delas. Sem isso, a próxima mudança numa zona abandonada a traria de volta.
+    public func nextFetchChangesOptions(
+        _ context: CKSyncEngine.FetchChangesContext, syncEngine: CKSyncEngine
+    ) async -> CKSyncEngine.FetchChangesOptions {
+        var options = context.options
+        let declined = (try? await coordinator.declinedZones()) ?? []
+        guard !declined.isEmpty else { return options }
+        options.scope = CloudKitMapping.fetchScope(options.scope, excluding: Set(declined.map(\.ckZoneID)))
+        return options
     }
 
     /// O lote de envio: as pendências do escopo pedido, no máximo `maximumBatchSize`, em ordem fixa. Cada registro é pedido ao
@@ -244,7 +333,8 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
             let zone = CloudZoneID(deletion.zoneID)
             let reason = CloudKitMapping.removalReason(for: deletion.reason, in: scope)
             Logger.sync.notice("Zona apagada: \(zone.name, privacy: .public) (\(String(describing: reason), privacy: .public))")
-            Self.replacePending(in: [zone], with: [], engine: engine)
+            // A zona já não existe, nem o convite que o convidado ia apagar para sair dela.
+            Self.replacePending(in: [zone], with: [], settled: [CloudKitMapping.zoneShareRecordID(in: zone)], engine: engine)
             do {
                 try await coordinator.handleZoneDeleted(zone, reason: reason)
             } catch {
@@ -255,14 +345,23 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
 
     private func handleFetched(_ changes: CKSyncEngine.Event.FetchedRecordZoneChanges, engine: CKSyncEngine) async {
         let outcome = CloudKitMapping.fetchOutcome(
-            modifications: changes.modifications.map(\.record), deletions: changes.deletions.map(\.recordID))
-        guard !outcome.saved.isEmpty || !outcome.deleted.isEmpty else { return }
-        do {
-            let remaining = try await coordinator.handleFetched(saved: outcome.saved, deleted: outcome.deleted)
-            Self.replacePending(in: outcome.zones, with: remaining, engine: engine)
-        } catch {
-            Logger.sync.error("Busca não tratada: \(String(describing: error), privacy: .public)")
+            modifications: changes.modifications.map(\.record),
+            deletions: changes.deletions.map { (recordID: $0.recordID, recordType: $0.recordType) })
+        if !outcome.saved.isEmpty || !outcome.deleted.isEmpty {
+            do {
+                let remaining = try await coordinator.handleFetched(saved: outcome.saved, deleted: outcome.deleted)
+                Self.replacePending(in: outcome.zones, with: remaining, engine: engine)
+            } catch {
+                Logger.sync.error("Busca não tratada: \(String(describing: error), privacy: .public)")
+            }
         }
+        deliver(outcome.shares)
+    }
+
+    /// Entrega os convites de uma busca a quem os recebe, depois de o coordenador tratar os registros da mesma leva.
+    private func deliver(_ shares: [ShareSummary]) {
+        guard !shares.isEmpty else { return }
+        shareHandler?(shares)
     }
 
     private func handleSent(_ sent: CKSyncEngine.Event.SentRecordZoneChanges, engine: CKSyncEngine) async {
@@ -274,7 +373,9 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
         do {
             let remaining = try await coordinator.handleSent(saved: outcome.saved, deleted: outcome.deleted, failures: outcome.failures)
             let refused = outcome.refused
-            Self.replacePending(in: outcome.zones, with: remaining.filter { !refused.contains($0.recordID) }, engine: engine)
+            // O servidor aceitou o apagamento do convite (a saída do mural): ele não fica na fila, mesmo que o motor ainda o tenha.
+            Self.replacePending(
+                in: outcome.zones, with: remaining.filter { !refused.contains($0.recordID) }, settled: Set(outcome.deleted), engine: engine)
             // Falha passageira: o motor tenta de novo; se ele a tirou da fila, ela volta.
             Self.keepPending(outcome.retriedByEngine, engine: engine)
         } catch {
@@ -297,11 +398,12 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
                 .appendingPathComponent("MuralFullFetch-\(UUID().uuidString)", isDirectory: true)
             defer { try? FileManager.default.removeItem(at: scratch) }
             do {
-                let records = try await Self.allRecords(in: zone.ckZoneID, database: engine.database, copyingAssetsTo: scratch)
-                let remaining = try await coordinator.handleFullFetch(zone, records: records)
+                let fetched = try await Self.allRecords(in: zone.ckZoneID, database: engine.database, copyingAssetsTo: scratch)
+                let remaining = try await coordinator.handleFullFetch(zone, records: fetched.records)
                 Self.replacePending(in: [zone], with: remaining, engine: engine)
+                deliver(fetched.shares)
             } catch let error as CKError where error.code == .zoneNotFound || error.code == .userDeletedZone {
-                Self.replacePending(in: [zone], with: [], engine: engine)
+                Self.replacePending(in: [zone], with: [], settled: [CloudKitMapping.zoneShareRecordID(in: zone)], engine: engine)
                 do {
                     try await coordinator.handleZoneDeleted(zone, reason: scope == .private ? .zoneDeleted : .accessRevoked)
                 } catch {
@@ -318,17 +420,24 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     /// Todos os registros que a zona tem agora: as mudanças desde o começo (`since: nil`), página a página. Um registro que falha ou
     /// não converte interrompe tudo (lança), porque na busca completa o que não vem conta como apagado. Os arquivos (`CKAsset`) são
     /// copiados para `directory` na hora: o arquivo do CloudKit pode sumir quando a operação termina.
+    ///
+    /// O convite da zona vem junto dos registros e é separado antes de converter (`CloudKitMapping.separatingShares`): como registro
+    /// do mural ele não converteria, e a busca completa nunca terminaria.
     private static func allRecords(
         in zoneID: CKRecordZone.ID, database: CKDatabase, copyingAssetsTo directory: URL
-    ) async throws -> [CloudRecord] {
+    ) async throws -> (records: [CloudRecord], shares: [ShareSummary]) {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var records: [CloudRecord] = []
+        var shares: [ShareSummary] = []
         var token: CKServerChangeToken?
         var moreComing = true
         while moreComing {
             let page = try await database.recordZoneChanges(inZoneWith: zoneID, since: token)
-            for (_, result) in page.modificationResultsByID {
-                var record = try CloudRecord(try result.get().record)
+            let (muralRecords, pageShares) = CloudKitMapping.separatingShares(
+                from: try page.modificationResultsByID.values.map { try $0.get().record })
+            shares.append(contentsOf: pageShares)
+            for ckRecord in muralRecords {
+                var record = try CloudRecord(ckRecord)
                 for (key, value) in record.fields {
                     guard case .asset(let source) = value else { continue }
                     let copy = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
@@ -340,7 +449,7 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
             token = page.changeToken
             moreComing = page.moreComing
         }
-        return records
+        return (records, shares)
     }
 
     // MARK: Interno
@@ -360,14 +469,15 @@ public actor CloudKitSyncEngine: CKSyncEngineDelegate {
     }
 
     /// Troca as pendências do motor nas `zones` pelas que o coordenador devolveu: tira as que não voltaram e põe as novas. Só mexe no
-    /// que mudou, para não reiniciar o que o motor já tem agendado.
-    private static func replacePending(in zones: Set<CloudZoneID>, with changes: Set<PendingChange>, engine: CKSyncEngine) {
+    /// que mudou, para não reiniciar o que o motor já tem agendado. O apagamento do convite da zona inteira (a saída do convidado) só
+    /// sai se estiver em `settled`: veja `CloudKitMapping.pendingReplacement`.
+    private static func replacePending(
+        in zones: Set<CloudZoneID>, with changes: Set<PendingChange>, settled: Set<CloudRecordID> = [], engine: CKSyncEngine
+    ) {
         let current = Set(engine.state.pendingRecordZoneChanges.compactMap { PendingChange($0) })
-        let currentInZones = current.filter { zones.contains($0.recordID.zone) }
-        let stale = currentInZones.subtracting(changes)
-        let new = changes.subtracting(current)
-        if !stale.isEmpty { engine.state.remove(pendingRecordZoneChanges: stale.map(\.engineChange)) }
-        if !new.isEmpty { engine.state.add(pendingRecordZoneChanges: new.map(\.engineChange)) }
+        let replacement = CloudKitMapping.pendingReplacement(current: current, in: zones, with: changes, settled: settled)
+        if !replacement.stale.isEmpty { engine.state.remove(pendingRecordZoneChanges: replacement.stale.map(\.engineChange)) }
+        if !replacement.new.isEmpty { engine.state.add(pendingRecordZoneChanges: replacement.new.map(\.engineChange)) }
     }
 
     /// Garante que as pendências estão na fila do motor, sem repetir as que já estão.
