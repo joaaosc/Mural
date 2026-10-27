@@ -267,6 +267,7 @@ struct MuralWindowView: View {
 
     private func importPackage(from source: URL) {
         Task {
+            if await openExistingBoard(forPackageAt: source) { return }
             do {
                 let library = tabs.registry.library
                 let result = try await MuralPackageImport.importAsCopy(from: source, using: library)
@@ -281,6 +282,19 @@ struct MuralWindowView: View {
                 alert = WindowAlert(title: "Não foi possível importar o mural", message: error.localizedDescription)
             }
         }
+    }
+
+    /// Um `.mural` de um mural que este Mac já tem salvo (a cópia da pasta Mural do iCloud Drive, por exemplo) abre a aba do mural que
+    /// já existe, sem importar uma segunda cópia nem alerta. O id vem do manifesto do pacote.
+    /// - Returns: `true` se abriu o mural que já existe.
+    private func openExistingBoard(forPackageAt source: URL) async -> Bool {
+        let manifest = await SecurityScopedAccess.withAccess(to: [source]) {
+            await DriveMirror.manifest(ofPackageAt: source)
+        }
+        guard let id = manifest?.id, let existing = try? await tabs.registry.library.open(.saved(id)) else { return false }
+        tabs.open(.saved(id), title: existing.manifest.name)
+        tabs.showWindow()
+        return true
     }
 
     private static func workspaceNotice(for status: BoardPortableWorkspaceStatus) -> String {

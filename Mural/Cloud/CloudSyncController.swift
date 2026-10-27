@@ -126,6 +126,9 @@ final class CloudSyncController {
     /// Chamado com o mural que saiu do iCloud neste Mac: o aviso de um mural removido (`post`, quando traz o mural) ou a saída da
     /// própria pessoa (`didLeave`). O Live Share sai da sessão desse mural. Um ouvinte só.
     @ObservationIgnored var onBoardLeftCloud: (@MainActor (BoardID) -> Void)?
+    /// Chamado com o mural a cada gravação local dele (nunca a junção do que veio do iCloud): as cópias do iCloud Drive regravam o
+    /// mural. Um ouvinte só.
+    @ObservationIgnored var onLocalSave: (@MainActor (BoardID) -> Void)?
     /// A busca pedida por `requestFetch()`, enquanto ela existe, e se chegou outro pedido durante ela.
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var fetchAgain = false
@@ -135,6 +138,9 @@ final class CloudSyncController {
 
     /// Há motores: a sincronização está ligada.
     var isEnabled: Bool { !channels.isEmpty }
+
+    /// Os murais adotados do iCloud que ainda esperam o conteúdo (pacote provisório), como o último `refreshIssues` os leu.
+    var boardsAwaitingFirstFetch: Set<BoardID> { awaitingFirstFetch }
 
     /// - Parameters:
     ///   - delivery: o roteamento das sessões de janela; a ponte junta e grava por ele, na fila serial das entregas.
@@ -387,6 +393,7 @@ final class CloudSyncController {
         session.onPersisted = { [weak self] _, fromRemote in
             guard !fromRemote else { return }
             self?.scheduleSend(for: id)
+            self?.onLocalSave?(id)
         }
         session.setAwaitingCloud(awaitingFirstFetch.contains(id))
     }

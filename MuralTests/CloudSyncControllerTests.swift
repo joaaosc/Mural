@@ -718,6 +718,7 @@ struct CloudSyncControllerTests {
         #expect(adoption == .adopted)
         await second.controller.send()
         #expect(second.controller.issues[id] == .awaitingFirstFetch)
+        #expect(second.controller.boardsAwaitingFirstFetch == [id], "as cópias do iCloud Drive esperam o conteúdo")
         let tab = try #require(second.tabs.open(.saved(id), title: "Mural do iCloud"))
         await waitUntil("a aba carregar") { tab.session.model != nil }
         let model = try #require(tab.session.model)
@@ -727,6 +728,7 @@ struct CloudSyncControllerTests {
 
         await second.controller.fetch()
 
+        #expect(second.controller.boardsAwaitingFirstFetch.isEmpty)
         #expect(!tab.session.isAwaitingCloud)
         #expect(!model.isReadOnly)
         #expect(model.board.item(id: card.id)?.text == "um")
@@ -1444,9 +1446,73 @@ struct CloudSyncControllerTests {
         #expect(!CloudAvailability.listsCloudKit(nil))
         _ = CloudAvailability.hasCloudKitEntitlement  // a leitura do processo não pode encerrar o app
     }
+
+    // MARK: Ganchos para as cópias do iCloud Drive
+
+    @Test("onLocalSave avisa a gravação local do mural e nunca a junção do que veio do iCloud")
+    func onLocalSaveReportsLocalSavesOnly() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let card = Self.note("um")
+        let id = try await env.seed(items: [card])
+        let remote = try await env.putInCloud(id)
+        let tab = try #require(env.tabs.open(.saved(id), title: "Aberto"))
+        await waitUntil("a aba carregar") { tab.session.model != nil }
+        let saved = LocalSaveRecorder()
+        env.controller.onLocalSave = { saved.ids.append($0) }
+
+        try await remote.edit { Self.setText(Self.editedText, of: card.id, in: &$0) }
+        await env.controller.fetch()
+        #expect(tab.session.model?.board.item(id: card.id)?.text == Self.editedText, "a junção aconteceu")
+        #expect(saved.ids.isEmpty, "a junção do que veio do iCloud não é gravação local")
+
+        try await Self.saveEdit(in: tab)
+        #expect(Set(saved.ids) == [id], "a edição da pessoa avisa, com o mural certo")
+        await env.finish()
+    }
+
+    @Test("onBoardDeletedByUser avisa a exclusão só deste Mac e em todos os Macs; sair do mural recebido e tirar do iCloud não avisam")
+    func deletionHookFollowsTheKind() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let deleted = DeletedBoardRecorder()
+        env.tabs.onBoardDeletedByUser = { deleted.ids.append($0) }
+        let local = try await env.seed(name: "Local", items: [])
+        let received = try await env.seed(name: "Recebido", items: [], database: .shared)
+        let mine = try await env.seed(name: "Meu", items: [])
+        let kept = try await env.seed(name: "Fica", items: [])
+        let info = try #require(try await env.diskManifest(received).cloud)
+        try await env.joinZone(of: info)
+        await env.controller.start()
+        try await env.controller.track(received, cloud: info)
+        try await env.uploadToCloud(mine)
+        try await env.uploadToCloud(kept)
+
+        try await env.tabs.perform(BoardDeletionRequest(route: .saved(received), name: "Recebido", kind: .leave))
+        try await env.tabs.perform(
+            BoardDeletionRequest(route: .saved(kept), name: "Fica", kind: .removeFromICloud(participants: 0)))
+        #expect(deleted.ids.isEmpty, "a cópia do iCloud Drive não sai ao sair de um mural recebido nem ao tirar do iCloud")
+
+        try await env.tabs.perform(BoardDeletionRequest(route: .saved(local), name: "Local"))
+        try await env.tabs.perform(
+            BoardDeletionRequest(route: .saved(mine), name: "Meu", kind: .everywhere(participants: 0)))
+        #expect(deleted.ids == [local, mine])
+    }
 }
 
 // MARK: Apoio
+
+/// Os murais que `onLocalSave` avisou.
+@MainActor
+private final class LocalSaveRecorder {
+    var ids: [BoardID] = []
+}
+
+/// Os murais que `onBoardDeletedByUser` avisou.
+@MainActor
+private final class DeletedBoardRecorder {
+    var ids: [BoardID] = []
+}
 
 /// Anota o que o teste quer ver de dentro de `onPersisted`.
 @MainActor

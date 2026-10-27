@@ -345,6 +345,55 @@ struct MuralTabsTests {
         #expect(try await library.lifecycleState()?.lifecycle == .discarded)
     }
 
+    @Test("Confirmar a exclusão só deste Mac avisa onBoardDeletedByUser; deleteBoard direto e pedido com erro não avisam")
+    func performingLocalDeletionReportsTheBoard() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        tabs.removeBoardCaches = { _ in }
+        let deleted = DeletedBoards()
+        tabs.onBoardDeletedByUser = { deleted.ids.append($0) }
+        let doomed = try await library.createNamedBoard("Excluir")
+        let swept = try await library.createNamedBoard("Sincronização")
+        guard case .saved(let doomedID) = doomed else {
+            Issue.record("rota inesperada")
+            return
+        }
+
+        try await tabs.deleteBoard(swept)
+        #expect(deleted.ids.isEmpty, "a exclusão por outro caminho (como a sincronização) não é da pessoa")
+        // Sem sincronização ligada, sair do mural recebido e tirar do iCloud recusam, e nada é avisado.
+        await #expect(throws: CloudSyncControllerError.disabled) {
+            try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir", kind: .leave))
+        }
+        await #expect(throws: CloudSyncControllerError.disabled) {
+            try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir", kind: .removeFromICloud(participants: 0)))
+        }
+        await #expect(throws: CloudSyncControllerError.disabled) {
+            try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir", kind: .everywhere(participants: 0)))
+        }
+        #expect(deleted.ids.isEmpty)
+
+        try await tabs.perform(BoardDeletionRequest(route: doomed, name: "Excluir"))
+        #expect(deleted.ids == [doomedID])
+        #expect(try await library.listSaved().isEmpty)
+    }
+
+    @Test("libraryDidChange avisa onLibraryChanged e muda a revisão da lista")
+    func libraryChangeIsReported() throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (tabs, _) = makeTabs(library)
+        var calls = 0
+        tabs.onLibraryChanged = { calls += 1 }
+        let before = tabs.libraryRevision
+
+        tabs.libraryDidChange()
+
+        #expect(calls == 1)
+        #expect(tabs.libraryRevision == before &+ 1)
+    }
+
     @Test("Dentro do app, mover para o Lixo funciona e diz onde o item foi parar")
     func trashWorksInsideTheSandbox() throws {
         let item = FileManager.default.temporaryDirectory
@@ -368,5 +417,11 @@ private final class WindowCloses {
 /// Anota os murais que `MuralTabs.onBoardClosed` avisou, na ordem.
 @MainActor
 private final class ClosedBoards {
+    var ids: [BoardID] = []
+}
+
+/// Os murais que a pessoa excluiu, como `onBoardDeletedByUser` os avisou.
+@MainActor
+private final class DeletedBoards {
     var ids: [BoardID] = []
 }

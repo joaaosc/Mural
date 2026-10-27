@@ -8,6 +8,8 @@ struct MuralApp: App {
     @State private var tabs: MuralTabs
     /// O Live Share. Existe com o iCloud de verdade e, só em desenvolvimento, na demonstração (`-uiTesting -liveShareDemo`).
     @State private var liveShare: LiveShareController?
+    /// As cópias dos murais na pasta Mural do iCloud Drive. Existe com o entitlement do iCloud Drive; os Ajustes o recebem daqui.
+    @State private var driveMirror: DriveMirrorController?
 
     init() {
         LaunchConfiguration.preparePerformanceFixtureIfRequested()
@@ -53,13 +55,29 @@ struct MuralApp: App {
         // O Live Share depende dela: só existe com ela ligada.
         let cloudMode = LaunchConfiguration.cloudSync()
         var live: LiveShareController?
+        var syncController: CloudSyncController?
         if cloudMode != .off {
             let sync = CloudSyncController(mode: cloudMode, registry: registry, delivery: delivery)
             CloudSyncController.current = sync
             Task { await sync.start() }
             live = Self.makeLiveShare(mode: cloudMode, sync: sync, tabs: tabs)
+            syncController = sync
         }
         _liveShare = State(initialValue: live)
+
+        // As cópias dos murais na pasta Mural do iCloud Drive. As gravações locais vêm do controlador do iCloud, as exclusões e a
+        // lista de murais, das abas. Sem o entitlement do iCloud Drive (e nos testes) não existe: o app se comporta como sempre.
+        var mirror: DriveMirrorController?
+        if LaunchConfiguration.mirrorsToICloudDrive() {
+            let controller = DriveMirrorController(
+                library: library, awaitingFirstFetch: { [weak syncController] in syncController?.boardsAwaitingFirstFetch ?? [] })
+            syncController?.onLocalSave = { controller.boardChanged($0) }
+            tabs.onBoardDeletedByUser = { controller.boardDeletedByUser($0) }
+            tabs.onLibraryChanged = { controller.libraryChanged() }
+            controller.start()
+            mirror = controller
+        }
+        _driveMirror = State(initialValue: mirror)
 
         // O painel de vidro que o ícone da barra de menus abre. O conteúdo é montado a cada apresentação, com um modelo
         // novo: a lista e o mural do centro nascem do instante em que o painel abre.
@@ -133,7 +151,7 @@ struct MuralApp: App {
 
         // Mural › Ajustes… (⌘,) e a engrenagem do painel da barra de menus abrem esta janela.
         Settings {
-            MuralSettingsView()
+            MuralSettingsView(driveMirror: driveMirror)
         }
     }
 }

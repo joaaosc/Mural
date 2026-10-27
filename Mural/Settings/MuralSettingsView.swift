@@ -5,11 +5,17 @@ import SwiftUI
 /// A aba escolhida fica guardada: a janela reabre onde a pessoa estava.
 struct MuralSettingsView: View {
     @AppStorage("settingsTab") private var selection: SettingsTab = .general
+    /// As cópias no iCloud Drive; `nil` sem iCloud Drive.
+    private let driveMirror: DriveMirrorController?
+
+    init(driveMirror: DriveMirrorController? = nil) {
+        self.driveMirror = driveMirror
+    }
 
     var body: some View {
         TabView(selection: $selection) {
             Tab(SettingsTab.general.title, systemImage: SettingsTab.general.symbolName, value: .general) {
-                GeneralSettingsView(loginItem: .shared)
+                GeneralSettingsView(loginItem: .shared, driveMirror: driveMirror)
             }
             Tab(SettingsTab.panel.title, systemImage: SettingsTab.panel.symbolName, value: .panel) {
                 PanelSettingsView(hotKeys: .shared, position: .shared)

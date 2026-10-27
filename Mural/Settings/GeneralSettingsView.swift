@@ -1,12 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// A aba Geral dos Ajustes: abrir o Mural ao iniciar a sessão e sair do app.
+/// A aba Geral dos Ajustes: abrir o Mural ao iniciar a sessão, guardar as cópias no iCloud Drive e sair do app.
 ///
 /// Sair fica aqui porque, sem janela aberta, o Mural sai do Dock e da barra de menus do app: o ícone e esta janela são
 /// os caminhos que sobram.
 struct GeneralSettingsView: View {
     let loginItem: LoginItemModel
+    /// As cópias no iCloud Drive; `nil` sem iCloud Drive (nos testes, ou sem o entitlement): a opção não aparece.
+    var driveMirror: DriveMirrorController?
 
     var body: some View {
         @Bindable var loginItem = loginItem
@@ -25,6 +27,17 @@ struct GeneralSettingsView: View {
                 }
             } footer: {
                 Text("Aberto assim, o Mural fica só no ícone da barra de menus, sem janela.")
+            }
+
+            if let driveMirror {
+                Section {
+                    Toggle("Guardar cópias no iCloud Drive", isOn: Bindable(driveMirror).isEnabled)
+                        .accessibilityIdentifier("settings-drive-mirror")
+                } footer: {
+                    Text(
+                        "Os murais que você criou ganham uma cópia na pasta Mural do iCloud Drive. Os recebidos de outras pessoas não. "
+                            + "Desligar não apaga as cópias que já existem.")
+                }
             }
 
             Section {

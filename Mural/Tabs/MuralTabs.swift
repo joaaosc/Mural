@@ -191,6 +191,11 @@ final class MuralTabs {
     /// Chamado com o mural de cada aba que sai (`close`, `closeAll` e `replace`, que tira a aba antiga): o Live Share sai da sessão do
     /// mural que deixou de estar aberto. Um ouvinte só.
     @ObservationIgnored var onBoardClosed: (@MainActor (BoardID) -> Void)?
+    /// Chamado com o mural que a pessoa excluiu neste Mac ("Excluir" só daqui ou em todos os Macs), depois de a exclusão terminar sem
+    /// erro; nunca ao sair de mural recebido nem ao tirar do iCloud. A cópia do iCloud Drive sai junto. Um ouvinte só.
+    @ObservationIgnored var onBoardDeletedByUser: (@MainActor (BoardID) -> Void)?
+    /// Chamado quando a lista de murais pode ter mudado (`libraryDidChange`): as cópias do iCloud Drive conferem os nomes. Um ouvinte só.
+    @ObservationIgnored var onLibraryChanged: (@MainActor () -> Void)?
     @ObservationIgnored private var loadStarted: Set<UUID> = []
 
     init(
@@ -308,6 +313,7 @@ final class MuralTabs {
     /// Mural renomeado, criado ou importado: a barra lateral relê a lista.
     func libraryDidChange() {
         libraryRevision &+= 1
+        onLibraryChanged?()
     }
 
     // MARK: Janela
@@ -475,8 +481,10 @@ final class MuralTabs {
         switch request.kind {
         case .local:
             try await deleteBoard(request.route)
+            onBoardDeletedByUser?(boardID)
         case .everywhere:
             try await enabledCloudSync().deleteEverywhere(boardID)
+            onBoardDeletedByUser?(boardID)
         case .leave:
             try await enabledCloudSync().leaveShared(boardID)
         case .removeFromICloud:
