@@ -31,7 +31,8 @@ struct CardView: View {
             MusicCard(item: item)
                 .colorTagDot(item.colorTag)
         case .image, .video, .pdf:
-            MediaCard(url: model.fileURL(for: item), kind: item.kind)
+            let url = model.fileURL(for: item)
+            MediaCard(url: url, kind: item.kind, previewVideoURL: item.kind == .video ? url : nil)
                 .colorTagDot(item.colorTag)
         case .folder:
             let children = model.children(of: item.id)

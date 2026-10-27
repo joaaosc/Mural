@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import XCTest
 
@@ -516,6 +517,33 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(resolution.waitForExistence(timeout: 5), "detalhe da imagem mostra a resolução lida do arquivo")
     }
 
+    /// Ponteiro parado sobre um cartão de vídeo toca a prévia dentro dele; ao sair, ela some.
+    @MainActor
+    func testHoveringVideoCardPlaysPreview() async throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let url = try await Self.makeVideo(named: "video-teste")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([url as NSURL])
+        app.typeKey("v", modifierFlags: .command)
+
+        let card = app.buttons["video-teste"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "⌘V com arquivo de vídeo deveria criar um cartão")
+        let preview = app.descendants(matching: .any)["hover-video-preview"]
+        XCTAssertFalse(preview.exists, "sem o ponteiro, o cartão mostra só a miniatura")
+
+        card.hover()
+        XCTAssertTrue(preview.waitForExistence(timeout: 8), "ponteiro parado sobre o vídeo toca a prévia")
+        // "pronta" = o primeiro quadro já pode ser desenhado; antes disso a miniatura continua à vista.
+        let isReady = expectation(for: NSPredicate(format: "value == %@", "pronta"), evaluatedWith: preview)
+        await fulfillment(of: [isReady], timeout: 8)
+
+        app.buttons["Today"].firstMatch.hover()
+        XCTAssertTrue(preview.waitForNonExistence(timeout: 5), "ao sair, a prévia para")
+    }
+
     /// Colar com uma pasta aberta põe o conteúdo dentro dela; com notas e imagem
     /// juntas, a coleção mostra as duas grades lado a lado.
     @MainActor
@@ -1025,6 +1053,34 @@ final class MuralUITests: XCTestCase {
         let data = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).png")
         try data.write(to: url)
+        return url
+    }
+
+    /// Vídeo de 1 s (64×64, 30 quadros que mudam de cinza) gerado no teste: nenhum vídeo é versionado.
+    private static func makeVideo(named name: String) async throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).mov")
+        try? FileManager.default.removeItem(at: url)
+        let side = 64
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: side, AVVideoHeightKey: side])
+        let attributes = CVPixelBufferCreationAttributes(
+            pixelFormatType: CVPixelFormatType(rawValue: kCVPixelFormatType_32BGRA),
+            size: CVImageSize(width: side, height: side))
+        let receiver = writer.inputPixelBufferReceiver(for: input, pixelBufferAttributes: attributes)
+        try writer.start()
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0..<30 {
+            var pixels = try CVMutablePixelBuffer(attributes)
+            pixels.accessUnsafeMutableRawPlaneBytes { planes in
+                for plane in planes { memset(plane.bytes.baseAddress, Int32(40 + frame * 6), plane.bytes.count) }
+            }
+            try await receiver.append(CVReadOnlyPixelBuffer(pixels), with: CMTime(value: Int64(frame), timescale: 30))
+        }
+        receiver.finish()
+        await writer.finishWriting()
+        XCTAssertEqual(writer.status, .completed, "\(String(describing: writer.error))")
         return url
     }
 

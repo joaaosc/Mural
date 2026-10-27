@@ -41,6 +41,10 @@ struct CardButton: View {
 
     private var isSelected: Bool { selection?.selected.contains(item.id) ?? false }
 
+    /// A prévia do vídeo ao passar o ponteiro só vale onde há seletor (mural e pasta aberta, não a prévia de pasta),
+    /// com ele fechado, e some com Reduzir Movimento.
+    private var allowsHoverVideo: Bool { selection != nil && selection?.isActive != true && !reduceMotion }
+
     var body: some View {
         HeroSlot(id: item.id, context: hero) {
             cardSurface
@@ -57,6 +61,7 @@ struct CardButton: View {
         let card = Button(action: activate) {
             ZStack(alignment: .bottomLeading) {
                 CardView(item: item, model: model)
+                    .environment(\.hoverVideoPreviewEnabled, allowsHoverVideo)
                 CardCaptionView(caption: item.caption)
             }
         }

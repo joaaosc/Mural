@@ -40,6 +40,10 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
   dela, um tom mais leve); post-it, foto, vídeo, PDF e link ganham uma bolinha no canto.
 - Um mural com alguma cor usa a versão 4 do formato: builds anteriores se recusam a abri-lo em vez
   de perder as cores ao gravar.
+- **Vídeo ao passar o ponteiro**: com o ponteiro parado meio segundo sobre um cartão de vídeo, ele toca
+  mudo e em laço dentro do cartão; ao sair, volta à miniatura. Vale no mural e dentro da pasta; não vale com
+  o seletor de ⌘ aberto, na prévia de pasta nem com Reduzir Movimento. Live Photo ainda não: o Fotos entrega
+  só a imagem, sem o vídeo que a acompanha.
 
 ## Texto
 
