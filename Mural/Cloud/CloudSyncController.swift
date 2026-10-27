@@ -490,6 +490,40 @@ final class CloudSyncController {
     }
     #endif
 
+    // MARK: Outro ambiente
+
+    /// Quantos nomes de murais o aviso de `reportBoardsFromAnotherEnvironment()` traz; os demais viram "e mais N".
+    private static let otherEnvironmentNameLimit = 5
+
+    /// Avisa, num aviso só, dos murais salvos que têm `cloud` no manifesto e que nenhum banco acompanha. São os acompanhados pela outra
+    /// cópia do app (desenvolvimento ou TestFlight): o estado deles ficou na pasta do outro ambiente (`SyncLocation`) e as zonas só
+    /// existem lá, então nesta cópia eles não sincronizam.
+    ///
+    /// O app só o chama quando a pasta do estado é a do outro ambiente. Espera o início, para os coordenadores já terem lido os estados
+    /// guardados. Com a sincronização desligada, ou se a lista de murais ou os estados não puderem ser lidos, não avisa nada.
+    func reportBoardsFromAnotherEnvironment() async {
+        await startTask?.value
+        guard isEnabled else { return }
+        let names: [String]
+        do {
+            var tracked = Set<BoardID>()
+            for scope in Self.scopes {
+                tracked.formUnion(try await coordinator(for: scope)?.boardIDs() ?? [])
+            }
+            names = try await registry.library.listSaved()
+                .filter { $0.manifest.cloud != nil && !tracked.contains($0.manifest.id) }
+                .map(\.manifest.name)
+        } catch {
+            Self.log.error("Murais de outro ambiente não conferidos: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard !names.isEmpty else { return }
+        let shown = names.prefix(Self.otherEnvironmentNameLimit).map { "‘\($0)’" }.joined(separator: ", ")
+        let rest = names.count > Self.otherEnvironmentNameLimit ? " e mais \(names.count - Self.otherEnvironmentNameLimit)" : ""
+        let intro = "Estes murais estão no iCloud de outra cópia do app (desenvolvimento ou TestFlight) e não sincronizam nesta: "
+        post(CloudSyncNotice(message: "\(intro)\(shown)\(rest).", title: "iCloud de outro ambiente"))
+    }
+
     // MARK: Convites
 
     /// Recebe os convites que uma busca trouxe. Voltam logo (o motor os entrega dentro do seu executor): o trabalho entra na fila,

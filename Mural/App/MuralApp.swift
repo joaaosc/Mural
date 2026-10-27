@@ -1,5 +1,6 @@
 import MuralKit
 import SwiftUI
+import os
 
 @main
 struct MuralApp: App {
@@ -10,6 +11,8 @@ struct MuralApp: App {
     @State private var liveShare: LiveShareController?
     /// As cópias dos murais na pasta Mural do iCloud Drive. Existe com o entitlement do iCloud Drive; os Ajustes o recebem daqui.
     @State private var driveMirror: DriveMirrorController?
+
+    private static let log = Logger(subsystem: "com.joaocosta.Mural", category: "Sincronização")
 
     init() {
         LaunchConfiguration.preparePerformanceFixtureIfRequested()
@@ -57,9 +60,21 @@ struct MuralApp: App {
         var live: LiveShareController?
         var syncController: CloudSyncController?
         if cloudMode != .off {
-            let sync = CloudSyncController(mode: cloudMode, registry: registry, delivery: delivery)
+            // Com o iCloud de verdade, o estado fica na pasta do ambiente desta cópia (desenvolvimento ou produção): as duas cópias
+            // não dividem o estado, e os murais acompanhados na outra não vão para o Lixo. Sem a pasta, `Sync`, como sempre foi.
+            let location = cloudMode == .cloudKit ? Self.syncLocation() : nil
+            let sync: CloudSyncController
+            if let location {
+                sync = CloudSyncController(mode: cloudMode, registry: registry, delivery: delivery, directory: location.directory)
+            } else {
+                sync = CloudSyncController(mode: cloudMode, registry: registry, delivery: delivery)
+            }
             CloudSyncController.current = sync
-            Task { await sync.start() }
+            let isOtherEnvironment = location?.isOtherEnvironment ?? false
+            Task {
+                await sync.start()
+                if isOtherEnvironment { await sync.reportBoardsFromAnotherEnvironment() }
+            }
             live = Self.makeLiveShare(mode: cloudMode, sync: sync, tabs: tabs)
             syncController = sync
         }
@@ -102,6 +117,17 @@ struct MuralApp: App {
         // Com duas cópias abertas (a instalada e uma de desenvolvimento ou de teste), só uma mostra o ícone (e responde ao
         // atalho); a outra assume quando ela fecha.
         MenuBarIconCoordinator.shared.start()
+    }
+
+    /// A pasta do estado de sincronização do ambiente desta cópia (`SyncLocation`) e se ela é a do outro ambiente. `nil` se a marca não
+    /// pôde ser lida nem gravada: o controlador usa então `Sync`, como antes da separação.
+    private static func syncLocation() -> (directory: URL, isOtherEnvironment: Bool)? {
+        do {
+            return try SyncLocation.resolve(root: LaunchConfiguration.libraryRoot(), environment: CloudAvailability.currentEnvironment)
+        } catch {
+            log.error("Pasta do estado por ambiente não resolvida: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// O Live Share do app. Com o iCloud de verdade, passa a receber as sessões do SharePlay. No iCloud falso dos testes de interface

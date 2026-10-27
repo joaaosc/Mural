@@ -1400,6 +1400,77 @@ struct CloudSyncControllerTests {
         #expect(released == nil)
     }
 
+    // MARK: Murais de outro ambiente
+
+    private static let otherEnvironmentTitle = "iCloud de outro ambiente"
+    private static let otherEnvironmentIntro =
+        "Estes murais estão no iCloud de outra cópia do app (desenvolvimento ou TestFlight) e não sincronizam nesta: "
+
+    @Test("Murais com cloud que nenhum banco acompanha entram num aviso só, pelo nome; os acompanhados e os só deste Mac não")
+    func reportsBoardsThatNoDatabaseTracks() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let mine = try await env.seed(name: "Meu", items: [], database: .private)
+        try await env.uploadToCloud(mine)
+        let received = try await env.seed(name: "Recebido", items: [], database: .shared)
+        let info = try #require(try await env.diskManifest(received).cloud)
+        try await env.joinZone(of: info)
+        try await env.controller.track(received, cloud: info)
+        _ = try await env.seed(name: "Só local", items: [])
+        _ = try await env.seed(name: "Casa", items: [], database: .private)
+        _ = try await env.seed(name: "Viagem", items: [], database: .shared)
+
+        await env.controller.reportBoardsFromAnotherEnvironment()
+
+        #expect(env.controller.notices.count == 1, "um aviso só")
+        let notice = try #require(env.controller.notices.first)
+        #expect(notice.title == Self.otherEnvironmentTitle)
+        #expect(notice.boardID == nil, "não é de um mural que saiu do iCloud")
+        #expect(notice.message == Self.otherEnvironmentIntro + "‘Casa’, ‘Viagem’.")
+    }
+
+    @Test("Mais de cinco murais: o aviso traz cinco nomes e diz quantos faltam")
+    func reportsAtMostFiveNames() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        for number in 1...7 { _ = try await env.seed(name: "Mural \(number)", items: [], database: .private) }
+        await env.controller.start()
+
+        await env.controller.reportBoardsFromAnotherEnvironment()
+
+        let notice = try #require(env.controller.notices.first)
+        #expect(env.controller.notices.count == 1)
+        #expect(
+            notice.message
+                == Self.otherEnvironmentIntro + "‘Mural 1’, ‘Mural 2’, ‘Mural 3’, ‘Mural 4’, ‘Mural 5’ e mais 2.")
+    }
+
+    @Test("Sem murais fora do acompanhamento, nenhum aviso")
+    func reportsNothingWhenEveryCloudBoardIsTracked() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        let mine = try await env.seed(name: "Meu", items: [], database: .private)
+        try await env.uploadToCloud(mine)
+        _ = try await env.seed(name: "Só local", items: [])
+
+        await env.controller.reportBoardsFromAnotherEnvironment()
+
+        #expect(env.controller.notices.isEmpty)
+    }
+
+    @Test("Sincronização desligada: não há o que conferir, e nenhum aviso")
+    func reportsNothingWhileOff() async throws {
+        let env = try SyncEnvironment()
+        defer { env.removeFiles() }
+        _ = try await env.seed(name: "Casa", items: [], database: .private)
+        let controller = CloudSyncController(
+            mode: .off, registry: env.registry, delivery: env.delivery, directory: env.directory.appendingPathComponent("SyncOff"))
+
+        await controller.reportBoardsFromAnotherEnvironment()
+
+        #expect(controller.notices.isEmpty)
+    }
+
     // MARK: Configuração
 
     @Test("A configuração: iCloud falso nos testes de interface, o de verdade só com o entitlement e fora dos testes unitários")
