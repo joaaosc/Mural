@@ -37,6 +37,39 @@
 			<string>Any</string>
 		</dict>
 	</dict>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Apple Music Item</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.musicui.genericmusicitem</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Apple Music Track Metadata</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.tv.metadata</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Apple Music Playlist Name</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.music.playlist.name</string>
+		</dict>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

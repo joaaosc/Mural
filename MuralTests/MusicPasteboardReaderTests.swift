@@ -176,6 +176,15 @@ struct MusicPasteboardReaderTests {
         #expect(MusicPasteboardReader.artworkData(fromPreviewArchive: Data("lixo".utf8)) == nil)
         #expect(MusicPasteboardReader.artworkData(fromPreviewArchive: Data(count: 33 * 1024 * 1024)) == nil)
     }
+
+    @Test("Os tipos do Música que o Colar usa estão importados no Info.plist do app")
+    func pasteTypesAreImported() throws {
+        let declarations = try #require(
+            Bundle.main.infoDictionary?["UTImportedTypeDeclarations"] as? [[String: Any]])
+        let imported = Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
+
+        #expect(Set(MusicPasteboardReader.dropTypeIdentifiers).isSubset(of: imported))
+    }
 }
 
 /// Faz o papel do `AMPMediaItemPreviewMetadata` ao montar o arquivo de prévia dos testes.
