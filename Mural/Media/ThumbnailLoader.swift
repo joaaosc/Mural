@@ -15,19 +15,11 @@ enum ThumbnailLoader {
         let image: CGImage?
         switch kind {
         case .image:
-            guard
-                let source = CGImageSourceCreateWithURL(
-                    url as CFURL,
-                    [kCGImageSourceShouldCache: false] as CFDictionary
-                )
-            else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-            ]
-            image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            image = await withCheckedContinuation { continuation in
+                imageDecodeQueue.async(qos: .default, flags: .enforceQoS) {
+                    continuation.resume(returning: imageThumbnail(at: url, maxPixelSize: maxPixelSize))
+                }
+            }
         case .video:
             let generator = CancellableVideoThumbnailGenerator(url: url, maxPixelSize: maxPixelSize)
             image = await withTaskCancellationHandler {
@@ -46,6 +38,31 @@ enum ThumbnailLoader {
             return nil
         }
         return Task.isCancelled ? nil : image
+    }
+
+    /// O ImageIO espera, por dentro, por uma thread de prioridade padrão. Decodificar nessa mesma prioridade evita a
+    /// inversão de prioridade que o Xcode aponta como "Hang Risk" quando a miniatura foi pedida pela interface. A espera
+    /// é por continuação, sem parar uma thread do executor Swift; o `ThumbnailCache` já limita quantas rodam juntas.
+    private nonisolated static let imageDecodeQueue = DispatchQueue(
+        label: "com.joaocosta.Mural.thumbnail-decode",
+        qos: .default,
+        attributes: .concurrent
+    )
+
+    private nonisolated static func imageThumbnail(at url: URL, maxPixelSize: Int) -> CGImage? {
+        guard
+            let source = CGImageSourceCreateWithURL(
+                url as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            )
+        else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }
 
