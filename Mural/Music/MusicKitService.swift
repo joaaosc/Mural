@@ -5,7 +5,8 @@ import MuralKit
 import MusicKit
 import Observation
 
-/// Ponte real com o Apple Music, pelo MusicKit. O "Tocando agora" fica por conta do `ApplicationMusicPlayer`.
+/// Ponte real com o Apple Music, pelo MusicKit. O "Tocando agora" do sistema fica por conta do `ApplicationMusicPlayer`:
+/// este serviço nunca escreve no `MPNowPlayingInfoCenter`.
 @MainActor
 @Observable
 final class MusicKitService: MusicProviding {
@@ -18,12 +19,21 @@ final class MusicKitService: MusicProviding {
     }
 
     private(set) var status: MusicPlayerStatus = .stopped
+    private(set) var nowPlaying: MusicNowPlaying?
+    @ObservationIgnored var onPlaybackEnded: (@MainActor () -> Void)?
     /// Lido na hora: criar o serviço (cada mural aberto cria a sessão com ele) não acorda o tocador.
     private var player: ApplicationMusicPlayer { ApplicationMusicPlayer.shared }
     @ObservationIgnored private var resolved: [String: Resolved] = [:]
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var queueObservation: Task<Void, Never>?
 
-    deinit { observation?.cancel() }
+    deinit {
+        observation?.cancel()
+        queueObservation?.cancel()
+    }
+
+    /// Posição na entrada atual. Enquanto o tocador não foi usado devolve 0, para não acordá-lo.
+    var playbackTime: TimeInterval { observation == nil ? 0 : player.playbackTime }
 
     /// Passa a acompanhar o tocador só no primeiro uso: abrir um mural com música não acorda o Apple Music.
     private func observeIfNeeded() {
@@ -34,9 +44,57 @@ final class MusicKitService: MusicProviding {
                 // O aviso chega antes da mudança.
                 await Task.yield()
                 guard let self else { return }
-                self.status = Self.map(player.state.playbackStatus)
+                self.applyStatus(Self.map(player.state.playbackStatus))
             }
         }
+        observeQueue()
+    }
+
+    /// Acompanha a fila atual. Atribuir `player.queue` troca o objeto, então assina de novo a cada troca.
+    private func observeQueue() {
+        queueObservation?.cancel()
+        queueObservation = Task { [weak self] in
+            guard let queue = self?.player.queue else { return }
+            for await _ in queue.objectWillChange.values {
+                // O aviso chega antes da mudança.
+                await Task.yield()
+                guard let self else { return }
+                self.refreshNowPlaying()
+            }
+        }
+    }
+
+    /// Aplica o estado do tocador. Passar de tocando/pausado para parado é o fim da reprodução.
+    private func applyStatus(_ new: MusicPlayerStatus) {
+        let previous = status
+        status = new
+        if new == .stopped, previous != .stopped {
+            nowPlaying = nil
+            onPlaybackEnded?()
+        } else {
+            refreshNowPlaying()
+        }
+    }
+
+    /// Relê a entrada atual da fila. Sem entrada com o tocador pausado, depois de já ter havido uma, a fila acabou.
+    private func refreshNowPlaying() {
+        guard let entry = player.queue.currentEntry else {
+            if nowPlaying != nil, status == .paused {
+                nowPlaying = nil
+                onPlaybackEnded?()
+            }
+            return
+        }
+        let duration: TimeInterval?
+        switch entry.item {
+        case .song(let song): duration = song.duration
+        case .musicVideo(let video): duration = video.duration
+        default: duration = nil
+        }
+        let value = MusicNowPlaying(
+            entryID: entry.id, title: entry.title, subtitle: entry.subtitle, duration: duration,
+            artwork: entry.artwork)
+        if nowPlaying != value { nowPlaying = value }
     }
 
     private static func map(_ status: MusicPlayer.PlaybackStatus) -> MusicPlayerStatus {
@@ -105,9 +163,11 @@ final class MusicKitService: MusicProviding {
             case .song(let song): player.queue = [song]
             case .station(let station): player.queue = [station]
             }
+            observeQueue()
             // O tocador não é Sendable; esta é a única instância, usada só daqui.
             nonisolated(unsafe) let player = self.player
             try await player.play()
+            refreshNowPlaying()
         } catch {
             throw MusicPlaybackError.failed
         }
@@ -118,11 +178,31 @@ final class MusicKitService: MusicProviding {
         observeIfNeeded()
         nonisolated(unsafe) let player = self.player
         do { try await player.play() } catch { throw MusicPlaybackError.failed }
+        refreshNowPlaying()
     }
 
     func pause() { player.pause() }
 
-    func stop() { player.stop() }
+    /// Para na hora e limpa o estado aqui mesmo, para o aviso de fim não disparar por uma parada nossa.
+    func stop() {
+        status = .stopped
+        nowPlaying = nil
+        player.stop()
+    }
+
+    func skipToNext() async throws {
+        observeIfNeeded()
+        nonisolated(unsafe) let player = self.player
+        do { try await player.skipToNextEntry() } catch { throw MusicPlaybackError.failed }
+        refreshNowPlaying()
+    }
+
+    func skipToPrevious() async throws {
+        observeIfNeeded()
+        nonisolated(unsafe) let player = self.player
+        do { try await player.skipToPreviousEntry() } catch { throw MusicPlaybackError.failed }
+        refreshNowPlaying()
+    }
 
     // MARK: Resolver
 

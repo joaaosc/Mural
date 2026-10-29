@@ -23,6 +23,18 @@ final class FakeMusic: MusicProviding {
     var tracksByTitle: [String: [MusicTrackRow]] = [:]
     var tracksDelay: [String: Duration] = [:]
     private(set) var status: MusicPlayerStatus = .stopped
+    private(set) var nowPlaying: MusicNowPlaying?
+    var onPlaybackEnded: (@MainActor () -> Void)?
+    /// Posição simulada na entrada atual.
+    var playbackTime: TimeInterval = 0
+    /// Faz `skipToNext` e `skipToPrevious` falharem.
+    var skipError: MusicPlaybackError?
+    /// Espera dentro de `play`, para simular o carregamento.
+    var playDelay: Duration?
+
+    /// A fila simulada: título, subtítulo e duração de cada entrada, e a posição atual.
+    private var entries: [(id: String, title: String, subtitle: String?, duration: TimeInterval?)] = []
+    private var entryIndex = 0
 
     // Registro das chamadas.
     private(set) var requestAccessCount = 0
@@ -30,6 +42,8 @@ final class FakeMusic: MusicProviding {
     private(set) var pauseCount = 0
     private(set) var stopCount = 0
     private(set) var resumeCount = 0
+    private(set) var skipNextCount = 0
+    private(set) var skipPreviousCount = 0
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         access = arguments.contains("-fakeMusicDenied") ? .denied : .granted
@@ -46,8 +60,10 @@ final class FakeMusic: MusicProviding {
 
     func play(_ snapshot: MusicSnapshot, startingAt trackID: String?) async throws -> MusicSnapshot {
         played.append((snapshot, trackID))
+        if let playDelay { try? await Task.sleep(for: playDelay) }
         if let playError { throw playError }
         status = .playing
+        buildEntries(for: snapshot, startingAt: trackID)
         var result = snapshot
         if snapshot.kind == .playlist, snapshot.libraryID == nil, snapshot.catalogID == nil, let resolvedLibraryID {
             result.libraryID = resolvedLibraryID
@@ -68,6 +84,63 @@ final class FakeMusic: MusicProviding {
     func stop() {
         stopCount += 1
         status = .stopped
+        entries = []
+        nowPlaying = nil
+    }
+
+    func skipToNext() async throws {
+        skipNextCount += 1
+        if let skipError { throw skipError }
+        if entryIndex + 1 < entries.count {
+            entryIndex += 1
+            playbackTime = 0
+            refreshNowPlaying()
+        } else {
+            finishQueue()
+        }
+    }
+
+    func skipToPrevious() async throws {
+        skipPreviousCount += 1
+        if let skipError { throw skipError }
+        entryIndex = max(entryIndex - 1, 0)
+        playbackTime = 0
+        refreshNowPlaying()
+    }
+
+    /// Simula o fim da fila (ou uma parada do sistema): para, limpa a entrada e avisa.
+    func finishQueue() {
+        status = .stopped
+        entries = []
+        nowPlaying = nil
+        playbackTime = 0
+        onPlaybackEnded?()
+    }
+
+    private func buildEntries(for snapshot: MusicSnapshot, startingAt trackID: String?) {
+        entryIndex = 0
+        playbackTime = 0
+        switch snapshot.kind {
+        case .album, .playlist:
+            let rows = tracksByTitle[snapshot.title] ?? trackRows
+            entries = rows.map { ($0.id, $0.title, $0.artist, $0.duration) }
+            if let trackID, let index = rows.firstIndex(where: { $0.id == trackID }) { entryIndex = index }
+        case .song:
+            entries = [("entrada-\(snapshot.title)", snapshot.title, snapshot.subtitle, 180)]
+        case .station:
+            entries = [("entrada-\(snapshot.title)", snapshot.title, snapshot.subtitle, nil)]
+        }
+        refreshNowPlaying()
+    }
+
+    private func refreshNowPlaying() {
+        guard entries.indices.contains(entryIndex) else {
+            nowPlaying = nil
+            return
+        }
+        let entry = entries[entryIndex]
+        nowPlaying = MusicNowPlaying(
+            entryID: entry.id, title: entry.title, subtitle: entry.subtitle, duration: entry.duration, artwork: nil)
     }
 
     func tracks(for snapshot: MusicSnapshot) async throws -> [MusicTrackRow] {
