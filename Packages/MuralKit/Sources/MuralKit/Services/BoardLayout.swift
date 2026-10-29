@@ -454,20 +454,47 @@ public enum BoardLayout {
         guard item.kind == .image, !keepingProportion, let limits = limits(for: item.kind) else {
             return ImageResize(size: free, proportion: nil)
         }
-        let wanted = free.width / free.height
-        let nearest = imageProportions(for: item)
-            .map { (proportion: $0, distance: abs(log(ratio(of: $0, for: item) / wanted))) }
-            .min { $0.distance < $1.distance }
-        guard let nearest, nearest.distance <= log(1 + imageProportionSnap) else { return ImageResize(size: free, proportion: nil) }
-        let start = size(of: item)
-        let target = ratio(of: nearest.proportion, for: item)
-        let widthLeads = abs(free.width / start.width - 1) >= abs(free.height / start.height - 1)
-        let snapped =
-            widthLeads
-            ? BoardSize(width: free.width, height: free.width / target)
-            : BoardSize(width: free.height * target, height: free.height)
-        let fit = fitted(snapped, minimum: limits.minimum, maximum: limits.maximum)
-        return ImageResize(size: limited(fit, minimum: limits.minimum, maximum: limits.maximum), proportion: nearest.proportion)
+        return snappedImageSize(free: free, item: item, minimum: limits.minimum, maximum: limits.maximum)
+    }
+
+    /// Posição e tamanho de um cartão depois de a pessoa arrastar um dos quatro cantos. O canto oposto fica parado: nos cantos da
+    /// esquerda e de cima o deslocamento entra com o sinal trocado e a origem anda o que o tamanho mudou. O tamanho segue as contas
+    /// de `resizedSize(of:deltaWidth:deltaHeight:keepingProportion:)` e, numa foto, o encaixe de `resizedImageSize`, qualquer que
+    /// seja o canto. O mural começa em (0, 0): se o tamanho pedido levasse a origem para fora dele, o tamanho é que fica menor, e
+    /// o canto oposto continua onde estava.
+    /// - Parameters:
+    ///   - deltaWidth: quanto o ponteiro andou na horizontal, em pontos do mural (para a direita é positivo, em qualquer canto).
+    ///   - deltaHeight: quanto o ponteiro andou na vertical (para baixo é positivo, em qualquer canto).
+    public static func resizedFrame(
+        of item: BoardItem, corner: ResizeCorner, deltaWidth: Double, deltaHeight: Double, keepingProportion: Bool = false
+    ) -> (origin: BoardPoint, size: BoardSize, proportion: ImageProportion?) {
+        let current = size(of: item)
+        let start = BoardSize(width: current.width, height: current.height)
+        guard let limits = limits(for: item.kind) else { return (item.position, start, nil) }
+        let maximum = cappedMaximum(limits.maximum, minimum: limits.minimum, start: start, origin: item.position, corner: corner)
+        let free = resized(
+            from: start, deltaWidth: corner.isLeading ? -deltaWidth : deltaWidth, deltaHeight: corner.isTop ? -deltaHeight : deltaHeight,
+            keepingProportion: keepingProportion, minimum: limits.minimum, maximum: maximum)
+        var result = ImageResize(size: free, proportion: nil)
+        if item.kind == .image, !keepingProportion {
+            result = snappedImageSize(free: free, item: item, minimum: limits.minimum, maximum: maximum)
+        }
+        return (frameOrigin(item.position, from: start, to: result.size, corner: corner), result.size, result.proportion)
+    }
+
+    /// O mesmo de `resizedFrame(of:corner:deltaWidth:deltaHeight:keepingProportion:)` para um texto livre, que não tem encaixe de
+    /// proporção.
+    public static func resizedFrame(
+        of freeText: BoardFreeText, corner: ResizeCorner, deltaWidth: Double, deltaHeight: Double, keepingProportion: Bool = false
+    ) -> (origin: BoardPoint, size: BoardSize) {
+        let current = size(of: freeText)
+        let start = BoardSize(width: current.width, height: current.height)
+        let maximum = cappedMaximum(
+            maximumFreeTextSize, minimum: minimumFreeTextSize, start: start, origin: freeText.position, corner: corner)
+        let resizedTo = resized(
+            from: start, deltaWidth: corner.isLeading ? -deltaWidth : deltaWidth, deltaHeight: corner.isTop ? -deltaHeight : deltaHeight,
+            keepingProportion: keepingProportion, minimum: minimumFreeTextSize, maximum: maximum)
+        return (frameOrigin(freeText.position, from: start, to: resizedTo, corner: corner), resizedTo)
     }
 
     /// Tamanho de uma foto numa proporção, mantendo o lado maior do tamanho atual e os limites. É o que o menu "Tamanho"
@@ -486,6 +513,43 @@ public enum BoardLayout {
     }
 
     // MARK: Interno
+
+    /// O encaixe de uma foto na proporção mais próxima da lista (`imageProportions(for:)`), a partir do tamanho livre. O lado que mais
+    /// andou, em proporção do tamanho atual, fica, e o outro se ajusta; vale para qualquer canto, porque `free` já vem com o sinal certo.
+    private static func snappedImageSize(free: BoardSize, item: BoardItem, minimum: BoardSize, maximum: BoardSize) -> ImageResize {
+        let wanted = free.width / free.height
+        let nearest = imageProportions(for: item)
+            .map { (proportion: $0, distance: abs(log(ratio(of: $0, for: item) / wanted))) }
+            .min { $0.distance < $1.distance }
+        guard let nearest, nearest.distance <= log(1 + imageProportionSnap) else { return ImageResize(size: free, proportion: nil) }
+        let start = size(of: item)
+        let target = ratio(of: nearest.proportion, for: item)
+        let widthLeads = abs(free.width / start.width - 1) >= abs(free.height / start.height - 1)
+        let snapped =
+            widthLeads
+            ? BoardSize(width: free.width, height: free.width / target)
+            : BoardSize(width: free.height * target, height: free.height)
+        let fit = fitted(snapped, minimum: minimum, maximum: maximum)
+        return ImageResize(size: limited(fit, minimum: minimum, maximum: maximum), proportion: nearest.proportion)
+    }
+
+    /// O maior tamanho que ainda deixa a origem dentro do mural: nos cantos da esquerda e de cima, a borda oposta fica parada e
+    /// o elemento só cresce até (0, 0). Nunca fica abaixo do mínimo.
+    private static func cappedMaximum(
+        _ maximum: BoardSize, minimum: BoardSize, start: BoardSize, origin: BoardPoint, corner: ResizeCorner
+    ) -> BoardSize {
+        let room = BoardSize(width: max(origin.x, 0) + start.width, height: max(origin.y, 0) + start.height)
+        return BoardSize(
+            width: corner.isLeading ? max(min(maximum.width, room.width), minimum.width) : maximum.width,
+            height: corner.isTop ? max(min(maximum.height, room.height), minimum.height) : maximum.height)
+    }
+
+    /// A origem que mantém o canto oposto parado quando o tamanho vai de `start` para `size`.
+    private static func frameOrigin(_ origin: BoardPoint, from start: BoardSize, to size: BoardSize, corner: ResizeCorner) -> BoardPoint {
+        BoardPoint(
+            x: corner.isLeading ? max(origin.x + start.width - size.width, 0) : origin.x,
+            y: corner.isTop ? max(origin.y + start.height - size.height, 0) : origin.y)
+    }
 
     /// Aumenta ou diminui os dois lados juntos, sem mudar a proporção, até caberem entre o mínimo e o máximo. Uma proporção que
     /// não cabe nos dois limites ao mesmo tempo fica com o máximo, e o arredondamento de `limited` resolve o resto.
