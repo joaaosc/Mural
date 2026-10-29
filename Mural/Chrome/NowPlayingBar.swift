@@ -24,79 +24,64 @@ struct NowPlayingArtwork: View {
     }
 }
 
-/// Miniplayer: uma cápsula de vidro com a capa, o título e os controles. Mostra menos coisas quando falta largura.
+/// Miniplayer compacto: uma cápsula discreta de vidro com a capa, o título, tocar/pausar e próxima. Clicar na capa ou no
+/// título expande o cartão (ver `NowPlayingExpanded`).
 ///
 /// Vidro estático por trás de botões sem borda, como o `ActionPill`. Nunca `.interactive()`: ver o aviso em
 /// `FloatingToolbar`.
 struct NowPlayingBar: View {
+    /// Altura da cápsula.
+    static let height: CGFloat = 40
+
     let summary: NowPlayingSummary
     /// Posição na entrada atual, lida a cada passo da linha de progresso.
     let elapsed: () -> TimeInterval
     let actions: NowPlayingActions
-
-    private enum Form {
-        case full, medium, compact
-    }
+    /// Chamado ao clicar na capa ou no título.
+    let expand: () -> Void
+    let glassNamespace: Namespace.ID
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            content(.full)
-            content(.medium)
-            content(.compact)
+        HStack(spacing: 0) {
+            sourceButton
+            playPauseButton
+            transport("Próxima faixa", symbol: "forward.fill", id: "now-playing-next", action: actions.next)
         }
+        .font(.callout.weight(.medium))
         .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .frame(height: Self.height)
         .overlay(alignment: .bottom) { progress }
         .glassEffect(.regular, in: .capsule)
+        .glassEffectID("pill", in: glassNamespace)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tocando agora")
         .accessibilityIdentifier("now-playing-bar")
     }
 
-    private func content(_ form: Form) -> some View {
-        HStack(spacing: 2) {
-            sourceButton(showsText: form != .compact, textWidth: form == .full ? 200 : 110)
-            if form != .compact {
-                transport(
-                    "Faixa anterior", symbol: "backward.fill", id: "now-playing-previous",
-                    isEnabled: summary.canSkipBackward, action: actions.previous)
-            }
-            playPauseButton
-            transport("Próxima faixa", symbol: "forward.fill", id: "now-playing-next", action: actions.next)
-            if form != .compact {
-                transport("Parar", symbol: "xmark", id: "now-playing-stop", action: actions.stop)
-            }
-        }
-        .font(.body.weight(.medium))
-    }
-
-    private func sourceButton(showsText: Bool, textWidth: CGFloat) -> some View {
-        Button(action: actions.openSource) {
+    private var sourceButton: some View {
+        Button(action: expand) {
             HStack(spacing: 8) {
-                NowPlayingArtwork(summary: summary, size: 32)
-                if showsText {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(summary.title)
-                            .font(.callout.weight(.semibold))
+                NowPlayingArtwork(summary: summary, size: 28)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(summary.title)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(1)
+                    if let artist = summary.artist {
+                        Text(artist)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
-                        if let artist = summary.artist {
-                            Text(artist)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
                     }
-                    .frame(maxWidth: textWidth, alignment: .leading)
                 }
+                Spacer(minLength: 0)
             }
             .padding(.leading, 2)
-            .padding(.trailing, showsText ? 8 : 4)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .help("Abrir o mural \(summary.boardTitle)")
+        .help("Expandir o player")
         .accessibilityLabel(summary.artist.map { "\(summary.title), \($0)" } ?? summary.title)
-        .accessibilityHint("Abre o mural \(summary.boardTitle)")
+        .accessibilityHint("Expande o player")
         .accessibilityIdentifier("now-playing-source")
     }
 
@@ -112,7 +97,7 @@ struct NowPlayingBar: View {
                         .labelStyle(.iconOnly)
                 }
             }
-            .frame(width: 34, height: 30)
+            .frame(width: 30, height: 28)
             .contentShape(.rect)
         }
         .buttonStyle(.borderless)
@@ -128,7 +113,7 @@ struct NowPlayingBar: View {
         Button(action: action) {
             Label(title, systemImage: symbol)
                 .labelStyle(.iconOnly)
-                .frame(width: 34, height: 30)
+                .frame(width: 30, height: 28)
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)
@@ -137,7 +122,7 @@ struct NowPlayingBar: View {
         .accessibilityIdentifier(id)
     }
 
-    /// Linha de 2 pt com o quanto da entrada já tocou; só quando a duração é conhecida.
+    /// Linha fina com o quanto da entrada já tocou; só quando a duração é conhecida.
     @ViewBuilder
     private var progress: some View {
         if let duration = summary.duration, duration > 0 {
@@ -150,16 +135,16 @@ struct NowPlayingBar: View {
                             .fill(.secondary)
                             .scaleEffect(x: fraction, anchor: .leading)
                     }
-                    .frame(height: 2)
+                    .frame(height: 1.5)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
             .padding(.bottom, 2)
             .accessibilityHidden(true)
         }
     }
 }
 
-/// O miniplayer no canto inferior esquerdo, com a largura e a altura que sobram ao lado dos controles do rodapé.
+/// O miniplayer no canto inferior esquerdo, acima dos controles do rodapé quando não cabe ao lado deles.
 struct NowPlayingPositioned: View {
     let summary: NowPlayingSummary
     let elapsed: () -> TimeInterval
@@ -167,15 +152,21 @@ struct NowPlayingPositioned: View {
     let obstacles: [CGRect]
     let container: CGSize
 
+    @Namespace private var glassNamespace
+    @State private var isExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let placement = NowPlayingPlacement(container: container, obstacles: obstacles)
-        NowPlayingBar(summary: summary, elapsed: elapsed, actions: actions)
-            .frame(maxWidth: placement.maxWidth, alignment: .leading)
-            .padding(.leading, NowPlayingPlacement.margin)
-            .padding(.bottom, placement.bottomPadding)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement)
+        GlassEffectContainer(spacing: 12) {
+            NowPlayingBar(
+                summary: summary, elapsed: elapsed, actions: actions, expand: { isExpanded.toggle() },
+                glassNamespace: glassNamespace)
+        }
+        .frame(width: min(NowPlayingPlacement.pillWidth, placement.maxWidth))
+        .padding(.leading, NowPlayingPlacement.margin)
+        .padding(.bottom, placement.bottomPadding)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement)
     }
 }
 
@@ -185,10 +176,11 @@ private let previewActions = NowPlayingActions(
 
 private struct PreviewBar: View {
     let summary: NowPlayingSummary
-    var width: CGFloat?
+    var width: CGFloat? = 260
+    @Namespace private var namespace
 
     var body: some View {
-        NowPlayingBar(summary: summary, elapsed: { 60 }, actions: previewActions)
+        NowPlayingBar(summary: summary, elapsed: { 60 }, actions: previewActions, expand: {}, glassNamespace: namespace)
             .frame(maxWidth: width)
             .padding(40)
             .background(Theme.canvas)
@@ -230,9 +222,7 @@ private struct PreviewPlacement: View {
     PreviewBar(summary: .paused).preferredColorScheme(.dark)
 }
 
-#Preview("Título longo") { PreviewBar(summary: .longTitles, width: 300) }
-
-#Preview("Compacta") { PreviewBar(summary: .playing, width: 130) }
+#Preview("Título longo") { PreviewBar(summary: .longTitles) }
 
 #Preview("Estação") { PreviewBar(summary: .station) }
 

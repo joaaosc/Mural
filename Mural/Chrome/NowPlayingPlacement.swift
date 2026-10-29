@@ -25,6 +25,8 @@ struct NowPlayingPlacement: Equatable {
     /// Largura da forma média do miniplayer (título curto e os quatro botões): menos que isso ao lado da barra, ele sobe.
     static let preferredWidth: CGFloat = 320
     static let maximumWidth: CGFloat = 420
+    /// Largura da cápsula compacta.
+    static let pillWidth: CGFloat = 250
     /// Só os controles que chegam a esta distância do fundo contam como obstáculo.
     static let bottomZone: CGFloat = 140
 
