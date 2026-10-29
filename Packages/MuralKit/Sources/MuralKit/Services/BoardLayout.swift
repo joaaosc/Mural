@@ -406,7 +406,96 @@ public enum BoardLayout {
         a.x < b.x + sb.width + gap && b.x < a.x + sa.width + gap && a.y < b.y + sb.height + gap && b.y < a.y + sa.height + gap
     }
 
+    // MARK: Proporções de uma foto
+
+    /// Proporções fixas em que o canto de uma foto encaixa, além da proporção da própria foto (`ImageProportion.original`).
+    public static let imageProportionPresets: [ImageProportion] = [
+        .fixed(width: 1, height: 1), .fixed(width: 4, height: 3), .fixed(width: 3, height: 4), .fixed(width: 3, height: 2),
+        .fixed(width: 2, height: 3), .fixed(width: 16, height: 9), .fixed(width: 9, height: 16),
+    ]
+
+    /// Quanto a proporção arrastada pode se afastar de uma proporção da lista, como razão, e ainda encaixar nela: 5%. É menos
+    /// da metade da distância entre 4:3 e 3:2, as duas mais próximas, então sempre sobra uma faixa livre entre dois encaixes.
+    public static let imageProportionSnap = 0.05
+
+    /// Largura ÷ altura de uma proporção para a foto dada. `.original` usa a proporção do arquivo (`aspectRatio(for:)`).
+    public static func ratio(of proportion: ImageProportion, for item: BoardItem) -> Double {
+        switch proportion {
+        case .original: aspectRatio(for: item)
+        case .fixed(let width, let height): Double(width) / Double(height)
+        }
+    }
+
+    /// As proporções em que uma foto encaixa: a dela e as fixas, sem repetir. Uma fixa igual à da foto (uma foto 4:3) dá lugar a
+    /// `.original`, que é a que mostra a imagem inteira. Sem as medidas do arquivo, só as fixas.
+    public static func imageProportions(for item: BoardItem) -> [ImageProportion] {
+        guard let meta = item.imageMetadata, meta.pixelWidth > 0, meta.pixelHeight > 0 else { return imageProportionPresets }
+        let original = aspectRatio(for: item)
+        return [.original] + imageProportionPresets.filter { abs(log(ratio(of: $0, for: item) / original)) >= 0.01 }
+    }
+
+    /// A proporção da lista em que o tamanho atual da foto está, com 1% de folga para o arredondamento em pontos inteiros.
+    public static func imageProportion(of item: BoardItem) -> ImageProportion? {
+        guard item.kind == .image else { return nil }
+        let current = size(of: item)
+        let wanted = current.width / current.height
+        return imageProportions(for: item).first { abs(log(ratio(of: $0, for: item) / wanted)) < 0.01 }
+    }
+
+    /// Tamanho de uma foto depois de a pessoa arrastar o canto inferior direito. Como no post-it, o canto de cima, à esquerda, fica
+    /// parado e o tamanho atual cresce ou encolhe o que o ponteiro andou. Perto de uma das `imageProportions(for:)`, o tamanho
+    /// encaixa nela: o lado que mais andou, em proporção do tamanho de partida, fica, e o outro se ajusta. É a resistência do
+    /// encaixe: a proporção só volta a mudar quando o ponteiro sai da faixa de `imageProportionSnap`. Com a proporção mantida
+    /// (Shift), vale a conta do post-it, sem encaixe.
+    public static func resizedImageSize(
+        of item: BoardItem, deltaWidth: Double, deltaHeight: Double, keepingProportion: Bool = false
+    ) -> ImageResize {
+        let free = resizedSize(of: item, deltaWidth: deltaWidth, deltaHeight: deltaHeight, keepingProportion: keepingProportion)
+        guard item.kind == .image, !keepingProportion, let limits = limits(for: item.kind) else {
+            return ImageResize(size: free, proportion: nil)
+        }
+        let wanted = free.width / free.height
+        let nearest = imageProportions(for: item)
+            .map { (proportion: $0, distance: abs(log(ratio(of: $0, for: item) / wanted))) }
+            .min { $0.distance < $1.distance }
+        guard let nearest, nearest.distance <= log(1 + imageProportionSnap) else { return ImageResize(size: free, proportion: nil) }
+        let start = size(of: item)
+        let target = ratio(of: nearest.proportion, for: item)
+        let widthLeads = abs(free.width / start.width - 1) >= abs(free.height / start.height - 1)
+        let snapped =
+            widthLeads
+            ? BoardSize(width: free.width, height: free.width / target)
+            : BoardSize(width: free.height * target, height: free.height)
+        let fit = fitted(snapped, minimum: limits.minimum, maximum: limits.maximum)
+        return ImageResize(size: limited(fit, minimum: limits.minimum, maximum: limits.maximum), proportion: nearest.proportion)
+    }
+
+    /// Tamanho de uma foto numa proporção, mantendo o lado maior do tamanho atual e os limites. É o que o menu "Tamanho"
+    /// oferece como alternativa ao arrasto do canto. `nil` se o cartão não é uma foto.
+    public static func imageSize(for item: BoardItem, in proportion: ImageProportion) -> BoardSize? {
+        guard item.kind == .image, let limits = limits(for: item.kind) else { return nil }
+        let current = size(of: item)
+        let longest = max(current.width, current.height)
+        let target = ratio(of: proportion, for: item)
+        let raw =
+            target >= 1
+            ? BoardSize(width: longest, height: longest / target)
+            : BoardSize(width: longest * target, height: longest)
+        let fit = fitted(raw, minimum: limits.minimum, maximum: limits.maximum)
+        return limited(fit, minimum: limits.minimum, maximum: limits.maximum)
+    }
+
     // MARK: Interno
+
+    /// Aumenta ou diminui os dois lados juntos, sem mudar a proporção, até caberem entre o mínimo e o máximo. Uma proporção que
+    /// não cabe nos dois limites ao mesmo tempo fica com o máximo, e o arredondamento de `limited` resolve o resto.
+    private static func fitted(_ size: BoardSize, minimum: BoardSize, maximum: BoardSize) -> BoardSize {
+        guard size.width > 0, size.height > 0, size.width.isFinite, size.height.isFinite else { return size }
+        let shrink = min(1, maximum.width / size.width, maximum.height / size.height)
+        let grow = max(1, minimum.width / size.width, minimum.height / size.height)
+        let factor = shrink < 1 ? shrink : grow
+        return BoardSize(width: size.width * factor, height: size.height * factor)
+    }
 
     /// Menor e maior tamanho de um tipo que muda de tamanho; `nil` para os que não mudam.
     private static func limits(for kind: ItemKind) -> (minimum: BoardSize, maximum: BoardSize)? {
