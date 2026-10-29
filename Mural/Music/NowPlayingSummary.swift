@@ -17,6 +17,10 @@ struct NowPlayingSummary: Equatable {
     let canSkipBackward: Bool
     /// `nil` quando o tocador não informa (estações).
     let duration: TimeInterval?
+    /// `nil` quando o tocador não oferece aleatório (estações) ou nada se pode mudar.
+    let shuffle: MusicShuffle?
+    let repeatMode: MusicRepeat?
+    let canSeek: Bool
     let artwork: Artwork?
     /// A capa e as cores do cartão, para quando o tocador não traz capa.
     let fallbackMusic: MusicSnapshot
@@ -44,6 +48,9 @@ extension MusicPlayback {
             phase: isLoading ? .loading : phase(of: source.itemID),
             canSkipBackward: canSkipBackward,
             duration: entry?.duration,
+            shuffle: canShuffle ? shuffle : nil,
+            repeatMode: canRepeat ? repeatMode : nil,
+            canSeek: canSeek,
             artwork: entry?.artwork,
             fallbackMusic: source.music)
     }
@@ -56,6 +63,9 @@ struct NowPlayingActions {
     var previous: () -> Void
     var next: () -> Void
     var stop: () -> Void
+    var toggleShuffle: () -> Void = {}
+    var cycleRepeat: () -> Void = {}
+    var seek: (TimeInterval) -> Void = { _ in }
 }
 
 #if DEBUG
@@ -64,12 +74,13 @@ extension NowPlayingSummary {
     static func sample(
         title: String = "Faixa 1", artist: String? = "Artista", phase: MusicCardPhase = .playing,
         kind: MusicItemKind = .album, duration: TimeInterval? = 180, boardTitle: String = "Inspirações",
-        cardTitle: String = "Disco Inventado"
+        cardTitle: String = "Disco Inventado", shuffle: MusicShuffle? = .off, repeatMode: MusicRepeat? = MusicRepeat.none
     ) -> NowPlayingSummary {
         NowPlayingSummary(
             itemID: UUID(), boardID: BoardID(rawValue: UUID()), route: .library, title: title, artist: artist,
             boardTitle: boardTitle, cardTitle: cardTitle, phase: phase, canSkipBackward: kind != .station,
-            duration: duration, artwork: nil,
+            duration: duration, shuffle: kind == .station ? nil : shuffle, repeatMode: repeatMode,
+            canSeek: duration != nil, artwork: nil,
             fallbackMusic: MusicSnapshot(
                 kind: kind, title: cardTitle, subtitle: artist, backgroundHex: "#2b5876", primaryTextHex: "#ffffff"))
     }

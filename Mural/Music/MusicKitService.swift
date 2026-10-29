@@ -20,6 +20,10 @@ final class MusicKitService: MusicProviding {
 
     private(set) var status: MusicPlayerStatus = .stopped
     private(set) var nowPlaying: MusicNowPlaying?
+    private(set) var shuffle: MusicShuffle?
+    private(set) var repeatMode: MusicRepeat?
+    /// Muda a cada `seek(to:)`: a posição não é observável, e com o tocador pausado nada mais redesenharia a tela.
+    private(set) var seekGeneration = 0
     @ObservationIgnored var onPlaybackEnded: (@MainActor () -> Void)?
     /// Lido na hora: criar o serviço (cada mural aberto cria a sessão com ele) não acorda o tocador.
     private var player: ApplicationMusicPlayer { ApplicationMusicPlayer.shared }
@@ -33,7 +37,10 @@ final class MusicKitService: MusicProviding {
     }
 
     /// Posição na entrada atual. Enquanto o tocador não foi usado devolve 0, para não acordá-lo.
-    var playbackTime: TimeInterval { observation == nil ? 0 : player.playbackTime }
+    var playbackTime: TimeInterval {
+        _ = seekGeneration
+        return observation == nil ? 0 : player.playbackTime
+    }
 
     /// Passa a acompanhar o tocador só no primeiro uso: abrir um mural com música não acorda o Apple Music.
     private func observeIfNeeded() {
@@ -45,6 +52,7 @@ final class MusicKitService: MusicProviding {
                 await Task.yield()
                 guard let self else { return }
                 self.applyStatus(Self.map(player.state.playbackStatus))
+                self.applyModes()
             }
         }
         observeQueue()
@@ -62,6 +70,21 @@ final class MusicKitService: MusicProviding {
                 self.refreshNowPlaying()
             }
         }
+    }
+
+    /// Copia aleatório e repetição do tocador; `nil` onde ele não os oferece.
+    private func applyModes() {
+        let state = player.state
+        let newShuffle = state.shuffleMode.map { $0 == .off ? MusicShuffle.off : .songs }
+        let newRepeat = state.repeatMode.map { mode -> MusicRepeat in
+            switch mode {
+            case .all: .all
+            case .one: .one
+            default: .none
+            }
+        }
+        if shuffle != newShuffle { shuffle = newShuffle }
+        if repeatMode != newRepeat { repeatMode = newRepeat }
     }
 
     /// Aplica o estado do tocador. Passar de tocando/pausado para parado é o fim da reprodução.
@@ -200,8 +223,37 @@ final class MusicKitService: MusicProviding {
     func skipToPrevious() async throws {
         observeIfNeeded()
         nonisolated(unsafe) let player = self.player
-        do { try await player.skipToPreviousEntry() } catch { throw MusicPlaybackError.failed }
+        if player.playbackTime > 3 {
+            player.restartCurrentEntry()
+        } else {
+            do { try await player.skipToPreviousEntry() } catch { throw MusicPlaybackError.failed }
+        }
+        seekGeneration += 1
         refreshNowPlaying()
+    }
+
+    func setShuffle(_ mode: MusicShuffle) {
+        observeIfNeeded()
+        player.state.shuffleMode = mode == .off ? .off : .songs
+        applyModes()
+    }
+
+    func setRepeat(_ mode: MusicRepeat) {
+        observeIfNeeded()
+        switch mode {
+        case .none: player.state.repeatMode = MusicPlayer.RepeatMode.none
+        case .all: player.state.repeatMode = .all
+        case .one: player.state.repeatMode = .one
+        }
+        applyModes()
+    }
+
+    func seek(to time: TimeInterval) {
+        observeIfNeeded()
+        var target = max(time, 0)
+        if let duration = nowPlaying?.duration { target = min(target, duration) }
+        player.playbackTime = target
+        seekGeneration += 1
     }
 
     // MARK: Resolver

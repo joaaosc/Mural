@@ -125,6 +125,119 @@ struct MusicNowPlayingTests {
         #expect(rig.playback.nowPlaying?.duration == nil)
     }
 
+    @Test("Aleatório liga e desliga pelo tocador")
+    func togglesShuffle() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        #expect(rig.playback.shuffle == .off)
+
+        rig.playback.toggleShuffle()
+        #expect(rig.playback.shuffle == .songs)
+        rig.playback.toggleShuffle()
+        #expect(rig.playback.shuffle == .off)
+        #expect(rig.fake.shuffleCalls == [.songs, .off])
+    }
+
+    @Test("Repetir passa por nenhuma, tudo, uma e volta")
+    func cyclesRepeat() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        #expect(rig.playback.repeatMode == MusicRepeat.none)
+
+        var seen: [MusicRepeat?] = []
+        for _ in 0..<3 {
+            rig.playback.cycleRepeat()
+            seen.append(rig.playback.repeatMode)
+        }
+        #expect(seen == [.all, .one, MusicRepeat.none])
+    }
+
+    @Test("Estação não tem aleatório")
+    func stationDisablesShuffle() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[2], in: rig.model, boardID: rig.boardID)
+
+        #expect(rig.playback.canShuffle == false)
+        rig.playback.toggleShuffle()
+        #expect(rig.fake.shuffleCalls.isEmpty)
+    }
+
+    @Test("Sem o modo no tocador, aleatório e repetição ficam desligados")
+    func unavailableModesDisableControls() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        rig.fake.shuffle = nil
+        rig.fake.repeatMode = nil
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+
+        #expect(rig.playback.canShuffle == false)
+        #expect(rig.playback.canRepeat == false)
+        rig.playback.cycleRepeat()
+        #expect(rig.fake.repeatCalls.isEmpty)
+    }
+
+    @Test("Buscar vai ao tocador, preso entre 0 e a duração")
+    func seekClampsAndForwards() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        #expect(rig.playback.canSeek)
+
+        rig.playback.seek(to: 42)
+        #expect(rig.playback.playbackTime == 42)
+        rig.playback.seek(to: 9_999)
+        #expect(rig.playback.playbackTime == 180)
+        rig.playback.seek(to: -5)
+        #expect(rig.playback.playbackTime == 0)
+        #expect(rig.fake.seekCalls == [42, 180, 0])
+    }
+
+    @Test("Estação não tem duração: não dá para buscar")
+    func stationCannotSeek() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[2], in: rig.model, boardID: rig.boardID)
+
+        #expect(rig.playback.canSeek == false)
+        rig.playback.seek(to: 10)
+        #expect(rig.fake.seekCalls.isEmpty)
+    }
+
+    @Test("Anterior com mais de 3 s volta ao início; até 3 s, à faixa anterior")
+    func previousRestartsAfterThreeSeconds() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        await rig.playback.skipToNext()
+        #expect(rig.playback.nowPlaying?.title == "Faixa 2")
+
+        rig.playback.seek(to: 10)
+        await rig.playback.skipToPrevious()
+        #expect(rig.playback.nowPlaying?.title == "Faixa 2")
+        #expect(rig.playback.playbackTime == 0)
+
+        await rig.playback.skipToPrevious()
+        #expect(rig.playback.nowPlaying?.title == "Faixa 1")
+    }
+
+    @Test("Repetir tudo dá a volta na fila; repetir uma mantém a faixa")
+    func repeatModesAtQueueEnd() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        rig.fake.setRepeat(.all)
+        for _ in 0..<3 { await rig.playback.skipToNext() }
+        #expect(rig.playback.nowPlaying?.title == "Faixa 1")
+        #expect(rig.playback.source != nil)
+
+        rig.fake.setRepeat(.one)
+        await rig.playback.skipToNext()
+        #expect(rig.playback.nowPlaying?.title == "Faixa 1")
+    }
+
     @Test("stopCurrent para o tocador e limpa a fonte")
     func stopCurrentClearsSource() async throws {
         let rig = try await makeRig()

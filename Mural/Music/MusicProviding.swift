@@ -72,6 +72,10 @@ protocol MusicProviding: AnyObject {
     var nowPlaying: MusicNowPlaying? { get }
     /// Posição na entrada atual, em segundos; 0 enquanto o tocador não foi usado.
     var playbackTime: TimeInterval { get }
+    /// Aleatório da fila; `nil` quando o tocador não o oferece (estações) ou ainda não foi usado.
+    var shuffle: MusicShuffle? { get }
+    /// Repetição da fila; `nil` quando o tocador não a oferece ou ainda não foi usado.
+    var repeatMode: MusicRepeat? { get }
     /// Chamado quando a fila acaba ou o sistema para o tocador. Nunca depois de `stop()`.
     var onPlaybackEnded: (@MainActor () -> Void)? { get set }
     /// Toca o item. Devolve o snapshot com o que foi resolvido (por exemplo, o `libraryID`
@@ -81,7 +85,12 @@ protocol MusicProviding: AnyObject {
     func pause()
     func stop()
     func skipToNext() async throws
+    /// Faixa anterior; com mais de 3 s tocados, volta ao início da atual (como no iPhone).
     func skipToPrevious() async throws
+    func setShuffle(_ mode: MusicShuffle)
+    func setRepeat(_ mode: MusicRepeat)
+    /// Leva a reprodução para esta posição, em segundos, dentro da entrada atual.
+    func seek(to time: TimeInterval)
     func tracks(for snapshot: MusicSnapshot) async throws -> [MusicTrackRow]
     func catalogArtwork(for snapshot: MusicSnapshot) async -> MusicCatalogArtwork?
 }

@@ -27,6 +27,9 @@ final class FakeMusic: MusicProviding {
     var onPlaybackEnded: (@MainActor () -> Void)?
     /// Posição simulada na entrada atual.
     var playbackTime: TimeInterval = 0
+    /// Aleatório e repetição simulados; `nil` simula um tocador que não os oferece.
+    var shuffle: MusicShuffle? = .off
+    var repeatMode: MusicRepeat? = MusicRepeat.none
     /// Faz `skipToNext` e `skipToPrevious` falharem.
     var skipError: MusicPlaybackError?
     /// Espera dentro de `play`, para simular o carregamento.
@@ -44,6 +47,9 @@ final class FakeMusic: MusicProviding {
     private(set) var resumeCount = 0
     private(set) var skipNextCount = 0
     private(set) var skipPreviousCount = 0
+    private(set) var shuffleCalls: [MusicShuffle] = []
+    private(set) var repeatCalls: [MusicRepeat] = []
+    private(set) var seekCalls: [TimeInterval] = []
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         access = arguments.contains("-fakeMusicDenied") ? .denied : .granted
@@ -91,8 +97,14 @@ final class FakeMusic: MusicProviding {
     func skipToNext() async throws {
         skipNextCount += 1
         if let skipError { throw skipError }
-        if entryIndex + 1 < entries.count {
+        if repeatMode == .one, entries.indices.contains(entryIndex) {
+            playbackTime = 0
+        } else if entryIndex + 1 < entries.count {
             entryIndex += 1
+            playbackTime = 0
+            refreshNowPlaying()
+        } else if repeatMode == .all, !entries.isEmpty {
+            entryIndex = 0
             playbackTime = 0
             refreshNowPlaying()
         } else {
@@ -103,9 +115,32 @@ final class FakeMusic: MusicProviding {
     func skipToPrevious() async throws {
         skipPreviousCount += 1
         if let skipError { throw skipError }
+        if playbackTime > 3 {
+            playbackTime = 0
+            return
+        }
         entryIndex = max(entryIndex - 1, 0)
         playbackTime = 0
         refreshNowPlaying()
+    }
+
+    func setShuffle(_ mode: MusicShuffle) {
+        shuffleCalls.append(mode)
+        guard shuffle != nil else { return }
+        shuffle = mode
+    }
+
+    func setRepeat(_ mode: MusicRepeat) {
+        repeatCalls.append(mode)
+        guard repeatMode != nil else { return }
+        repeatMode = mode
+    }
+
+    func seek(to time: TimeInterval) {
+        seekCalls.append(time)
+        var target = max(time, 0)
+        if let duration = nowPlaying?.duration { target = min(target, duration) }
+        playbackTime = target
     }
 
     /// Simula o fim da fila (ou uma parada do sistema): para, limpa a entrada e avisa.

@@ -56,6 +56,16 @@ final class MusicPlayback {
     /// A entrada que o tocador está tocando agora.
     var nowPlaying: MusicNowPlaying? { provider.nowPlaying }
     var playbackTime: TimeInterval { provider.playbackTime }
+    var shuffle: MusicShuffle? { provider.shuffle }
+    var repeatMode: MusicRepeat? { provider.repeatMode }
+    /// Dá para arrastar a posição: a duração é conhecida e nada está carregando.
+    var canSeek: Bool { !isLoading && (nowPlaying?.duration ?? 0) > 0 }
+    /// Estação não tem aleatório; fora isso, depende de o tocador oferecê-lo.
+    var canShuffle: Bool {
+        guard let source, source.music.kind != .station, !isLoading else { return false }
+        return provider.shuffle != nil
+    }
+    var canRepeat: Bool { source != nil && !isLoading && provider.repeatMode != nil }
     /// Estação não volta; sem música, nada a fazer.
     var canSkipBackward: Bool { source.map { $0.music.kind != .station } ?? false }
 
@@ -125,6 +135,24 @@ final class MusicPlayback {
         do { try await provider.skipToPrevious() } catch {
             Self.logger.error("Não foi possível voltar para a faixa anterior.")
         }
+    }
+
+    /// Liga ou desliga o aleatório.
+    func toggleShuffle() {
+        guard canShuffle, let current = provider.shuffle else { return }
+        provider.setShuffle(current.toggled)
+    }
+
+    /// Passa a repetição para a próxima: nenhuma, tudo, uma.
+    func cycleRepeat() {
+        guard canRepeat, let current = provider.repeatMode else { return }
+        provider.setRepeat(current.next)
+    }
+
+    /// Leva a reprodução para a posição, presa entre 0 e a duração.
+    func seek(to time: TimeInterval) {
+        guard canSeek, time.isFinite, let duration = nowPlaying?.duration else { return }
+        provider.seek(to: min(max(time, 0), duration))
     }
 
     /// Para o que estiver tocando (ou carregando), de qualquer mural.
