@@ -83,8 +83,8 @@ struct BoardCanvasView: View {
     /// O que está em destaque agora: pasta em foco, cartão arrastado, pasta de destino e filtro.
     private var focus: BoardFocus {
         BoardFocus(
-            hoveredFolder: hoveredFolder, dragged: drag?.id, dropTarget: drag?.tracker?.target, filter: filter,
-            colorFilter: colorFilter)
+            hoveredFolder: hoveredFolder, dragged: drag?.id, dropTarget: drag?.tracker?.candidate,
+            dropArmed: drag?.tracker?.isArmed ?? false, filter: filter, colorFilter: colorFilter)
     }
 
     var body: some View {
@@ -108,7 +108,7 @@ struct BoardCanvasView: View {
         let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
         let currentFocus = focus
         let alwaysRendered = Set(
-            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target, resizing?.target.itemID].compactMap { $0 }
+            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.candidate, resizing?.target.itemID].compactMap { $0 }
         )
         .union(drag?.origins.keys.map { $0 } ?? [])
         let alwaysRenderedFreeTexts = Set(
@@ -278,6 +278,9 @@ struct BoardCanvasView: View {
             if active { hoveredFolder = nil }
         }
         .onChange(of: liveDrag) { _, drag in liveShare?.dragChanged(drag, in: boardID) }
+        // Libera a pasta depois de `armingDelay` com o ponteiro em cima dela; o toque marca o momento.
+        .task(id: drag?.tracker?.candidate) { await armCandidateFolder() }
+        .sensoryFeedback(.levelChange, trigger: drag?.tracker?.target) { _, new in new != nil }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: hoveredFolder)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: filter)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: colorFilter)
@@ -295,7 +298,7 @@ struct BoardCanvasView: View {
             HStack(alignment: .top, spacing: FolderCard.fanReach + 14) {
                 cardButton(item, open: [.collection(item.id)], size: size)
                     .frame(width: size.width, height: size.height)
-                    .dropTargetHighlight(focus.dropTarget == item.id)
+                    .dropTargetHighlight(highlightState(of: item, focus: focus))
                     .highPriorityGesture(moveGesture(for: item))
                 // Nunca junto com a pasta aberta: os dois desenhariam os mesmos cartões
                 // com o mesmo id de transição, e o SwiftUI não saberia qual é a origem.
@@ -449,6 +452,21 @@ struct BoardCanvasView: View {
         return UnitPoint(
             x: (folder.position.x + folderSize.width / 2 - origin.width) / size.width,
             y: (folder.position.y + folderSize.height / 2 - origin.height) / size.height)
+    }
+
+    /// Destaque da pasta: leve enquanto espera o tempo de liberar, completo quando liberada.
+    private func highlightState(of item: BoardItem, focus: BoardFocus) -> DropHighlightState {
+        guard focus.dropTarget == item.id else { return .none }
+        return focus.dropArmed ? .armed : .pending
+    }
+
+    /// Espera `armingDelay` com a mesma pasta candidata sob o ponteiro e então a libera. Trocar de pasta
+    /// ou sair dela cancela a tarefa (o `id` muda) e a espera recomeça.
+    private func armCandidateFolder() async {
+        guard let candidate = drag?.tracker?.candidate else { return }
+        try? await Task.sleep(for: .seconds(FolderDropTracker.armingDelay))
+        guard !Task.isCancelled, drag?.tracker?.candidate == candidate else { return }
+        drag?.tracker?.arm()
     }
 
     /// Abre um nível e desliga o destaque de pasta: a prévia sai na mesma animação em que

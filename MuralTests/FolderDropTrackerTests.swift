@@ -136,4 +136,15 @@ struct FolderDropTrackerTests {
         #expect(!didArm1)
         #expect(tracker.target == nil)
     }
+
+    @Test("Liberar na hora vale só para quem tem candidata")
+    func armImmediatelyRequiresACandidate() {
+        var tracker = FolderDropTracker(startFolder: nil)
+        tracker.armImmediately()
+        #expect(tracker.target == nil)
+
+        tracker.update(folderUnderPointer: first, now: t0)
+        tracker.armImmediately()
+        #expect(tracker.target == first)
+    }
 }

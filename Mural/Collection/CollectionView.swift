@@ -168,7 +168,7 @@ struct CollectionView: View {
         )
         .aspectRatio(BoardLayout.aspectRatio(for: item), contentMode: .fit)
         .cardEmphasis(BoardFilter.emphasis(for: item, kind: filter, color: colorFilter))
-        .dropTargetHighlight(stickyDrag?.tracker.target == item.id)
+        .dropTargetHighlight(stickyDrag?.tracker.target == item.id ? .armed : .none)
         .highPriorityGesture(stickyMoveGesture(for: item, columnItems: columnItems), isEnabled: item.kind == .sticky)
         .offset(stickyOffset(for: item))
     }
@@ -253,6 +253,8 @@ struct CollectionView: View {
         }
         current.translation = value.translation
         current.tracker.update(folderUnderPointer: subfolder(at: value.location, among: current.acceptedFolders))
+        // Na coleção a pasta aceita o post-it na hora; o atraso de 1 s vale só no mural.
+        current.tracker.armImmediately()
         return current
     }
 

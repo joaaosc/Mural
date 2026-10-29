@@ -48,4 +48,9 @@ struct FolderDropTracker: Equatable {
         isArmed = true
         return true
     }
+
+    /// Libera a candidata sem esperar, para telas em que não há atraso (a grade da coleção).
+    mutating func armImmediately() {
+        isArmed = candidate != nil
+    }
 }

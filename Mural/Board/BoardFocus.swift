@@ -8,7 +8,10 @@ import MuralKit
 struct BoardFocus: Equatable {
     var hoveredFolder: UUID?
     var dragged: UUID?
+    /// Pasta elegível sob o ponteiro, esperando ou já liberada.
     var dropTarget: UUID?
+    /// A pasta de destino já esperou o suficiente e aceita o cartão.
+    var dropArmed = false
     var filter: BoardFilter?
     var colorFilter: TagColor?
 
