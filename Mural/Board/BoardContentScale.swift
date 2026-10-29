@@ -6,7 +6,6 @@ extension EnvironmentValues {
     /// e 2, por exemplo, um cartão com o dobro do lado (a conta é `BoardLayout.contentScale`). O mural e a capa fixam o valor
     /// em cada post-it solto; em qualquer outro lugar (pastas, prévias de pasta) fica em 1, e o cartão se desenha como sempre.
     @Entry var boardContentScale: Double = 1
-    @Entry var boardImageShowWhole = false
 }
 
 extension View {

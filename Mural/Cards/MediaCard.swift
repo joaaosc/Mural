@@ -7,7 +7,6 @@ import SwiftUI
 struct MediaCard: View {
     let url: URL?
     let kind: ItemKind
-    var showsWholeImage = false
     /// Vídeo da prévia. Hoje é o próprio arquivo do cartão de vídeo; uma foto com vídeo junto (Live Photo) passaria o dela.
     var previewVideoURL: URL? = nil
 
@@ -20,7 +19,7 @@ struct MediaCard: View {
     var body: some View {
         // O Color.clear define o tamanho; a miniatura preenche e é recortada.
         Color.clear
-            .overlay { ThumbnailView(url: url, kind: kind, contentMode: showsWholeImage ? .fit : .fill) }
+            .overlay { ThumbnailView(url: url, kind: kind, contentMode: .fill) }
             .overlay {
                 if kind == .video, !isShowingPreview {
                     Image(systemName: "play.circle.fill")
@@ -42,6 +41,10 @@ struct MediaCard: View {
             }
             .background(kind == .pdf ? Theme.paper : .clear)
             .clipShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
+            // O recorte esconde a sobra da miniatura que preenche, mas não a tira do clique, do ponteiro nem da acessibilidade:
+            // sem esta forma, uma foto deitada num cartão em pé recebe cliques e arrastos fora do cartão, e o quadro dele na
+            // acessibilidade fica do tamanho da foto inteira.
+            .contentShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
             .cardShadow()
             .onHover { inside in
                 if inside, previewEnabled, let previewVideoURL {

@@ -315,7 +315,6 @@ struct BoardCanvasView: View {
         } else if BoardLayout.isResizable(item.kind) {
             cardButton(item, open: [.item(item.id)], size: size)
                 .frame(width: size.width, height: size.height)
-                .environment(\.boardImageShowWhole, item.kind == .image && resizing?.target == .item(item.id))
                 // A letra e a margem do post-it acompanham o tamanho mostrado, inclusive durante o arrasto do canto.
                 .contentScaled(for: item, width: size.width, height: size.height)
                 // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do cartão, que decide pelo canto.
