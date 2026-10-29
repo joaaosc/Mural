@@ -136,6 +136,7 @@ private struct LoadedRootView: View {
             onToggleMusic: toggleMusic,
             musicPhase: session.musicPhase(of:),
             onMove: session.move,
+            onMoveGroup: session.moveGroup,
             onResize: session.resize,
             onFreeTextEdit: beginEditingFreeText,
             onFreeTextMove: session.moveFreeText,

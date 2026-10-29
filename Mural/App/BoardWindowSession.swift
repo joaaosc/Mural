@@ -1892,6 +1892,15 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    /// Move a seleção em uma única gravação, desde que nenhum cartão tenha mudado durante o gesto.
+    func moveGroup(from origins: [UUID: BoardPoint], to positions: [UUID: BoardPoint]) {
+        guard canEdit, path.isEmpty, let model, !origins.isEmpty, Set(origins.keys) == Set(positions.keys),
+            origins.allSatisfy({ id, position in model.item(id: id)?.parentID == nil && model.item(id: id)?.position == position })
+        else { return }
+        guard !model.arrange(positions).isEmpty else { return }
+        captureBoardIfNeeded()
+    }
+
     /// Grava o tamanho de um post-it solto no mural; `nil` devolve o tamanho padrão.
     func resize(_ itemID: UUID, to size: BoardSize?) {
         guard !isClosed, model?.resize(itemID, to: size) == true else { return }

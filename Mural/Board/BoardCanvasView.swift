@@ -23,6 +23,7 @@ struct BoardCanvasView: View {
     var onToggleMusic: ((UUID) -> Void)? = nil
     var musicPhase: ((UUID) -> MusicCardPhase)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
+    var onMoveGroup: (([UUID: BoardPoint], [UUID: BoardPoint]) -> Void)? = nil
     /// Grava o tamanho de um post-it, arrastando o canto ou pelo menu (`nil` volta ao padrão). `nil` fala direto com o modelo,
     /// como `onMove`.
     var onResize: ((UUID, BoardSize?) -> Void)? = nil
@@ -101,7 +102,9 @@ struct BoardCanvasView: View {
         let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
         let currentFocus = focus
         let alwaysRendered = Set(
-            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 })
+            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 }
+        )
+        .union(drag?.origins.keys.map { $0 } ?? [])
         let alwaysRenderedFreeTexts = Set(
             [
                 freeTextDrag?.id,
@@ -151,7 +154,7 @@ struct BoardCanvasView: View {
                         .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSize))
                         .opacity(storing == item.id ? 0 : 1)
                         .offset(offset(for: item))
-                        .zIndex(currentFocus.layer(for: item, emphasis: itemEmphasis))
+                        .zIndex(drag?.origins[item.id] != nil ? 4 : currentFocus.layer(for: item, emphasis: itemEmphasis))
                 }
                 ForEach(renderedFreeTexts) { freeText in
                     let freeTextSize = displayedSize(for: freeText, cachedSizes: freeTextSizes, override: freeTextSizeOverride)
@@ -408,7 +411,7 @@ struct BoardCanvasView: View {
 
     /// Posição do cartão: a gravada mais o arrasto em andamento.
     private func offset(for item: BoardItem) -> CGSize {
-        let moved = drag?.id == item.id ? drag?.translation ?? .zero : .zero
+        let moved = (drag?.id == item.id || drag?.origins[item.id] != nil) ? drag?.translation ?? .zero : .zero
         return CGSize(width: item.position.x + moved.width, height: item.position.y + moved.height)
     }
 
@@ -468,10 +471,18 @@ struct BoardCanvasView: View {
                 if let existing = drag, existing.id == item.id {
                     current = existing
                 } else {
+                    let selected = selection?.selected ?? []
+                    let group =
+                        selected.contains(item.id) && selected.count > 1
+                        ? model.rootItems.filter { selected.contains($0.id) } : []
+                    let origins =
+                        group.count > 1
+                        ? Dictionary(uniqueKeysWithValues: group.map { ($0.id, $0.position) }) : [:]
                     let accepted = Set(model.folderDestinations(for: item.id).map(\.id))
                     let acceptedRootItems = model.rootItems.filter { accepted.contains($0.id) }
                     current = CardDrag(
                         id: item.id, translation: .zero,
+                        origins: origins,
                         tracker: FolderDropTracker(
                             startFolder: folderID(
                                 at: value.startLocation,
@@ -479,12 +490,17 @@ struct BoardCanvasView: View {
                                 excluding: item.id)),
                         acceptedRootItems: acceptedRootItems)
                 }
-                current.translation = value.translation
-                current.tracker?.update(
-                    folderUnderPointer: folderID(
-                        at: value.location,
-                        among: current.acceptedRootItems,
-                        excluding: item.id))
+                current.translation = current.groupTranslation(value.translation)
+                if current.origins.isEmpty {
+                    current.tracker?.update(
+                        folderUnderPointer: folderID(
+                            at: value.location,
+                            among: current.acceptedRootItems,
+                            excluding: item.id))
+                } else {
+                    current.tracker = nil
+                    hoveredFolder = nil
+                }
                 drag = current
             }
             .onEnded { value in
@@ -493,6 +509,25 @@ struct BoardCanvasView: View {
                     return
                 }
                 guard storing == nil, var final = drag, final.id == item.id else { return }
+                if !final.origins.isEmpty {
+                    let translation = final.groupTranslation(value.translation)
+                    let positions = final.origins.mapValues {
+                        BoardPoint(x: $0.x + translation.width, y: $0.y + translation.height)
+                    }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        if let onMoveGroup {
+                            onMoveGroup(final.origins, positions)
+                        } else if final.origins.allSatisfy({ model.item(id: $0.key)?.position == $0.value }) {
+                            model.arrange(positions)
+                        }
+                        drag = nil
+                    }
+                    onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
+                    hoveredFolder = pointerFolder
+                    return
+                }
                 // Decide pelo ponto em que o botão foi solto: num arrasto rápido ele pode não ter
                 // chegado num `onChanged`, e o destino anotado estaria atrasado.
                 final.translation = value.translation
@@ -684,10 +719,18 @@ struct BoardCanvasView: View {
 private struct CardDrag {
     var id: UUID
     var translation: CGSize
+    var origins: [UUID: BoardPoint]
     /// Acompanha a pasta que receberia o cartão (pastas também podem ser guardadas).
     var tracker: FolderDropTracker?
     /// Pastas soltas já filtradas para não reconstruir a lista a cada evento de ponteiro.
     var acceptedRootItems: [BoardItem]
+
+    func groupTranslation(_ translation: CGSize) -> CGSize {
+        guard !origins.isEmpty else { return translation }
+        let minX = origins.values.map(\.x).min() ?? 0
+        let minY = origins.values.map(\.y).min() ?? 0
+        return CGSize(width: max(-minX, translation.width.rounded()), height: max(-minY, translation.height.rounded()))
+    }
 }
 
 private struct FreeTextDrag: Equatable {

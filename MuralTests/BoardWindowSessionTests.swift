@@ -64,6 +64,31 @@ struct BoardWindowSessionTests {
         #expect(session.restorationPhase == .ready)
     }
 
+    @Test("Mover cartões em grupo preserva posições relativas e recusa posições antigas")
+    func moveGroupPreservesOffsetsAndRejectsStaleOrigins() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Grupo")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let first = try #require(model.importText("Primeiro", as: .text))
+        let second = try #require(model.importText("Segundo", as: .sticky))
+        let origins = [first.id: first.position, second.id: second.position]
+        let targets = origins.mapValues { BoardPoint(x: $0.x + 100, y: $0.y + 80) }
+        session.moveGroup(from: origins, to: targets)
+        #expect(model.item(id: first.id)?.position == targets[first.id])
+        #expect(model.item(id: second.id)?.position == targets[second.id])
+        session.moveGroup(from: origins, to: origins)
+        #expect(model.item(id: first.id)?.position == targets[first.id])
+        #expect(model.item(id: second.id)?.position == targets[second.id])
+        model.isReadOnly = true
+        session.moveGroup(from: targets, to: origins)
+        #expect(model.item(id: first.id)?.position == targets[first.id])
+        #expect(model.item(id: second.id)?.position == targets[second.id])
+    }
+
     @Test("A, B e A mantêm conteúdo, filtro e canvas isolados após autosave")
     func sessionsRoundTripThroughNewRegistry() async throws {
         let directory = try root()
