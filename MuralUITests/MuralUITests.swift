@@ -323,6 +323,107 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(reopened.buttons["Alpha"].waitForExistence(timeout: 5))
     }
 
+    /// O quadro do cartão de foto é o do cartão, e não o da foto deitada que o preenche (40 × 30 num cartão de 150 × 190): a
+    /// sobra recortada não recebe clique nem entra na acessibilidade. O arrasto do canto aumenta o cartão sem tirá-lo do lugar,
+    /// livre entre as proporções da lista, e o tamanho volta igual ao reabrir o mural.
+    @MainActor
+    func testImageResizeGrowsFromCornerAndPersists() throws {
+        let app = launch()
+        let card = try pasteImage(named: "foto-redimensionar", in: app)
+        let before = card.frame
+        XCTAssertEqual(before.width / before.height, 150.0 / 190.0, accuracy: 0.02, "o quadro inclui a sobra da foto: \(before)")
+        attachScreenshot(of: app, named: "Foto antes do arrasto")
+        dragCorner(of: card, by: CGVector(dx: 60, dy: 60))
+        let after = card.frame
+        attachScreenshot(of: app, named: "Foto depois do arrasto livre")
+        XCTAssertEqual(after.minX, before.minX, accuracy: 2, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.minY, before.minY, accuracy: 2, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.width, before.width + 60, accuracy: 4, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.height, before.height + 60, accuracy: 4, "antes: \(before), depois: \(after)")
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        let restored = reopened.buttons["foto-redimensionar"].firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 10))
+        XCTAssertEqual(restored.frame.width, after.width, accuracy: 2)
+        XCTAssertEqual(restored.frame.height, after.height, accuracy: 2)
+    }
+
+    /// Passando perto da proporção da foto (4:3), o canto encaixa nela; um segundo arrasto, a partir do tamanho novo, continua
+    /// encaixando. Supõe o zoom 1 do rascunho de exemplo, conferido pela altura padrão de 190.
+    @MainActor
+    func testImageResizeSnapsToPhotoProportionAndRepeats() throws {
+        let app = launch()
+        let card = try pasteImage(named: "foto-encaixe", in: app)
+        let before = card.frame
+        XCTAssertEqual(before.height, 190, accuracy: 2, "o teste supõe zoom 1: \(before)")
+        // 150 × 190 + 100 na largura dá 250 × 190, a 1,3% de 4:3: encaixa em 250 × 188.
+        dragCorner(of: card, by: CGVector(dx: 100, dy: 0))
+        let snapped = card.frame
+        attachScreenshot(of: app, named: "Foto encaixada em 4:3")
+        XCTAssertEqual(snapped.width / snapped.height, 4.0 / 3.0, accuracy: 0.01, "encaixe: \(snapped)")
+        XCTAssertEqual(snapped.width, before.width + 100, accuracy: 4, "encaixe: \(snapped)")
+        XCTAssertEqual(snapped.minX, before.minX, accuracy: 2)
+        XCTAssertEqual(snapped.minY, before.minY, accuracy: 2)
+        // 250 × 188 + 40 × 30 dá 290 × 218, ainda perto de 4:3.
+        dragCorner(of: card, by: CGVector(dx: 40, dy: 30))
+        let repeated = card.frame
+        attachScreenshot(of: app, named: "Foto depois do segundo arrasto")
+        XCTAssertEqual(repeated.width, snapped.width + 40, accuracy: 4, "segundo arrasto: \(repeated)")
+        XCTAssertEqual(repeated.width / repeated.height, 4.0 / 3.0, accuracy: 0.01, "segundo arrasto: \(repeated)")
+        XCTAssertEqual(repeated.minX, before.minX, accuracy: 2)
+    }
+
+    /// Com zoom, o encaixe é medido em pontos do mural: a foto em pé (30 × 40) encaixa na proporção dela, 3:4. A 1,25×, 37,5 × 62,5
+    /// pontos de tela são +30 × +50 no mural, e 150 × 190 vira 180 × 240, exatamente 3:4.
+    @MainActor
+    func testImageResizeWithZoomSnapsPortraitPhoto() throws {
+        let app = launch()
+        let card = try pasteImage(named: "foto-em-pe", pixels: (30, 40), in: app)
+        app.typeKey("=", modifierFlags: .command)
+        Thread.sleep(forTimeInterval: 1.0)
+        let before = card.frame
+        XCTAssertEqual(before.height, 190 * 1.25, accuracy: 3, "o teste supõe zoom 1,25: \(before)")
+        XCTAssertEqual(before.width / before.height, 150.0 / 190.0, accuracy: 0.02, "o quadro inclui a sobra da foto: \(before)")
+        dragCorner(of: card, by: CGVector(dx: 37.5, dy: 62.5))
+        let after = card.frame
+        attachScreenshot(of: app, named: "Foto em pé encaixada em 3:4 com zoom")
+        XCTAssertEqual(after.width / after.height, 3.0 / 4.0, accuracy: 0.01, "encaixe: \(after)")
+        XCTAssertEqual(after.height, before.height + 62.5, accuracy: 4, "encaixe: \(after)")
+        XCTAssertEqual(after.minX, before.minX, accuracy: 2)
+        XCTAssertEqual(after.minY, before.minY, accuracy: 2)
+    }
+
+    /// Cola uma foto no mural do exemplo, 40 × 30 se nada for dito, e devolve o cartão dela.
+    @MainActor
+    private func pasteImage(
+        named name: String, pixels: (width: Int, height: Int) = (40, 30), in app: XCUIApplication
+    ) throws -> XCUIElement {
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        let url = try Self.makePNG(named: name, width: pixels.width, height: pixels.height)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([url as NSURL])
+        app.typeKey("v", modifierFlags: .command)
+        let card = app.buttons[name].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        return card
+    }
+
+    /// Arrasta o canto inferior direito do cartão, onde fica a alça, pelo deslocamento dado em pontos de tela.
+    @MainActor
+    private func dragCorner(of card: XCUIElement, by offset: CGVector) {
+        let corner = card.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.97))
+        corner.hover()
+        corner.click(forDuration: 0.3, thenDragTo: corner.withOffset(offset))
+    }
+
+    @MainActor
+    private func attachScreenshot(of app: XCUIApplication, named name: String) {
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     /// "Mover para o mural" tira o cartão de dentro da pasta e o devolve ao mural.
     @MainActor
     func testMovingCardOutOfFolderReturnsItToBoard() throws {
