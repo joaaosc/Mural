@@ -31,13 +31,14 @@ extension BoardWindowSession {
     /// Toca, pausa ou retoma o cartão de música, pelo tocador do app.
     func toggleMusic(_ itemID: UUID) async {
         guard let model, !isClosed else { return }
-        await musicPlayback.toggle(itemID, in: model, boardID: boardID)
+        await musicPlayback.toggle(itemID, in: model, boardID: boardID, route: route, boardTitle: manifestName)
     }
 
     /// Toca o cartão a partir de uma faixa (`nil`: do começo).
     func playMusic(_ itemID: UUID, startingAt trackID: String?) async {
         guard let model, !isClosed else { return }
-        await musicPlayback.play(itemID, startingAt: trackID, in: model, boardID: boardID)
+        await musicPlayback.play(
+            itemID, startingAt: trackID, in: model, boardID: boardID, route: route, boardTitle: manifestName)
     }
 
     /// Busca a capa e as cores no catálogo quando o cartão tem `catalogID` mas nenhuma capa. Só com acesso já

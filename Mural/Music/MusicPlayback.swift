@@ -1,6 +1,7 @@
 import Foundation
 import MuralKit
 import Observation
+import OSLog
 
 /// Pedido de mostrar a oferta de assinatura do Apple Music.
 struct MusicOfferRequest: Identifiable, Equatable {
@@ -15,22 +16,44 @@ enum MusicCardPhase: Equatable {
     case idle, loading, playing, paused
 }
 
+/// De onde vem a música que toca: o cartão, o mural e o que mostrar deles sem abrir o mural.
+struct MusicPlaybackSource: Equatable, Sendable {
+    let itemID: UUID
+    var boardID: BoardID
+    var route: BoardRoute
+    var boardTitle: String
+    var cardTitle: String
+    var music: MusicSnapshot
+}
+
 /// Coordena o que toca: um cartão por vez, para o app inteiro.
 @MainActor
 @Observable
 final class MusicPlayback {
     static let shared = MusicPlayback(provider: MusicCenter.shared)
 
-    private(set) var currentItemID: UUID?
-    private(set) var currentBoardID: BoardID?
+    private(set) var source: MusicPlaybackSource?
     private(set) var isLoading = false
     var offer: MusicOfferRequest?
 
     @ObservationIgnored private let provider: any MusicProviding
+    /// Distingue cargas sobrepostas: só a mais recente desliga `isLoading`.
+    @ObservationIgnored private var loadGeneration = 0
+    private static let logger = Logger(subsystem: "com.joaocosta.Mural", category: "Música")
 
     init(provider: any MusicProviding) {
         self.provider = provider
+        provider.onPlaybackEnded = { [weak self] in self?.playbackEnded() }
     }
+
+    var currentItemID: UUID? { source?.itemID }
+    var currentBoardID: BoardID? { source?.boardID }
+
+    /// A entrada que o tocador está tocando agora.
+    var nowPlaying: MusicNowPlaying? { provider.nowPlaying }
+    var playbackTime: TimeInterval { provider.playbackTime }
+    /// Estação não volta; sem música, nada a fazer.
+    var canSkipBackward: Bool { source.map { $0.music.kind != .station } ?? false }
 
     /// Só o cartão atual tem fase diferente de `.idle`.
     func phase(of itemID: UUID) -> MusicCardPhase {
@@ -44,7 +67,9 @@ final class MusicPlayback {
     }
 
     /// Cartão atual tocando: pausa; pausado: retoma; qualquer outro: começa.
-    func toggle(_ itemID: UUID, in model: BoardModel, boardID: BoardID) async {
+    func toggle(
+        _ itemID: UUID, in model: BoardModel, boardID: BoardID, route: BoardRoute? = nil, boardTitle: String? = nil
+    ) async {
         // Segundo clique enquanto carrega: espera o primeiro, em vez de tocar duas vezes.
         if itemID == currentItemID, isLoading { return }
         if itemID == currentItemID {
@@ -61,11 +86,64 @@ final class MusicPlayback {
                 break
             }
         }
-        await start(itemID, startingAt: nil, in: model, boardID: boardID)
+        await start(itemID, startingAt: nil, in: model, boardID: boardID, route: route, boardTitle: boardTitle)
     }
 
-    func play(_ itemID: UUID, startingAt trackID: String?, in model: BoardModel, boardID: BoardID) async {
-        await start(itemID, startingAt: trackID, in: model, boardID: boardID)
+    func play(
+        _ itemID: UUID, startingAt trackID: String?, in model: BoardModel, boardID: BoardID,
+        route: BoardRoute? = nil, boardTitle: String? = nil
+    ) async {
+        await start(itemID, startingAt: trackID, in: model, boardID: boardID, route: route, boardTitle: boardTitle)
+    }
+
+    /// Pausa ou retoma a música atual, sem precisar do mural de origem.
+    func pauseOrResume() async {
+        guard source != nil, !isLoading else { return }
+        switch provider.status {
+        case .playing: provider.pause()
+        case .paused:
+            do { try await provider.resume() } catch {
+                Self.logger.error("Não foi possível retomar a música.")
+            }
+        case .stopped: break
+        }
+    }
+
+    func skipToNext() async {
+        guard source != nil, !isLoading else { return }
+        do { try await provider.skipToNext() } catch {
+            Self.logger.error("Não foi possível pular para a próxima faixa.")
+        }
+    }
+
+    func skipToPrevious() async {
+        guard canSkipBackward, !isLoading else { return }
+        do { try await provider.skipToPrevious() } catch {
+            Self.logger.error("Não foi possível voltar para a faixa anterior.")
+        }
+    }
+
+    /// Para o que estiver tocando (ou carregando), de qualquer mural.
+    func stopCurrent() {
+        guard source != nil else { return }
+        provider.stop()
+        clearCurrent()
+    }
+
+    /// O mural de origem virou outro (rascunho promovido): a fonte aponta para o mural salvo.
+    func moveSource(from boardID: BoardID, to route: BoardRoute, title: String) {
+        guard source?.boardID == boardID else { return }
+        switch route {
+        case .saved(let id), .welcomeDraft(let id): source?.boardID = id
+        case .library: return
+        }
+        source?.route = route
+        source?.boardTitle = title
+    }
+
+    func renameSource(boardID: BoardID, to title: String) {
+        guard source?.boardID == boardID else { return }
+        source?.boardTitle = title
     }
 
     /// Situação da permissão de acesso ao Apple Music.
@@ -103,11 +181,19 @@ final class MusicPlayback {
     }
 
     private func clearCurrent() {
-        currentItemID = nil
-        currentBoardID = nil
+        source = nil
     }
 
-    private func start(_ itemID: UUID, startingAt trackID: String?, in model: BoardModel, boardID: BoardID) async {
+    /// A fila acabou ou o sistema parou o tocador. Durante uma carga o aviso é da música anterior.
+    private func playbackEnded() {
+        guard !isLoading else { return }
+        clearCurrent()
+    }
+
+    private func start(
+        _ itemID: UUID, startingAt trackID: String?, in model: BoardModel, boardID: BoardID,
+        route: BoardRoute?, boardTitle: String?
+    ) async {
         guard let music = model.item(id: itemID)?.music else { return }
 
         var access = provider.access
@@ -129,16 +215,27 @@ final class MusicPlayback {
         }
 
         if let currentItemID, currentItemID != itemID { provider.stop() }
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
-        currentItemID = itemID
-        currentBoardID = boardID
-        defer { isLoading = false }
+        let cardTitle = model.item(id: itemID)?.title ?? ""
+        source = MusicPlaybackSource(
+            itemID: itemID, boardID: boardID, route: route ?? .saved(boardID), boardTitle: boardTitle ?? "Mural",
+            cardTitle: cardTitle.isEmpty ? music.title : cardTitle, music: music)
+        defer { if generation == loadGeneration { isLoading = false } }
         do {
             let resolved = try await provider.play(music, startingAt: trackID)
-            if resolved != music { model.updateMusic(itemID, with: resolved) }
+            // Parar (ou apagar o mural) durante o carregamento não pode deixar a música começar depois.
+            guard source?.itemID == itemID else {
+                if source == nil { provider.stop() }
+                return
+            }
+            if resolved != music {
+                model.updateMusic(itemID, with: resolved)
+                source?.music = resolved
+            }
         } catch {
-            currentItemID = nil
-            currentBoardID = nil
+            if source?.itemID == itemID { clearCurrent() }
             model.lastError = Self.message(for: error, music: music)
         }
     }
