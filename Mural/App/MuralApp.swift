@@ -94,12 +94,25 @@ struct MuralApp: App {
         }
         _driveMirror = State(initialValue: mirror)
 
+        // Os testes de interface não leem nem sobrescrevem a área de transferência da pessoa. O painel usa uma área
+        // nomeada e limpa, que cada teste pode preencher com dados próprios.
+        let panelPasteboard: NSPasteboard
+        let panelClipboardReader: ClipboardReader
+        if LaunchConfiguration.isUITesting {
+            panelPasteboard = NSPasteboard(name: NSPasteboard.Name("com.joaocosta.Mural.UITests.Clipboard"))
+            panelPasteboard.clearContents()
+            panelClipboardReader = ClipboardReader(pasteboard: panelPasteboard, accessBehavior: { _ in .ask })
+        } else {
+            panelPasteboard = .general
+            panelClipboardReader = ClipboardReader()
+        }
+
         // O painel de vidro que o ícone da barra de menus abre. O conteúdo é montado a cada apresentação, com um modelo
         // novo: a lista e o mural do centro nascem do instante em que o painel abre.
         MenuBarController.shared.install { _ in
             let model = MenuBarPanelModel(
                 library: library, covers: coverService, activeBoard: { tabs.selected?.boardID },
-                reader: ClipboardReader(), delivery: delivery)
+                reader: panelClipboardReader, delivery: delivery)
             return GlassHostingView(
                 rootView: MenuBarPanelView(
                     tabs: tabs,

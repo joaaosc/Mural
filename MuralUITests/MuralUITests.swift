@@ -657,7 +657,9 @@ final class MuralUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 5), "o mural novo aparece na barra lateral")
         entry.rightClick()
-        app.menuItems["Excluir Mural…"].firstMatch.click()
+        let deleteBoard = app.menuItems["sidebar-delete-board"].firstMatch
+        XCTAssertTrue(deleteBoard.waitForExistence(timeout: 5), "o menu da linha oferece a ação de excluir este mural")
+        deleteBoard.click()
         let confirm = app.buttons["Mover para o Lixo"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "excluir pede confirmação")
         confirm.click()
@@ -981,10 +983,12 @@ final class MuralUITests: XCTestCase {
         caption.typeText("Contexto importante")
         app.buttons["Salvar"].firstMatch.click()
 
-        XCTAssertTrue(
-            app.staticTexts["Contexto importante"].firstMatch.waitForExistence(timeout: 5),
-            "a legenda aparece no cartão sem substituir o nome")
-        XCTAssertTrue(app.buttons["Running list of stuff"].exists)
+        let captionValue = NSPredicate(format: "value == %@", "Contexto importante")
+        let captionWasPublished = XCTNSPredicateExpectation(predicate: captionValue, object: card)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [captionWasPublished], timeout: 5), .completed,
+            "o cartão expõe a legenda como valor de acessibilidade")
+        XCTAssertEqual(card.label, "Running list of stuff", "a legenda não substitui o nome do cartão")
     }
 
     /// Ponto da janela em coordenadas de tela (as de `frame`).

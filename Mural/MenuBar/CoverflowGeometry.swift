@@ -21,13 +21,11 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
 
     /// A escala das laterais com Reduzir Movimento: sem o giro, elas ficam um pouco maiores para ainda ler como capas.
     static let reducedMotionSideScale: CGFloat = 0.85
-    /// Quanto de opacidade cada passo para fora da capa do meio tira.
-    static let opacityFalloff = 0.15
     /// O véu escuro sobre a primeira capa lateral, de 0 a 1: forte o bastante para a do meio se destacar como a
     /// escolhida, sem esconder o que as laterais mostram.
-    static let sideDimming = 0.3
+    static let sideDimming = 0.08
     /// Quanto o véu escurece a cada passo além da primeira lateral.
-    static let dimmingFalloff = 0.08
+    static let dimmingFalloff = 0.03
 
     /// Como uma capa é posta no palco.
     struct Transform: Equatable, Sendable {
@@ -61,8 +59,8 @@ nonisolated struct CoverflowGeometry: Equatable, Sendable {
             angle: reduceMotion ? 0 : angle,
             scale: reduceMotion ? Self.reducedMotionSideScale : sideScale,
             zIndex: Double(visibleSideCount + 1 - distance),
-            opacity: distance > visibleSideCount ? 0 : 1 - Self.opacityFalloff * Double(distance - 1),
-            dimming: min(1, Self.sideDimming + Self.dimmingFalloff * Double(distance - 1))
+            opacity: distance > visibleSideCount ? 0 : 1,
+            dimming: min(0.17, Self.sideDimming + Self.dimmingFalloff * Double(distance - 1))
         )
     }
 

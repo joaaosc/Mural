@@ -9,7 +9,7 @@ import SwiftUI
 /// mural, letras procuram pelo nome, ⌘↩ abre o mural e ⌘V cola com a maneira e a formatação escolhidas (de início, as
 /// sugeridas). Na vitrine, onde o painel abre, Return abre o mural do centro. Tab mostra as maneiras de colar e, com
 /// texto, outro Tab mostra a formatação; nelas ↑/↓ escolhem e Return cola. ⇧Tab volta uma etapa, e Esc volta à vitrine
-/// ou, já nela, fecha o painel. Os botões do rodapé são alvos de clique.
+/// ou, já nela, fecha o painel. Depois das etapas, Tab percorre os botões do rodapé.
 struct MenuBarPanelView: View {
     let tabs: MuralTabs
     let model: MenuBarPanelModel
@@ -26,7 +26,15 @@ struct MenuBarPanelView: View {
     /// `close`.
     let moved: @MainActor () -> Void
 
-    @FocusState private var isFocused: Bool
+    private enum FocusTarget: Hashable {
+        case content
+        case openBoard
+        case newBoard
+        case showAll
+        case settings
+    }
+
+    @FocusState private var focusedTarget: FocusTarget?
     /// O colar em andamento e o fechamento do painel que vem depois dele. Cancelado quando a vista sai, para um colar de
     /// uma abertura anterior não fechar o painel da seguinte.
     @State private var pasteTask: Task<Void, Never>?
@@ -70,7 +78,7 @@ struct MenuBarPanelView: View {
     /// estados, e a altura também, para ela não pular quando a lista termina de carregar; a seção é que dá a altura
     /// variável do painel.
     ///
-    /// O teclado de tudo isso é deste contêiner só, e a seção não toma o foco: ela é feita de alvos de clique.
+    /// O conteúdo tem um único foco para as etapas e comandos de capa; os botões do rodapé vêm depois na ordem de Tab.
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             stage
@@ -88,9 +96,9 @@ struct MenuBarPanelView: View {
             }
         }
         .focusable()
-        .focused($isFocused)
+        .focused($focusedTarget, equals: .content)
         .focusEffectDisabled()
-        .onAppear { isFocused = true }
+        .onAppear { focusedTarget = .content }
         .onDisappear { pasteTask?.cancel() }
         .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in step(by: -1) }
         .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in step(by: 1) }
@@ -177,13 +185,19 @@ struct MenuBarPanelView: View {
         return .handled
     }
 
-    /// Tab vai à etapa seguinte e ⇧Tab volta uma. A tecla é sempre tratada aqui: o painel não tem outro lugar para onde o
-    /// foco possa ir, e deixá-la seguir tiraria o teclado do conteúdo.
+    /// Tab percorre primeiro as etapas do conteúdo e depois os controles do rodapé. Sem seleção, começa em “Novo mural”
+    /// porque “Abrir mural” está desabilitado. ⇧Tab sai do conteúdo para o último botão.
     private func tab(_ press: KeyPress) -> KeyPress.Result {
         if press.key == Self.backTab || press.modifiers.contains(.shift) {
-            model.retreatStage()
-        } else {
+            if model.stage != .boards {
+                model.retreatStage()
+            } else {
+                focusedTarget = .settings
+            }
+        } else if model.stages.last != model.stage {
             model.advanceStage()
+        } else {
+            focusedTarget = model.selectedEntry == nil ? .newBoard : .openBoard
         }
         return .handled
     }
@@ -245,8 +259,7 @@ struct MenuBarPanelView: View {
 
     /// A fileira de saídas.
     ///
-    /// Nada daqui entra na ordem do Tab: o teclado do painel é do conteúdo, e estes são alvos de clique.
-    /// `focusable(false)` é o que diz isso.
+    /// Depois das etapas do conteúdo, os botões ficam disponíveis na ordem normal de foco do SwiftUI.
     private var footer: some View {
         HStack {
             Button("Abrir mural", systemImage: "arrow.up.forward.app") {
@@ -254,7 +267,7 @@ struct MenuBarPanelView: View {
             }
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(model.selectedEntry == nil)
-            .focusable(false)
+            .focused($focusedTarget, equals: .openBoard)
             .help("Abrir o mural no app (⌘↩)")
             .accessibilityIdentifier("menu-bar-open-board")
 
@@ -262,7 +275,7 @@ struct MenuBarPanelView: View {
                 close()
                 tabs.requestNewBoard()
             }
-            .focusable(false)
+            .focused($focusedTarget, equals: .newBoard)
             .help("Criar um mural novo")
             .accessibilityIdentifier("menu-bar-new-board")
 
@@ -270,7 +283,7 @@ struct MenuBarPanelView: View {
                 close()
                 tabs.showAllMurals()
             }
-            .focusable(false)
+            .focused($focusedTarget, equals: .showAll)
             .help("Mostrar a janela do Mural com a lista de todos os murais")
             .accessibilityIdentifier("menu-bar-show-all")
 
@@ -280,7 +293,7 @@ struct MenuBarPanelView: View {
             Button("Ajustes…", systemImage: "gearshape", action: openSettings)
                 .labelStyle(.iconOnly)
                 .keyboardShortcut(",", modifiers: .command)
-                .focusable(false)
+                .focused($focusedTarget, equals: .settings)
                 .help("Ajustes do Mural (⌘,)")
                 .accessibilityIdentifier("menu-bar-settings")
         }

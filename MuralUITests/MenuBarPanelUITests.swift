@@ -47,6 +47,27 @@ final class MenuBarPanelUITests: XCTestCase {
         XCTAssertTrue(draftEntry.waitForNonExistence(timeout: 5), "o botão fecha a barra lateral")
     }
 
+    @MainActor
+    private func openPanelFromMenu(in app: XCUIApplication) {
+        app.activate()
+        let menuBar = app.menuBars.firstMatch
+        XCTAssertTrue(menuBar.waitForExistence(timeout: 5), "a barra de menus do app deveria existir")
+        menuBar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).hover()
+
+        let menu = app.menuBars.menuBarItems
+            .containing(.menuItem, identifier: "Abrir Painel de Murais")
+            .firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "o comando do painel deveria estar em um menu da barra")
+        let menuIsVisible = NSPredicate(format: "isHittable == true")
+        let menuIsHittable = XCTNSPredicateExpectation(predicate: menuIsVisible, object: menu)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [menuIsHittable], timeout: 5), .completed,
+            "a barra de menus oculta aparece quando o ponteiro chega ao topo da tela"
+        )
+        menu.click()
+        app.menuItems["Abrir Painel de Murais"].click()
+    }
+
     /// ⌘V no painel lê o texto copiado e oferece os tipos de cartão; Return cola o post-it sugerido no mural do centro, que
     /// é o da aba ativa.
     @MainActor
@@ -54,12 +75,11 @@ final class MenuBarPanelUITests: XCTestCase {
         let app = launch()
         XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
 
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.joaocosta.Mural.UITests.Clipboard"))
         pasteboard.clearContents()
         pasteboard.setString("Comprar pão pelo painel", forType: .string)
 
-        app.menuBars.menuBarItems["Visualizar"].click()
-        app.menuItems["Abrir Painel de Murais"].click()
+        openPanelFromMenu(in: app)
         let coverflow = app.descendants(matching: .any)["menu-bar-coverflow"].firstMatch
         XCTAssertTrue(coverflow.waitForExistence(timeout: 10), "o painel deveria abrir com a vitrine de murais")
 
@@ -71,5 +91,26 @@ final class MenuBarPanelUITests: XCTestCase {
         XCTAssertTrue(
             app.buttons["Comprar pão pelo painel"].firstMatch.waitForExistence(timeout: 10),
             "Return deveria colar o post-it no mural do centro")
+    }
+
+    /// Tab mantém o fluxo pelas etapas e, sem opções de colagem, chega ao primeiro botão do rodapé.
+    @MainActor
+    func testTabMovesFocusFromBoardsToFooter() {
+        let app = launch()
+        openPanelFromMenu(in: app)
+
+        let openBoard = app.buttons["menu-bar-open-board"].firstMatch
+        XCTAssertTrue(openBoard.waitForExistence(timeout: 10), "o rodapé deveria oferecer Abrir mural")
+        XCTAssertTrue(openBoard.isEnabled, "a fixture seleciona um mural para abrir")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["menu-bar-paste-option-text-sticky"].exists,
+            "a área de transferência nomeada começa sem opções de colagem neste teste"
+        )
+        app.typeKey(.tab, modifierFlags: [])
+        app.typeKey(.space, modifierFlags: [])
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["menu-bar-coverflow"].waitForNonExistence(timeout: 5),
+            "Tab deveria focar Abrir mural e Espaço deveria ativar o botão")
     }
 }

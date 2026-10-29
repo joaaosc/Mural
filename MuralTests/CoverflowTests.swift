@@ -45,16 +45,16 @@ struct CoverflowTests {
         }
     }
 
-    @Test("Só a capa do centro fica sem véu; as laterais escurecem mais a cada passo para fora")
+    @Test("As laterais escurecem pouco e gradualmente, sem um véu opaco")
     func sidesAreDimmedMoreWithDistance() {
         let dimming = (0...4).map { transform($0).dimming }
-        let expected = [0, 0.3, 0.38, 0.46, 0.54]
+        let expected = [0, 0.08, 0.11, 0.14, 0.17]
 
         for (actual, wanted) in zip(dimming, expected) {
             #expect(abs(actual - wanted) < 1e-9, "\(actual) em vez de \(wanted)")
         }
-        // Longe do centro o véu para no preto inteiro, sem passar de 1.
-        #expect(transform(20).dimming == 1)
+        // O véu tem um teto baixo, mesmo longe do centro.
+        #expect(transform(20).dimming == 0.17)
         // Reduzir Movimento só tira o giro: o véu continua o mesmo.
         for d in -4...4 {
             #expect(transform(d, reduceMotion: true).dimming == transform(d).dimming, "d = \(d)")
@@ -83,10 +83,10 @@ struct CoverflowTests {
         #expect(zip(order, order.dropFirst()).allSatisfy { $0 > $1 })
     }
 
-    @Test("A opacidade cai a cada passo e é zero além das laterais visíveis")
-    func opacityFallsAndVanishesBeyondTheVisible() {
+    @Test("As capas visíveis ficam opacas e as de fora desaparecem")
+    func visibleCoversStayOpaqueAndDistantCoversVanish() {
         let visible = (0...4).map { transform($0).opacity }
-        let expected = [1, 1, 0.85, 0.7, 0.55]
+        let expected = [1.0, 1.0, 1.0, 1.0, 1.0]
 
         for (actual, wanted) in zip(visible, expected) {
             #expect(abs(actual - wanted) < 1e-9, "\(actual) em vez de \(wanted)")

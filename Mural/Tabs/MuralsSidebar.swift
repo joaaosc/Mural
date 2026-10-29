@@ -134,6 +134,7 @@ private struct SidebarMuralRow: View {
                 Button("Tirar do iCloud…", action: onRemoveFromICloud)
             }
             Button(deleteTitle, role: .destructive, action: onDelete)
+                .accessibilityIdentifier("sidebar-delete-board")
         }
         .accessibilityIdentifier(
             entry.route.isDraft

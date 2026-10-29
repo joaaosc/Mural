@@ -68,6 +68,10 @@ final class GlassHostingView<Content: View>: NSGlassEffectView, PanelContentMeas
 
         style = .regular
         self.cornerRadius = cornerRadius
+        // Recorta a camada no contorno do vidro para evitar a borda retangular quando o painel recebe foco.
+        wantsLayer = true
+        layer?.cornerRadius = cornerRadius
+        layer?.masksToBounds = true
         // Sem tinta: o vidro não tem cor própria e toma a do que está atrás dele. A HIG reserva o vidro tingido para
         // uma ação principal, e um painel não é uma.
         tintColor = nil
