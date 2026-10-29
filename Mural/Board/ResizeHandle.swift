@@ -1,10 +1,12 @@
 import MuralKit
 import SwiftUI
 
-/// Alça de redimensionar sobre o canto inferior direito de um post-it ou de um texto livre no mural.
+/// Alça de redimensionar sobre o canto inferior direito de um post-it, de uma foto ou de um texto livre no mural. É a única marca
+/// visível: os outros três cantos redimensionam do mesmo jeito, só que sem desenho, e mostram o cursor de redimensionar quando o
+/// ponteiro passa por eles (`ResizeCornerPointer`).
 ///
 /// A alça só desenha o círculo e troca o ponteiro. Quem muda o tamanho é o gesto de mover do próprio elemento
-/// (`BoardCanvasView`), que olha onde o arrasto começou: dentro do quadrado do canto, o arrasto redimensiona; fora dele, move.
+/// (`BoardCanvasView`), que olha onde o arrasto começou: dentro do quadrado de um canto, o arrasto redimensiona; fora dele, move.
 /// Por isso a alça não tem gesto próprio (o gesto do pai teria prioridade de qualquer jeito), e um arrasto que começa nela sobe
 /// até o gesto do elemento.
 ///
@@ -17,13 +19,13 @@ struct ResizeHandle: View {
     /// Lado, em pontos de tela, do quadrado do canto em que um arrasto redimensiona. O círculo fica dentro dele.
     static let cornerSide: CGFloat = 18
     /// Diâmetro, em pontos de tela, do círculo desenhado.
-    static let diameter: CGFloat = 14
+    static let diameter: CGFloat = 9
 
     var body: some View {
         Circle()
-            .fill(.white)
-            .overlay { Circle().strokeBorder(.black.opacity(0.3), lineWidth: 0.75) }
-            .shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
+            .fill(.white.opacity(0.7))
+            .overlay { Circle().strokeBorder(.black.opacity(0.2), lineWidth: 0.5) }
+            .shadow(color: .black.opacity(0.12), radius: 1, y: 0.5)
             .frame(width: Self.diameter, height: Self.diameter)
             // O quadrado inteiro do canto recebe o clique: um clique ao lado do círculo não abre o cartão por baixo.
             .frame(width: Self.cornerSide, height: Self.cornerSide)

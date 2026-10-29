@@ -28,10 +28,15 @@ struct BoardCanvasView: View {
     /// Grava o tamanho de um post-it, arrastando o canto ou pelo menu (`nil` volta ao padrão). `nil` fala direto com o modelo,
     /// como `onMove`.
     var onResize: ((UUID, BoardSize?) -> Void)? = nil
+    /// Grava posição e tamanho de uma vez, quando o arrasto é por um canto que não é o de baixo à direita (a posição muda junto).
+    /// `nil` fala direto com o modelo.
+    var onResizeFrame: ((UUID, BoardSize?, BoardPoint) -> Void)? = nil
     var onFreeTextEdit: ((UUID) -> Void)? = nil
     var onFreeTextMove: ((UUID, BoardPoint) -> Void)? = nil
     /// O mesmo de `onResize` para um texto livre.
     var onFreeTextResize: ((UUID, BoardSize?) -> Void)? = nil
+    /// O mesmo de `onResizeFrame` para um texto livre.
+    var onFreeTextResizeFrame: ((UUID, BoardSize?, BoardPoint) -> Void)? = nil
     var onFreeTextDelete: ((UUID) -> Void)? = nil
     /// "Renomear…" no menu de qualquer cartão.
     var onRename: ((UUID) -> Void)? = nil
@@ -47,7 +52,7 @@ struct BoardCanvasView: View {
     @State private var drag: CardDrag?
     /// Texto livre arrastado e quanto andou, em pontos do mural (sem zoom).
     @State private var freeTextDrag: FreeTextDrag?
-    /// Post-it ou texto livre com o ponteiro em cima: é quando a alça de redimensionar aparece.
+    /// Post-it, foto ou texto livre com o ponteiro em cima: é quando a alça de redimensionar aparece.
     @State private var hoveredResizable: ResizeDrag.Target?
     /// Redimensionamento em andamento e o tamanho que o arrasto do canto dá ao elemento agora, em pontos do mural.
     @State private var resizing: ResizeDrag?
@@ -103,7 +108,7 @@ struct BoardCanvasView: View {
         let layoutSize = CGSize(width: contentSize.width * zoom.zoom, height: contentSize.height * zoom.zoom)
         let currentFocus = focus
         let alwaysRendered = Set(
-            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target].compactMap { $0 }
+            [drag?.id, storing, hoveredFolder, pointerFolder, drag?.tracker?.target, resizing?.target.itemID].compactMap { $0 }
         )
         .union(drag?.origins.keys.map { $0 } ?? [])
         let alwaysRenderedFreeTexts = Set(
@@ -170,6 +175,7 @@ struct BoardCanvasView: View {
                     )
                     // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do texto, que decide pelo canto.
                     .resizeHandle(isVisible: showsResizeHandle(for: .freeText(freeText.id)), zoom: zoom.zoom)
+                    .resizeCornerPointer(size: freeTextSize, zoom: zoom.zoom, isEnabled: allowsResizeCornerPointer)
                     .onHover { inside in resizableHoverChanged(.freeText(freeText.id), inside: inside) }
                     .cardEmphasis(hoveredFolder == nil ? 1 : 0.3)
                     .offset(freeTextOffset(for: freeText))
@@ -319,7 +325,11 @@ struct BoardCanvasView: View {
                 .contentScaled(for: item, width: size.width, height: size.height)
                 // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do cartão, que decide pelo canto.
                 .resizeHandle(isVisible: showsResizeHandle(for: .item(item.id)), zoom: zoom.zoom)
-                .resizeProportionFeedback(resizing?.target == .item(item.id) ? resizing?.proportion : nil, zoom: zoom.zoom)
+                .resizeCornerPointer(size: size, zoom: zoom.zoom, isEnabled: allowsResizeCornerPointer)
+                .resizeProportionFeedback(
+                    resizing?.target == .item(item.id) ? resizing?.proportion : nil, corner: resizing?.corner ?? .bottomTrailing,
+                    zoom: zoom.zoom
+                )
                 .onHover { inside in resizableHoverChanged(.item(item.id), inside: inside) }
                 .highPriorityGesture(moveGesture(for: item))
         } else {
@@ -411,13 +421,19 @@ struct BoardCanvasView: View {
         return cachedSizes[freeText.id] ?? displayedSize(of: freeText)
     }
 
-    /// Posição do cartão: a gravada mais o arrasto em andamento.
+    /// Posição do cartão: a gravada mais o arrasto em andamento, ou a do redimensionamento por um canto de cima ou da esquerda.
     private func offset(for item: BoardItem) -> CGSize {
+        if let resizing, resizing.target == .item(item.id) {
+            return CGSize(width: resizing.origin.x, height: resizing.origin.y)
+        }
         let moved = (drag?.id == item.id || drag?.origins[item.id] != nil) ? drag?.translation ?? .zero : .zero
         return CGSize(width: item.position.x + moved.width, height: item.position.y + moved.height)
     }
 
     private func freeTextOffset(for freeText: BoardFreeText) -> CGSize {
+        if let resizing, resizing.target == .freeText(freeText.id) {
+            return CGSize(width: resizing.origin.x, height: resizing.origin.y)
+        }
         let moved = freeTextDrag?.id == freeText.id ? freeTextDrag?.translation ?? .zero : .zero
         return CGSize(width: freeText.position.x + moved.width, height: freeText.position.y + moved.height)
     }
@@ -456,14 +472,15 @@ struct BoardCanvasView: View {
     /// Soltar sobre uma pasta guarda o cartão nela; pastas também podem ser guardadas, mas só nas
     /// que o domínio aceita (não nela mesma, nas de dentro dela nem além do último nível).
     ///
-    /// Num post-it, o arrasto que começa no quadrado do canto inferior direito (a alça) muda o tamanho em vez do lugar. É este
-    /// gesto que decide, pelo ponto onde o arrasto começou: um segundo gesto no canto perderia para este, que tem prioridade.
+    /// Num post-it ou numa foto, o arrasto que começa no quadrado de um dos quatro cantos muda o tamanho em vez do lugar, e o canto
+    /// oposto fica parado. É este gesto que decide, pelo ponto onde o arrasto começou: um segundo gesto no canto perderia para
+    /// este, que tem prioridade.
     private func moveGesture(for item: BoardItem) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDragging) { _, isDragging, _ in isDragging = true }
             .onChanged { value in
-                if startsResize(of: item, at: value.startLocation) {
-                    updateResize(.item(item.id), with: value)
+                if let corner = resizeCorner(of: item, at: value.startLocation) {
+                    updateResize(.item(item.id), corner: corner, with: value)
                     return
                 }
                 // Outro cartão ainda está entrando numa pasta: espera a animação terminar.
@@ -505,8 +522,8 @@ struct BoardCanvasView: View {
                 drag = current
             }
             .onEnded { value in
-                if startsResize(of: item, at: value.startLocation) {
-                    endResize(.item(item.id), with: value)
+                if let corner = resizeCorner(of: item, at: value.startLocation) {
+                    endResize(.item(item.id), corner: corner, with: value)
                     return
                 }
                 guard storing == nil, var final = drag, final.id == item.id else { return }
@@ -570,21 +587,21 @@ struct BoardCanvasView: View {
             }
     }
 
-    /// Arrasto de um texto livre. Como no post-it, o arrasto que começa no quadrado do canto inferior direito muda o tamanho em
-    /// vez do lugar.
+    /// Arrasto de um texto livre. Como no post-it, o arrasto que começa no quadrado de um dos quatro cantos muda o tamanho em vez
+    /// do lugar.
     private func freeTextMoveGesture(for freeText: BoardFreeText) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
             .updating($isDragging) { _, isDragging, _ in isDragging = true }
             .onChanged { value in
-                if startsResize(of: freeText, at: value.startLocation) {
-                    updateResize(.freeText(freeText.id), with: value)
+                if let corner = resizeCorner(of: freeText, at: value.startLocation) {
+                    updateResize(.freeText(freeText.id), corner: corner, with: value)
                     return
                 }
                 freeTextDrag = FreeTextDrag(id: freeText.id, translation: value.translation)
             }
             .onEnded { value in
-                if startsResize(of: freeText, at: value.startLocation) {
-                    endResize(.freeText(freeText.id), with: value)
+                if let corner = resizeCorner(of: freeText, at: value.startLocation) {
+                    endResize(.freeText(freeText.id), corner: corner, with: value)
                     return
                 }
                 let target = BoardPoint(
@@ -603,87 +620,101 @@ struct BoardCanvasView: View {
 
     // MARK: Redimensionar
 
-    /// Se um arrasto que começou em `point` (em pontos do mural) pegou a alça de um post-it. Com o seletor de ⌘ aberto a alça não
-    /// existe, e o arrasto do canto volta a mover.
-    private func startsResize(of item: BoardItem, at point: CGPoint) -> Bool {
-        guard BoardLayout.isResizable(item.kind), selection?.isActive != true else { return false }
-        return isInResizeCorner(point, origin: item.position, size: BoardLayout.size(of: item))
+    /// O canto de um post-it ou de uma foto que um arrasto começado em `point` (em pontos do mural) pegou, ou `nil` se ele só move.
+    /// Com o seletor de ⌘ aberto não há canto, e o arrasto volta a mover.
+    private func resizeCorner(of item: BoardItem, at point: CGPoint) -> ResizeCorner? {
+        guard BoardLayout.isResizable(item.kind), selection?.isActive != true else { return nil }
+        return resizeCorner(at: point, origin: item.position, size: BoardLayout.size(of: item))
     }
 
-    /// O mesmo de `startsResize(of:at:)` para um texto livre.
-    private func startsResize(of freeText: BoardFreeText, at point: CGPoint) -> Bool {
-        guard selection?.isActive != true else { return false }
-        return isInResizeCorner(point, origin: freeText.position, size: BoardLayout.size(of: freeText))
+    /// O mesmo de `resizeCorner(of:at:)` para um texto livre.
+    private func resizeCorner(of freeText: BoardFreeText, at point: CGPoint) -> ResizeCorner? {
+        guard selection?.isActive != true else { return nil }
+        return resizeCorner(at: point, origin: freeText.position, size: BoardLayout.size(of: freeText))
     }
 
-    /// O quadrado do canto inferior direito do elemento: 18 pontos de tela, ou seja `18 / zoom` pontos do mural, como o da alça.
-    /// Num elemento que fica pequeno na tela (zoom baixo), o quadrado não passa de metade do menor lado, para sobrar onde pegar
-    /// e mover. O ponto de partida é medido no tamanho gravado: o arrasto ainda não tinha mudado nada.
-    private func isInResizeCorner(_ point: CGPoint, origin: BoardPoint, size: (width: Double, height: Double)) -> Bool {
-        let reach = min(ResizeHandle.cornerSide / zoom.zoom, min(size.width, size.height) / 2)
-        let right = origin.x + size.width
-        let bottom = origin.y + size.height
-        return point.x >= right - reach && point.x <= right && point.y >= bottom - reach && point.y <= bottom
+    /// O quadrado de cada canto tem 18 pontos de tela, ou seja `18 / zoom` pontos do mural, como o da alça (`ResizeCornerHit`).
+    /// Num elemento que fica pequeno na tela só existe o canto de baixo à direita, para sobrar onde pegar e mover. O ponto de
+    /// partida é medido no tamanho gravado: o arrasto ainda não tinha mudado nada.
+    private func resizeCorner(at point: CGPoint, origin: BoardPoint, size: (width: Double, height: Double)) -> ResizeCorner? {
+        ResizeCornerHit.corner(
+            at: CGPoint(x: point.x - origin.x, y: point.y - origin.y),
+            size: CGSize(width: size.width, height: size.height), zoom: zoom.zoom)
     }
 
-    /// O tamanho que o arrasto do canto dá ao elemento, a partir do tamanho gravado. A mesma conta vale enquanto o ponteiro se
-    /// move e ao soltar, quando o estado ao vivo pode já ter sido limpo. Numa foto, o tamanho encaixa nas proporções da lista
-    /// quando passa perto delas, e a proporção do encaixe vem junto. `nil` se o elemento deixou de existir.
-    private func resizedSize(
-        for target: ResizeDrag.Target, translation: CGSize, keepingProportion: Bool
-    ) -> (size: BoardSize, proportion: ImageProportion?)? {
+    /// O quadro (posição e tamanho) que o arrasto do canto dá ao elemento, a partir do quadro gravado. A mesma conta vale enquanto
+    /// o ponteiro se move e ao soltar, quando o estado ao vivo pode já ter sido limpo. Numa foto, o tamanho encaixa nas proporções
+    /// da lista quando passa perto delas, e a proporção do encaixe vem junto. `nil` se o elemento deixou de existir.
+    private func resizedFrame(
+        for target: ResizeDrag.Target, corner: ResizeCorner, translation: CGSize, keepingProportion: Bool
+    ) -> (origin: BoardPoint, size: BoardSize, proportion: ImageProportion?)? {
         switch target {
         case .item(let id):
             guard let item = model.item(id: id) else { return nil }
-            guard item.kind == .image else {
-                let size = BoardLayout.resizedSize(
-                    of: item, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
-                return (size, nil)
-            }
-            let result = BoardLayout.resizedImageSize(
-                of: item, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
-            return (result.size, result.proportion)
+            return BoardLayout.resizedFrame(
+                of: item, corner: corner, deltaWidth: translation.width, deltaHeight: translation.height,
+                keepingProportion: keepingProportion)
         case .freeText(let id):
             guard let freeText = model.freeText(id: id) else { return nil }
-            let size = BoardLayout.resizedSize(
-                of: freeText, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
-            return (size, nil)
+            let frame = BoardLayout.resizedFrame(
+                of: freeText, corner: corner, deltaWidth: translation.width, deltaHeight: translation.height,
+                keepingProportion: keepingProportion)
+            return (frame.origin, frame.size, nil)
         }
     }
 
-    /// Atualiza o tamanho ao vivo. Com Shift, mantém a proporção do tamanho de partida.
-    private func updateResize(_ target: ResizeDrag.Target, with value: DragGesture.Value) {
+    /// Atualiza o quadro ao vivo. Com Shift, mantém a proporção do tamanho de partida.
+    private func updateResize(_ target: ResizeDrag.Target, corner: ResizeCorner, with value: DragGesture.Value) {
         let keepsProportion = NSEvent.modifierFlags.contains(.shift)
-        guard let resized = resizedSize(for: target, translation: value.translation, keepingProportion: keepsProportion) else {
-            return
-        }
-        resizing = ResizeDrag(target: target, size: resized.size, keepsProportion: keepsProportion, proportion: resized.proportion)
+        guard
+            let frame = resizedFrame(
+                for: target, corner: corner, translation: value.translation, keepingProportion: keepsProportion)
+        else { return }
+        resizing = ResizeDrag(
+            target: target, corner: corner, origin: frame.origin, size: frame.size, keepsProportion: keepsProportion,
+            proportion: frame.proportion)
     }
 
-    /// Grava o tamanho em que o arrasto terminou, sem animação: o elemento já está onde o ponteiro o deixou. Recalcula pelo ponto
-    /// onde o botão foi solto, e não pelo último tamanho ao vivo, que num arrasto rápido pode estar atrasado. A proporção é a do
+    /// Grava o quadro em que o arrasto terminou, sem animação: o elemento já está onde o ponteiro o deixou. Recalcula pelo ponto
+    /// onde o botão foi solto, e não pelo último quadro ao vivo, que num arrasto rápido pode estar atrasado. A proporção é a do
     /// último movimento, para o valor gravado ser o que a pessoa via.
-    private func endResize(_ target: ResizeDrag.Target, with value: DragGesture.Value) {
+    private func endResize(_ target: ResizeDrag.Target, corner: ResizeCorner, with value: DragGesture.Value) {
         let keepsProportion = resizing?.target == target ? resizing?.keepsProportion : nil
-        let resized = resizedSize(
-            for: target, translation: value.translation, keepingProportion: keepsProportion ?? NSEvent.modifierFlags.contains(.shift))
+        let frame = resizedFrame(
+            for: target, corner: corner, translation: value.translation,
+            keepingProportion: keepsProportion ?? NSEvent.modifierFlags.contains(.shift))
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            if let resized { commitResize(target, to: resized.size) }
+            if let frame { commitResize(target, to: frame.size, at: corner == .bottomTrailing ? nil : frame.origin) }
             resizing = nil
         }
         onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
     }
 
-    /// Entrega o tamanho a quem grava: a sessão, ou direto o modelo quando o mural roda sem sessão. `nil` volta ao padrão.
-    private func commitResize(_ target: ResizeDrag.Target, to size: BoardSize?) {
-        switch target {
-        case .item(let id):
+    /// Entrega o tamanho a quem grava: a sessão, ou direto o modelo quando o mural roda sem sessão. `nil` volta ao padrão. Com
+    /// `origin`, grava também a posição numa só alteração (cantos da esquerda e de cima); sem ela, a posição não muda, como nos
+    /// menus de tamanho, que mantêm o canto de cima, à esquerda, parado.
+    private func commitResize(_ target: ResizeDrag.Target, to size: BoardSize?, at origin: BoardPoint? = nil) {
+        switch (target, origin) {
+        case (.item(let id), nil):
             if let onResize { onResize(id, size) } else { _ = model.resize(id, to: size) }
-        case .freeText(let id):
+        case (.item(let id), .some(let origin)):
+            if let onResizeFrame { onResizeFrame(id, size, origin) } else { _ = model.resize(id, to: size, at: origin) }
+        case (.freeText(let id), nil):
             if let onFreeTextResize { onFreeTextResize(id, size) } else { _ = model.resizeFreeText(id, to: size) }
+        case (.freeText(let id), .some(let origin)):
+            if let onFreeTextResizeFrame {
+                onFreeTextResizeFrame(id, size, origin)
+            } else {
+                _ = model.resizeFreeText(id, to: size, at: origin)
+            }
         }
+    }
+
+    /// O cursor de redimensionar dos cantos só aparece quando nada é movido, sem o seletor de ⌘ e sem o retângulo de Shift.
+    private var allowsResizeCornerPointer: Bool {
+        selection?.isActive != true && drag == nil && freeTextDrag == nil && !isMarqueeActive
     }
 
     /// A alça aparece com o ponteiro sobre o elemento ou durante o arrasto do canto; some com o seletor de ⌘ aberto e enquanto
