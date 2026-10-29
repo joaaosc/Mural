@@ -1067,15 +1067,19 @@ final class MuralUITests: XCTestCase {
         start.click(forDuration: 0.3, thenDragTo: start.withOffset(CGVector(dx: dx, dy: dy)))
     }
 
-    /// PNG 40×30 gerado no teste: nenhum arquivo de imagem é versionado.
-    private static func makePNG(named name: String) throws -> URL {
+    /// PNG gerado no teste, 40×30 se nada for dito: nenhum arquivo de imagem é versionado. As cores têm componentes RGB
+    /// explícitos: uma cor do sistema (`.systemOrange`) não converte para o espaço do bitmap e deixaria todos os pixels
+    /// transparentes, com o cartão da foto invisível nas capturas.
+    private static func makePNG(named name: String, width: Int = 40, height: Int = 30) throws -> URL {
         let rep = try XCTUnwrap(
             NSBitmapImageRep(
-                bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8, samplesPerPixel: 4,
+                bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        for x in 0..<40 {
-            for y in 0..<30 {
-                rep.setColor(x < 20 ? .systemOrange : .systemIndigo, atX: x, y: y)
+        let orange = NSColor(deviceRed: 1, green: 0.58, blue: 0, alpha: 1)
+        let indigo = NSColor(deviceRed: 0.35, green: 0.34, blue: 0.84, alpha: 1)
+        for x in 0..<width {
+            for y in 0..<height {
+                rep.setColor(x < width / 2 ? orange : indigo, atX: x, y: y)
             }
         }
         let data = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
