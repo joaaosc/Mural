@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import MuralKit
 import Testing
@@ -405,6 +406,78 @@ struct MuralTabsTests {
         defer { try? FileManager.default.removeItem(at: trashed) }
         #expect(!FileManager.default.fileExists(atPath: item.path))
         #expect(FileManager.default.fileExists(atPath: trashed.path))
+    }
+
+    /// Abas cujas sessões e o próprio `MuralTabs` usam o mesmo tocador falso, com um cartão de música tocando.
+    private func makePlayingTabs(
+        _ library: BoardLibrary
+    ) async throws -> (tabs: MuralTabs, playing: BoardTab, other: BoardRoute, playingRoute: BoardRoute, fake: FakeMusic) {
+        let fake = FakeMusic(arguments: [])
+        let playback = MusicPlayback(provider: fake)
+        let registry = BoardSessionRegistry(library: library)
+        let tabs = MuralTabs(registry: registry) {
+            let session = BoardWindowSession(route: $0, registry: registry)
+            session.musicPlayback = playback
+            return session
+        }
+        tabs.musicPlayback = playback
+        tabs.closeWindow = {}
+        tabs.removeBoardCaches = { _ in }
+        let playingRoute = try await library.createNamedBoard("Toca")
+        let other = try await library.createNamedBoard("Outro")
+        let tab = try #require(tabs.open(playingRoute, title: "Toca"))
+        await waitUntil("o mural carregar") { tab.session.model != nil }
+        let metrics = CanvasScrollMetrics(
+            contentOffset: .zero, containerSize: CGSize(width: 900, height: 700), contentSize: CGSize(width: 3_400, height: 2_800))
+        for _ in 0..<3 where tab.session.restorationPhase != .ready {
+            tab.session.restoreCanvas(
+                boardID: tab.session.boardID, generation: tab.session.presentationGeneration, metrics: metrics)
+        }
+        let ids = tab.session.importMusic(
+            [MusicDraft(snapshot: MusicSnapshot(kind: .album, catalogID: "100", title: "Álbum A"))],
+            into: nil, artwork: nil, animation: nil)
+        await tab.session.toggleMusic(try #require(ids.first))
+        try #require(playback.source != nil)
+        return (tabs, tab, other, playingRoute, fake)
+    }
+
+    @Test("Fechar a aba que toca não para a música")
+    func closingThePlayingTabKeepsPlaying() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rig = try await makePlayingTabs(library)
+
+        rig.tabs.close(rig.playing.id)
+        await waitUntil("a sessão fechar") { rig.playing.session.isClosed }
+
+        #expect(rig.fake.stopCount == 0)
+        #expect(rig.fake.status == .playing)
+        await rig.tabs.closeAll()
+    }
+
+    @Test("Excluir o mural que toca para a música")
+    func deletingThePlayingBoardStops() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rig = try await makePlayingTabs(library)
+
+        try await rig.tabs.deleteBoard(rig.playingRoute)
+
+        #expect(rig.fake.stopCount == 1)
+        #expect(rig.fake.status == .stopped)
+    }
+
+    @Test("Excluir outro mural não para a música")
+    func deletingAnotherBoardKeepsPlaying() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rig = try await makePlayingTabs(library)
+
+        try await rig.tabs.deleteBoard(rig.other)
+
+        #expect(rig.fake.stopCount == 0)
+        #expect(rig.fake.status == .playing)
+        await rig.tabs.closeAll()
     }
 }
 

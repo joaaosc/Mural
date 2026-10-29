@@ -1391,6 +1391,8 @@ final class BoardWindowSession {
             // senão um autosave atrasado recriaria o package do rascunho.
             ownsRegistryReference = false
             markClosed()
+            // A música continua tocando: a fonte passa a apontar para o mural salvo.
+            musicPlayback.moveSource(from: boardID, to: promoted, title: name)
             successMessage = "Rascunho promovido para um mural salvo."
             return promoted
         } catch let promotionError {
@@ -1413,6 +1415,7 @@ final class BoardWindowSession {
                 let wasDirty = await domainSession.isDirty
                 let persisted = try await domainSession.flush()
                 self.manifestName = name
+                self.musicPlayback.renameSource(boardID: self.boardID, to: name)
                 self.successMessage = "Mural renomeado."
                 // O nome também é do iCloud: esta gravação é local e avisa como qualquer outra.
                 if wasDirty {
@@ -2024,7 +2027,6 @@ final class BoardWindowSession {
         photoImportTask?.cancel()
         photoImportTask = nil
         photoImportOperationID = nil
-        musicPlayback.stop(boardID: boardID)
         openSessions.unregister(self)
         pendingAutosaveDebounce?.cancel()
         pendingAutosaveDebounce = nil

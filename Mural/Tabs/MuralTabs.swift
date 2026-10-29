@@ -174,6 +174,8 @@ final class MuralTabs {
     @ObservationIgnored private(set) weak var window: NSWindow?
     /// Abre a janela quando não há nenhuma (ação do SwiftUI registrada pelos menus).
     @ObservationIgnored var openMainWindow: (@MainActor () -> Void)?
+    /// O tocador do app; os testes trocam.
+    @ObservationIgnored var musicPlayback: MusicPlayback = .shared
     @ObservationIgnored private let makeSession: @MainActor (BoardRoute) -> BoardWindowSession
     /// Uma folha (nome, ⌘V, painel de arquivos, confirmação) está aberta na janela.
     @ObservationIgnored var isShowingSheet: @MainActor () -> Bool = { false }
@@ -303,6 +305,13 @@ final class MuralTabs {
     /// A aba que tinha a sessão (o `RootView` conhece a sessão, não a aba).
     func tabID(of session: BoardWindowSession) -> UUID? {
         tabs.first { $0.session === session }?.id
+    }
+
+    /// Abre (ou volta para) o mural, traz a janela para a frente e devolve o teclado a ele.
+    func showBoard(_ route: BoardRoute, title: String?) {
+        open(route, title: title)
+        showWindow()
+        focusBoard()
     }
 
     /// Devolve o teclado ao mural da aba ativa.
@@ -510,6 +519,8 @@ final class MuralTabs {
     /// recria o pacote) e manda o pacote para o Lixo. A janela continua aberta, mesmo sem abas.
     func deleteBoard(_ route: BoardRoute) async throws {
         guard let boardID = Self.boardID(of: route) else { throw BoardLibraryError.unavailableRoute(route) }
+        // Fechar a aba não para a música, mas o mural apagado não tem mais de onde ela vir.
+        musicPlayback.stop(boardID: boardID)
         if let tab = tab(for: boardID), let closing = removeTab(tab.id) {
             await closing.session.handleWindowWillClose()
         }

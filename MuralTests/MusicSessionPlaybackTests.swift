@@ -106,4 +106,74 @@ struct MusicSessionPlaybackTests {
         #expect(rig.fake.stopCount == 1)
         #expect(rig.session.musicPhase(of: rig.ids[0]) == .idle)
     }
+
+    @Test("Fechar a janela do mural não para a música")
+    func closingTheWindowKeepsPlaying() async throws {
+        let rig = try await makeRig()
+        defer { try? FileManager.default.removeItem(at: rig.directory) }
+        await rig.session.toggleMusic(rig.ids[0])
+
+        await rig.session.handleWindowWillClose()
+
+        #expect(rig.fake.stopCount == 0)
+        #expect(rig.session.musicPlayback.source?.itemID == rig.ids[0])
+        #expect(rig.fake.status == .playing)
+    }
+
+    @Test("Promover o rascunho continua tocando e aponta para o mural salvo")
+    func promotingTheDraftKeepsPlaying() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuralMusicDraft-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let state = try await library.bootstrap()
+        let session = BoardWindowSession(
+            route: .welcomeDraft(state.stableWelcomeID), registry: BoardSessionRegistry(library: library))
+        await session.load()
+        let metrics = CanvasScrollMetrics(
+            contentOffset: .zero, containerSize: CGSize(width: 900, height: 700), contentSize: CGSize(width: 3_400, height: 2_800))
+        session.restoreCanvas(boardID: session.boardID, generation: session.presentationGeneration, metrics: metrics)
+        // O rascunho de boas-vindas abre numa posição própria: a segunda medida já chega lá.
+        let reached = CanvasScrollMetrics(
+            contentOffset: session.restoreTarget ?? .zero, containerSize: metrics.containerSize,
+            contentSize: metrics.contentSize, contentInsets: metrics.contentInsets)
+        for _ in 0..<3 where session.restorationPhase != .ready {
+            session.restoreCanvas(boardID: session.boardID, generation: session.presentationGeneration, metrics: reached)
+        }
+        try #require(session.restorationPhase == .ready)
+        let fake = FakeMusic(arguments: [])
+        let playback = MusicPlayback(provider: fake)
+        session.musicPlayback = playback
+        let ids = session.importMusic(
+            [MusicDraft(snapshot: MusicSnapshot(kind: .album, catalogID: "100", title: "Álbum A"))],
+            into: nil, artwork: nil, animation: nil)
+        await session.toggleMusic(try #require(ids.first))
+        #expect(playback.source?.route == .welcomeDraft(state.stableWelcomeID))
+
+        let promoted = try #require(await session.promoteDraft(named: "Promovido"))
+
+        #expect(fake.stopCount == 0)
+        #expect(fake.status == .playing)
+        #expect(playback.source?.route == promoted)
+        #expect(playback.source?.boardTitle == "Promovido")
+        guard case .saved(let savedID) = promoted else {
+            Issue.record("a rota promovida deveria ser salva")
+            return
+        }
+        #expect(playback.source?.boardID == savedID)
+    }
+
+    @Test("Renomear o mural atualiza o nome na fonte")
+    func renamingUpdatesTheSourceTitle() async throws {
+        let rig = try await makeRig()
+        defer { try? FileManager.default.removeItem(at: rig.directory) }
+        await rig.session.toggleMusic(rig.ids[0])
+        #expect(rig.session.musicPlayback.source?.boardTitle == "Música")
+
+        await rig.session.rename(to: "Novo nome")
+
+        #expect(rig.session.musicPlayback.source?.boardTitle == "Novo nome")
+        #expect(rig.fake.stopCount == 0)
+    }
 }
