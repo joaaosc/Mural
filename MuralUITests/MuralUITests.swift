@@ -1292,10 +1292,12 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(
             app.buttons["Tocar Faixa 1"].firstMatch.waitForExistence(timeout: 5), "a página deveria listar as faixas do álbum")
 
+        // A janela volta onde estava: na página do cartão, que só existe se o cartão continuou no mural.
         app.terminate()
         let reopened = launch("-uiTestingKeep")
         XCTAssertTrue(
-            reopened.buttons["Álbum de Teste"].firstMatch.waitForExistence(timeout: 10),
-            "o cartão de música deveria continuar após reabrir")
+            reopened.buttons["Tocar Faixa 1"].firstMatch.waitForExistence(timeout: 10),
+            "o cartão de música deveria continuar após reabrir, com a página dele restaurada")
+        XCTAssertTrue(reopened.staticTexts.matching(NSPredicate(format: "value == %@", "Álbum de Teste")).firstMatch.exists)
     }
 }
