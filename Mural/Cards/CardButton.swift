@@ -263,13 +263,16 @@ struct CardButton: View {
                 withAnimation(reduceMotion ? nil : .smooth) { onResize(item.id, size) }
             }
         } else if let onResize, item.kind == .image {
+            // As mesmas proporções em que o arrasto do canto encaixa, mantendo o lado maior do tamanho atual. A marca fica na
+            // proporção em que a foto está; no tamanho padrão (150 × 190) nenhuma está marcada.
             Menu("Tamanho") {
-                Button("Foto inteira") {
-                    let ratio = BoardLayout.aspectRatio(for: item)
-                    let width = max(60.0, 180.0 * min(ratio, 1))
-                    let height = max(60.0, 180.0 / max(ratio, 1))
-                    onResize(item.id, BoardSize(width: width, height: height))
+                Picker("Proporção", selection: proportionBinding(onResize)) {
+                    ForEach(BoardLayout.imageProportions(for: item), id: \.self) { proportion in
+                        Text(proportion.menuTitle).tag(Optional(proportion))
+                    }
                 }
+                .pickerStyle(.inline)
+                Divider()
                 Button("Tamanho padrão") { onResize(item.id, nil) }
                     .disabled(item.size == nil)
             }
@@ -290,6 +293,17 @@ struct CardButton: View {
         if item.colorTag != nil {
             Button("Remover cor") { setColorTag(nil) }
         }
+    }
+
+    /// A proporção da foto no menu "Tamanho": escolher outra aplica o tamanho dela.
+    private func proportionBinding(_ onResize: @escaping (UUID, BoardSize?) -> Void) -> Binding<ImageProportion?> {
+        Binding(
+            get: { BoardLayout.imageProportion(of: item) },
+            set: { newValue in
+                guard let newValue, let size = BoardLayout.imageSize(for: item, in: newValue) else { return }
+                withAnimation(reduceMotion ? nil : .smooth) { onResize(item.id, size) }
+            }
+        )
     }
 
     private var colorTagBinding: Binding<TagColor?> {
