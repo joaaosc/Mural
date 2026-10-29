@@ -1,3 +1,4 @@
+import AppKit
 import MuralKit
 import SwiftUI
 
@@ -11,6 +12,8 @@ struct BoardFreeTextView: View {
     var onDelete: (() -> Void)? = nil
     /// Muda o tamanho pelo menu; `nil` esconde a ação. Recebe `nil` para voltar ao quadrado padrão.
     var onResize: ((BoardSize?) -> Void)? = nil
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     /// Letra do texto no quadrado padrão.
     private static let standardFontSize: CGFloat = 20
@@ -40,10 +43,16 @@ struct BoardFreeTextView: View {
             )
             .clipped()
             .contentShape(Rectangle())
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .background(
+                reduceTransparency
+                    ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+                    : AnyShapeStyle(.regularMaterial),
+                in: .rect(cornerRadius: 24)
+            )
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(freeText.text.isEmpty ? "Texto livre vazio" : freeText.text)
             .accessibilityHint("Clique duas vezes para editar. Arraste para mover.")
+            .accessibilityAction(named: "Editar", onEdit)
             .onTapGesture(count: 2, perform: onEdit)
             .contextMenu {
                 Button("Editar", systemImage: "pencil", action: onEdit)

@@ -7,6 +7,9 @@ struct BoardTabStrip: View {
     /// Largura livre na barra da janela: um item da barra não estica sozinho, ele usa a largura pedida.
     let width: CGFloat
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visibleTabID: UUID?
+
     static let spacing: CGFloat = 4
     static let minimumTabWidth: CGFloat = 90
     static let height: CGFloat = 30
@@ -34,9 +37,12 @@ struct BoardTabStrip: View {
                         onDelete: { Task { await tabs.requestDelete(tab.route, name: tab.title) } }
                     )
                     .frame(width: tabWidth, height: Self.height)
+                    .id(tab.id)
                 }
             }
+            .scrollTargetLayout()
         }
+        .scrollPosition(id: $visibleTabID, anchor: .leading)
         .scrollIndicators(.never)
         .scrollDisabled(fits)
         .frame(width: inner, height: Self.height, alignment: .leading)
@@ -44,6 +50,12 @@ struct BoardTabStrip: View {
         .padding(Self.glassInset)
         // O vidro envolve só as abas: com a barra lateral aberta, o recuo antes delas fica sem vidro.
         .glassEffect(.regular, in: .capsule)
+        .onChange(of: tabs.selectedID, initial: true) { _, selectedID in
+            reveal(selectedID)
+        }
+        .onChange(of: width) { _, _ in
+            reveal(tabs.selectedID)
+        }
     }
 
     /// Largura de cada aba: a faixa dividida igualmente, sem passar do mínimo legível.
@@ -51,6 +63,15 @@ struct BoardTabStrip: View {
         guard count > 0 else { return 0 }
         let shared = (available - spacing * CGFloat(count - 1)) / CGFloat(count)
         return max(minimumTabWidth, shared.rounded(.down))
+    }
+
+    private func reveal(_ id: UUID?) {
+        guard let id else { return }
+        if reduceMotion {
+            visibleTabID = id
+        } else {
+            withAnimation(.easeInOut(duration: 0.18)) { visibleTabID = id }
+        }
     }
 }
 
@@ -109,7 +130,7 @@ struct BoardTabButton: View {
     }
 
     private var background: AnyShapeStyle {
-        if isSelected { return AnyShapeStyle(.fill.secondary) }
+        if isSelected, canCloseOthers { return AnyShapeStyle(.fill.secondary) }
         if isHovering { return AnyShapeStyle(.fill.quaternary) }
         return AnyShapeStyle(.clear)
     }

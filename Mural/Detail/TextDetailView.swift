@@ -27,15 +27,18 @@ struct TextDetailView: View {
                     .frame(maxWidth: .infinity)
             }
         } else if item.kind == .sticky {
-            Text(item.displayText)
-                .font(.system(.title2, design: .monospaced))
-                .foregroundStyle(Theme.stickyInk)
-                .textSelection(.enabled)
-                .padding(36)
-                .frame(width: 420, height: 420, alignment: .topLeading)
-                .background(Theme.sticky(item.stickyColor), in: .rect(cornerRadius: 6))
-                .cardShadow()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScrollView {
+                Text(item.displayText)
+                    .font(.system(.title2, design: .monospaced))
+                    .foregroundStyle(Theme.stickyInk)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(36)
+            }
+            .frame(maxWidth: 420, maxHeight: .infinity)
+            .background(Theme.sticky(item.stickyColor), in: .rect(cornerRadius: 6))
+            .cardShadow()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 NotePageContent(item: item, model: model, session: session)

@@ -17,32 +17,51 @@ struct CreationBar: View {
     var onAddReminders: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 2) {
-            Button(ItemKind.text.creationTitle, systemImage: ItemKind.text.creationSymbol, action: onNewNote)
-                .help("Novo card de texto (⇧⌘N)")
-            Button(ItemKind.sticky.creationTitle, systemImage: ItemKind.sticky.creationSymbol, action: onNewSticky)
-                .help("Novo sticker (⌥⌘N)")
-            if let onNewFreeText {
-                Button("Texto livre", systemImage: "text.aligncenter", action: onNewFreeText)
-                    .help("Novo texto livre")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 2) {
+                actionButtons
             }
-            if let onNewFolder {
-                Button(ItemKind.folder.creationTitle, systemImage: ItemKind.folder.creationSymbol, action: onNewFolder)
-                    .help("Nova pasta (⌃⌘N)")
+            .labelStyle(.titleAndIcon)
+
+            HStack(spacing: 2) {
+                actionButtons
             }
-            Button("Arquivos…", systemImage: "paperclip", action: onAddFiles)
-                .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
-            Button("Fotos…", systemImage: "photo.on.rectangle", action: onAddPhotos)
-                .accessibilityLabel("Adicionar fotos e vídeos do app Fotos")
-                .accessibilityIdentifier("photos-import-button")
-                .help("Adicionar fotos e vídeos do app Fotos")
-            Button("Lembretes…", systemImage: "checklist.checked", action: onAddReminders)
-                .help("Adicionar lembretes do app Lembretes")
+            .labelStyle(.iconOnly)
+
+            Menu {
+                actionButtons
+            } label: {
+                Label("Criar", systemImage: "plus")
+            }
+            .help("Criar ou adicionar conteúdo ao mural")
         }
-        .labelStyle(.titleAndIcon)
         .buttonStyle(CreationBarButtonStyle())
         .padding(4)
         .glassEffect(.regular, in: .capsule)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button(ItemKind.text.creationTitle, systemImage: ItemKind.text.creationSymbol, action: onNewNote)
+            .help("Novo card de texto (⇧⌘N)")
+        Button(ItemKind.sticky.creationTitle, systemImage: ItemKind.sticky.creationSymbol, action: onNewSticky)
+            .help("Novo sticker (⌥⌘N)")
+        if let onNewFreeText {
+            Button("Texto livre", systemImage: "text.aligncenter", action: onNewFreeText)
+                .help("Novo texto livre")
+        }
+        if let onNewFolder {
+            Button(ItemKind.folder.creationTitle, systemImage: ItemKind.folder.creationSymbol, action: onNewFolder)
+                .help("Nova pasta (⌃⌘N)")
+        }
+        Button("Arquivos…", systemImage: "paperclip", action: onAddFiles)
+            .help("Adicionar arquivos (⇧⌘I) — ou cole com ⌘V")
+        Button("Fotos…", systemImage: "photo.on.rectangle", action: onAddPhotos)
+            .accessibilityLabel("Adicionar fotos e vídeos do app Fotos")
+            .accessibilityIdentifier("photos-import-button")
+            .help("Adicionar fotos e vídeos do app Fotos")
+        Button("Lembretes…", systemImage: "checklist.checked", action: onAddReminders)
+            .help("Adicionar lembretes do app Lembretes")
     }
 }
 

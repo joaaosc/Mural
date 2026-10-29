@@ -13,6 +13,8 @@ struct MuralWindowView: View {
 
     let tabs: MuralTabs
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// Abas abertas e aba ativa, para reabrir junto com a janela (segue a preferência do sistema).
     @SceneStorage("mural.tabs") private var storedTabs = ""
     @SceneStorage("mural.sidebar") private var storedSidebar = false
@@ -71,14 +73,14 @@ struct MuralWindowView: View {
         HStack(spacing: 0) {
             if tabs.isSidebarVisible {
                 MuralsSidebar(tabs: tabs)
-                    .transition(.move(edge: .leading))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading))
                 Divider()
                     .ignoresSafeArea()
             }
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .animation(.smooth(duration: 0.25), value: tabs.isSidebarVisible)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: tabs.isSidebarVisible)
         .onGeometryChange(for: CGFloat.self) {
             $0.size.width
         } action: {
