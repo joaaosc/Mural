@@ -8,6 +8,9 @@ final class MuralUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Quanto segurar o ponteiro sobre uma pasta antes de soltar o cartão: um pouco mais que o 1 s de espera dela.
+    private static let folderHold: TimeInterval = 1.3
+
     @MainActor
     private func launch(_ argument: String = "-uiTesting") -> XCUIApplication {
         let app = XCUIApplication()
@@ -275,7 +278,10 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(folder.waitForExistence(timeout: 10))
 
         let start = card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.click(forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        // A pasta só aceita o cartão depois de 1 s com o ponteiro em cima: segura 1,3 s antes de soltar.
+        start.click(
+            forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+            withVelocity: .default, thenHoldForDuration: Self.folderHold)
 
         // Afasta o ponteiro das pastas, para nenhuma prévia mostrar o cartão guardado.
         app.buttons["Alpha"].firstMatch.hover()
@@ -299,6 +305,24 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(reopened.buttons["Today"].waitForNonExistence(timeout: 3), "o cartão não volta ao mural")
     }
 
+    /// Passar por cima da pasta e soltar na hora só reposiciona: a pasta ainda não esperou o 1 s.
+    @MainActor
+    func testQuickPassOverFolderDoesNotStoreCard() throws {
+        let app = launch()
+        let card = app.buttons["Today"].firstMatch
+        let folder = app.buttons["44th Street"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .click(forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+
+        // Espera além do atraso: se a pasta aceitasse o cartão, ele já teria saído do mural.
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertTrue(app.buttons["Today"].exists, "soltar antes de 1 s sobre a pasta não guarda o cartão")
+        XCTAssertFalse(app.buttons["Voltar"].exists, "a pasta não abriu")
+    }
+
     @MainActor
     func testDroppingSelectionOnFolderStoresBothCards() throws {
         let app = launch()
@@ -312,7 +336,9 @@ final class MuralUITests: XCTestCase {
             second.click()
         }
         first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .click(forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+            .click(
+                forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+                withVelocity: .default, thenHoldForDuration: Self.folderHold)
         folder.click()
         XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Today"].waitForExistence(timeout: 5))
