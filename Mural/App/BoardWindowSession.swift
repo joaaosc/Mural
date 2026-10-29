@@ -133,6 +133,12 @@ final class BoardWindowSession {
     /// Nota ou post-it aberto no modo de edição.
     private(set) var editingItemID: UUID?
     private(set) var noteDrafts: [UUID: NoteDraft] = [:]
+    /// Rascunhos que não puderam ser gravados e continuam disponíveis para cópia.
+    private(set) var draftNeedingCopyItemIDs: Set<UUID> = []
+
+    var draftNeedingCopyItemID: UUID? {
+        draftNeedingCopyItemIDs.sorted { $0.uuidString < $1.uuidString }.first
+    }
 
     var path: [Destination] = []
     var filter: BoardFilter?
@@ -232,9 +238,14 @@ final class BoardWindowSession {
 
     /// No mural e dentro de pasta dá para criar conteúdo; na página de um item, não.
     var acceptsNewContent: Bool {
-        guard restorationPhase == .ready else { return false }
+        guard restorationPhase == .ready, canEdit else { return false }
         if case .item = path.last { return false }
         return true
+    }
+
+    /// Capacidade para ações que alteram o conteúdo, derivada da permissão atual do domínio.
+    var canEdit: Bool {
+        !isClosed && model?.isReadOnly == false
     }
 
     /// Pasta nova vale no mural e dentro de pastas, até o último nível permitido pelo domínio.
@@ -350,6 +361,10 @@ final class BoardWindowSession {
         guard model == nil, !isClosed else { return }
         error = nil
         await load()
+    }
+
+    func dismissError() {
+        error = nil
     }
 
     private func releaseRegistryReference() async {
@@ -865,7 +880,7 @@ final class BoardWindowSession {
         anchor: BoardPoint? = nil,
         animation: Animation?
     ) async {
-        guard let model, !isClosed else { return }
+        guard canEdit, let model else { return }
         let epoch = presentationEpoch
         let prepared: BoardModel.PreparedImport
         switch content {
@@ -901,7 +916,10 @@ final class BoardWindowSession {
             model.lastError = "O conteúdo copiado não pôde virar um cartão."
             return
         }
-        guard !isClosed, presentationEpoch == epoch else {
+        if let beforePastedImportCommit {
+            await beforePastedImportCommit()
+        }
+        guard canEdit, self.model === model, presentationEpoch == epoch else {
             model.discard(prepared)
             return
         }
@@ -918,6 +936,9 @@ final class BoardWindowSession {
         source, model in
         await NoteImagePaste.store(source, with: model)
     }
+
+    /// Pausa o commit de uma importação preparada para conferir a permissão logo antes de inserir.
+    @ObservationIgnored var beforePastedImportCommit: (() async -> Void)?
 
     /// Grava as imagens coladas e as liga à nota. Se a janela fechou ou a apresentação mudou no
     /// meio, descarta tudo e devolve `nil` para cada imagem.
@@ -1006,7 +1027,7 @@ final class BoardWindowSession {
     /// Cria um cartão para cada lembrete, na pasta aberta ou no mural.
     @discardableResult
     func addReminders(_ snapshots: [ReminderSnapshot]) -> [UUID] {
-        guard restoration.acceptsPersistence, !isClosed, let model, !snapshots.isEmpty else { return [] }
+        guard acceptsNewContent, let model, !snapshots.isEmpty else { return [] }
         let created = model.addReminders(snapshots, into: currentFolderID)
         captureBoardIfNeeded()
         return created.map(\.id)
@@ -1066,7 +1087,7 @@ final class BoardWindowSession {
     /// página dele já editando. Se ficar vazio ao concluir, ele é descartado.
     @discardableResult
     func createCard(_ kind: ItemKind) -> UUID? {
-        guard restoration.acceptsPersistence, let model, kind == .text || kind == .sticky else { return nil }
+        guard acceptsNewContent, let model, kind == .text || kind == .sticky else { return nil }
         let folderID = currentFolderID
         let item =
             kind == .text
@@ -1086,7 +1107,7 @@ final class BoardWindowSession {
     /// Cria um texto livre diretamente no mural e deixa a edição para a folha da interface.
     @discardableResult
     func createFreeText() -> UUID? {
-        guard restoration.acceptsPersistence, !isClosed, path.isEmpty, let model else { return nil }
+        guard acceptsNewContent, path.isEmpty, let model else { return nil }
         let freeText = model.createFreeText()
         captureBoardIfNeeded()
         return freeText.id
@@ -1138,7 +1159,7 @@ final class BoardWindowSession {
 
     /// Texto colado, no tipo escolhido no popup.
     func importPastedText(_ paste: PendingPaste, as kind: ItemKind) {
-        guard let model else { return }
+        guard canEdit, let model else { return }
         if model.importText(paste.text, as: kind, into: paste.folderID, at: paste.anchor) == nil {
             model.lastError = "O texto colado não pôde virar um cartão."
         }
@@ -1174,7 +1195,7 @@ final class BoardWindowSession {
     }
 
     func beginEditing(_ itemID: UUID) {
-        guard let item = model?.item(id: itemID), item.kind == .text || item.kind == .sticky else { return }
+        guard canEdit, let item = model?.item(id: itemID), item.kind == .text || item.kind == .sticky else { return }
         if let editingItemID, editingItemID != itemID {
             finishEditing()
         }
@@ -1191,30 +1212,91 @@ final class BoardWindowSession {
     }
 
     /// Grava o rascunho e sai da edição. Cartão criado pelo botão que ficou vazio é apagado.
-    func finishEditing() {
-        guard let itemID = editingItemID else { return }
+    @discardableResult
+    func finishEditing() -> Bool {
+        guard let itemID = editingItemID else { return true }
+        guard commitNoteDraft(for: itemID) else {
+            editingItemID = nil
+            if noteDrafts[itemID] != nil { draftNeedingCopyItemIDs.insert(itemID) }
+            let reason =
+                model?.isReadOnly == true
+                ? "O mural está em modo somente leitura."
+                : "O cartão não está mais disponível para edição."
+
+            let message = "\(reason) O rascunho foi mantido nesta janela; copie-o antes de fechar."
+            if let model {
+                model.lastError = message
+            } else {
+                error = message
+            }
+            return false
+        }
         editingItemID = nil
-        commitNoteDraft(for: itemID)
+        draftNeedingCopyItemIDs.remove(itemID)
         if newItemIDs.remove(itemID) != nil, model?.item(id: itemID)?.isBlank == true {
             delete(itemID)
         }
+        return true
     }
 
     /// Publica todos os rascunhos no mural, sem sair da edição.
     func commitNoteDrafts() {
         for itemID in Array(noteDrafts.keys) {
-            commitNoteDraft(for: itemID)
+            guard !commitNoteDraft(for: itemID) else {
+                draftNeedingCopyItemIDs.remove(itemID)
+                continue
+            }
+            if noteDrafts[itemID] != nil { draftNeedingCopyItemIDs.insert(itemID) }
+            let reason =
+                model?.isReadOnly == true
+                ? "O mural está em modo somente leitura."
+                : "O cartão não está mais disponível para edição."
+
+            let message = "\(reason) Os rascunhos não gravados foram mantidos nesta janela; copie-os antes de fechar."
+            if let model {
+                model.lastError = message
+            } else {
+                error = message
+            }
         }
     }
 
-    private func commitNoteDraft(for itemID: UUID) {
-        guard let model, let draft = noteDrafts.removeValue(forKey: itemID), let item = model.item(id: itemID) else { return }
+    @discardableResult
+    private func commitNoteDraft(for itemID: UUID) -> Bool {
+        guard let draft = noteDrafts[itemID] else { return true }
+        guard let model, let item = model.item(id: itemID) else { return false }
+        guard !model.isReadOnly else { return false }
         switch item.kind {
         case .text: model.updateNote(itemID, title: draft.title, text: draft.text)
         case .sticky: model.updateSticky(itemID, text: draft.text, color: draft.color)
-        default: return
+        default: return false
         }
+        noteDrafts.removeValue(forKey: itemID)
         captureBoardIfNeeded()
+        return true
+    }
+
+    /// Junta os rascunhos retidos, com separadores, para uma única cópia de recuperação.
+    var draftTextToCopy: String? {
+        let texts = draftNeedingCopyItemIDs.sorted { $0.uuidString < $1.uuidString }
+            .compactMap(draftTextToCopy(for:))
+        guard !texts.isEmpty else { return nil }
+        return texts.joined(separator: "\n\n---\n\n")
+    }
+
+    /// Inclui também edições iniciadas enquanto a gravação de saída estava em andamento.
+    var allNoteDraftText: String? {
+        let texts = noteDrafts.keys.sorted { $0.uuidString < $1.uuidString }.compactMap { id -> String? in
+            guard let draft = noteDrafts[id] else { return nil }
+            return "Título: \(draft.title)\nTexto: \(draft.text)\nCor: \(draft.color.rawValue)"
+        }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n\n---\n\n")
+    }
+
+    func draftTextToCopy(for itemID: UUID) -> String? {
+        guard draftNeedingCopyItemIDs.contains(itemID), let draft = noteDrafts[itemID] else { return nil }
+        let text = [draft.title, draft.text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        return text.isEmpty ? nil : text
     }
 
     func beginSaveCopy() {
@@ -1428,8 +1510,14 @@ final class BoardWindowSession {
         // Edição local que o disco ainda não tem: a gravação traz junto o que há para enviar, e `onPersisted` não diz "só junção".
         let hadLocalEdits = lastPersistedBoard.map { $0 != before } ?? true
         var merged = BoardMerge.apply(received.changes, to: before, base: received.previousBase).board
+        let previousNotes = noteDrafts
+        let previousCaptions = captionDrafts
+        let previousCopyIDs = draftNeedingCopyItemIDs
         reconcileDrafts(before: before, merged: &merged)
         guard model.applyMergedBoard(merged) else {
+            noteDrafts = previousNotes
+            captionDrafts = previousCaptions
+            draftNeedingCopyItemIDs = previousCopyIDs
             throw BoardSyncApplyError.saveFailed(model.lastError ?? "o mural não pôde ser trocado")
         }
 
@@ -1476,6 +1564,7 @@ final class BoardWindowSession {
                     copies.append(BoardMerge.conflictCopy(of: typed, now: now))
                 }
                 noteDrafts[id] = nil
+                draftNeedingCopyItemIDs.remove(id)
                 captionDrafts[id] = nil
                 continue
             }
@@ -1682,6 +1771,7 @@ final class BoardWindowSession {
     func delete(_ itemID: UUID) {
         guard let model, !isClosed, model.item(id: itemID) != nil else { return }
         model.delete(itemID)
+        guard model.item(id: itemID) == nil else { return }
         musicPlayback.stopIfMissing(in: model, boardID: boardID)
         canonicalizeWorkspaceAfterContentMutation()
         forgetSessionState(of: itemID)
@@ -1692,6 +1782,7 @@ final class BoardWindowSession {
     private func forgetSessionState(of itemID: UUID) {
         captionDrafts.removeValue(forKey: itemID)
         noteDrafts.removeValue(forKey: itemID)
+        draftNeedingCopyItemIDs.remove(itemID)
         newItemIDs.remove(itemID)
         selectedItemIDs.remove(itemID)
         if editingItemID == itemID { editingItemID = nil }
@@ -1887,7 +1978,7 @@ final class BoardWindowSession {
 
     func flushAndPrepareToLeaveSuccessfully() async -> Bool {
         await flushAndPrepareToLeave()
-        return !isDirty
+        return !isDirty && noteDrafts.isEmpty
     }
 
     /// Flushes the session once after the real `NSWindow` close notification.
@@ -1903,6 +1994,7 @@ final class BoardWindowSession {
         }
         guard !windowCloseHandled else { return }
         windowCloseHandled = true
+        openSessions.retainDraftsDuringClose(self)
         let photoTask = photoImportTask
         invalidatePresentation()
 

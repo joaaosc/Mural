@@ -3,11 +3,50 @@ import MuralKit
 import PDFKit
 import SwiftUI
 
+enum PDFLoadState: Equatable, Sendable {
+    case loading
+    case loaded
+    case failed
+
+    static func result(isValidDocument: Bool) -> Self { isValidDocument ? .loaded : .failed }
+}
+
+/// Aceita apenas publicações da carga atual e impede um estado de progresso atrasado de substituir o resultado.
+struct PDFLoadStatePublication: Sendable {
+    private(set) var requestToken = UUID()
+    private(set) var publishedState: PDFLoadState?
+
+    mutating func beginRequest() -> UUID {
+        requestToken = UUID()
+        publishedState = nil
+        return requestToken
+    }
+
+    mutating func invalidate() {
+        requestToken = UUID()
+        publishedState = nil
+    }
+
+    func isCurrent(_ token: UUID) -> Bool {
+        requestToken == token
+    }
+
+    @discardableResult
+    mutating func publish(_ state: PDFLoadState, for token: UUID) -> Bool {
+        guard isCurrent(token) else { return false }
+        guard publishedState == nil || publishedState == .loading else { return false }
+        guard !(publishedState == .loading && state == .loading) else { return false }
+        publishedState = state
+        return true
+    }
+}
+
 /// Ponte para o `PDFView` do PDFKit, que não tem equivalente em SwiftUI.
 struct PDFKitView: NSViewRepresentable {
     let itemID: UUID
     let url: URL
     let session: BoardWindowSession?
+    let onLoadStateChange: (PDFLoadState) -> Void
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
@@ -26,7 +65,7 @@ struct PDFKitView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(itemID: itemID, url: url, session: session)
+        Coordinator(itemID: itemID, url: url, session: session, onLoadStateChange: onLoadStateChange)
     }
 
     static func dismantleNSView(_ view: PDFView, coordinator: Coordinator) {
@@ -62,22 +101,40 @@ struct PDFKitView: NSViewRepresentable {
         private var documentLoad: Task<Void, Never>?
         private var requestedURL: URL?
         private var isLoadingDocument = false
+        private var loadStatePublication = PDFLoadStatePublication()
+        private let onLoadStateChange: (PDFLoadState) -> Void
 
         /// Abre o PDF fora do Main Actor (um PDF grande travaria a janela) e o instala
         /// na view quando pronto; pedidos antigos são descartados.
         func loadDocument(at url: URL, into view: PDFView) {
             guard requestedURL != url else { return }
             requestedURL = url
+            let requestToken = loadStatePublication.beginRequest()
             documentLoad?.cancel()
             isLoadingDocument = true
+            publishLoadState(.loading, for: requestToken)
             // O documento anterior sai já: a posição do item novo não pode ser aplicada nele.
             if view.document != nil { view.document = nil }
             documentLoad = Task { [weak self, weak view] in
                 let document = await Coordinator.openDocument(at: url)
-                guard let self, let view, !Task.isCancelled, self.requestedURL == url else { return }
+                guard let self, let view, !Task.isCancelled, self.requestedURL == url,
+                    self.loadStatePublication.isCurrent(requestToken)
+                else { return }
                 self.isLoadingDocument = false
                 view.document = document
+                self.publishLoadState(
+                    .result(isValidDocument: document.map { $0.pageCount > 0 } == true),
+                    for: requestToken)
                 self.restore(in: view)
+            }
+        }
+
+        /// Deixa o callback retornar antes de alterar estado SwiftUI e descarta publicações de pedidos antigos.
+        private func publishLoadState(_ state: PDFLoadState, for requestToken: UUID) {
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self, self.loadStatePublication.publish(state, for: requestToken) else { return }
+                self.onLoadStateChange(state)
             }
         }
 
@@ -86,10 +143,11 @@ struct PDFKitView: NSViewRepresentable {
             PDFDocument(url: url)
         }
 
-        init(itemID: UUID, url: URL, session: BoardWindowSession?) {
+        init(itemID: UUID, url: URL, session: BoardWindowSession?, onLoadStateChange: @escaping (PDFLoadState) -> Void) {
             self.itemID = itemID
             self.url = url
             self.session = session
+            self.onLoadStateChange = onLoadStateChange
             super.init()
         }
 
@@ -371,6 +429,7 @@ struct PDFKitView: NSViewRepresentable {
 
         func invalidate() {
             finalizeBeforeNavigation()
+            loadStatePublication.invalidate()
             pendingCapture?.cancel()
             restoreDeadline?.cancel()
             restoreDeadline = nil

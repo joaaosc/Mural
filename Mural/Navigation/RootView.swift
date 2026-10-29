@@ -266,12 +266,40 @@ private struct LoadedRootView: View {
 
     @ViewBuilder
     private var errorBanner: some View {
-        if let message = model.lastError ?? session.error {
-            ErrorBanner(message: message) { model.lastError = nil }
+        let modelError = model.lastError
+        if let message = modelError ?? session.error {
+            HStack(spacing: 8) {
+                ErrorBanner(message: message) {
+                    if modelError != nil {
+                        model.lastError = nil
+                    } else {
+                        session.dismissError()
+                    }
+                }
+                if session.draftTextToCopy != nil { copyDraftButton }
+            }
+            .padding(12)
+            .containerCornerOffset(.top)
+            .transition(errorTransition)
+        } else if session.draftTextToCopy != nil {
+            copyDraftButton
                 .padding(12)
                 .containerCornerOffset(.top)
                 .transition(errorTransition)
         }
+    }
+
+    private var copyDraftButton: some View {
+        Button("Copiar rascunhos", systemImage: "doc.on.doc", action: copyRetainedDraft)
+            .buttonStyle(.bordered)
+            .glassEffect(.regular, in: .capsule)
+            .help("Copiar os rascunhos mantidos nesta janela")
+    }
+
+    private func copyRetainedDraft() {
+        guard let text = session.draftTextToCopy else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @ViewBuilder
@@ -311,6 +339,7 @@ private struct LoadedRootView: View {
     }
 
     private func handleDrop(urls: [URL], location: CGPoint) -> Bool {
+        guard session.acceptsNewContent else { return false }
         let files = urls.filter(\.isFileURL)
         let folder = currentFolderID
         let animation = importAnimation
@@ -326,13 +355,20 @@ private struct LoadedRootView: View {
     }
 
     private func handleMusicDrop(_ drafts: [MusicDraft], location: CGPoint) -> Bool {
-        guard !drafts.isEmpty else { return false }
+        guard session.acceptsNewContent, !drafts.isEmpty else { return false }
         importMusic(
             drafts, into: currentFolderID, anchor: session.dropAnchor(localPoint: location), animation: importAnimation)
         return true
     }
 
     private func handlePaste() {
+        guard
+            session.acceptsNewContent
+                || session.path.last.map({
+                    if case .item(let id) = $0 { return session.editingItemID == id }
+                    return false
+                }) == true
+        else { return }
         if case .item(let noteID)? = path.last, session.editingItemID != noteID,
             session.model?.item(id: noteID)?.kind == .text,
             let pieces = NoteImagePaste.read(from: .general)
@@ -747,6 +783,7 @@ private struct LoadedRootView: View {
 
     private func importPaste(_ paste: PendingPaste, as kind: ItemKind) {
         pendingPaste = nil
+        guard session.acceptsNewContent else { return }
         withAnimation(importAnimation) {
             session.importPastedText(paste, as: kind)
         }

@@ -30,11 +30,13 @@ struct ImageDetailView: View {
                 HStack(alignment: .top, spacing: 22) {
                     PaletteColumn(colors: item.imageMetadata?.palette ?? [])
                         .frame(width: 30)
-                    ThumbnailView(url: model.fileURL(for: item), kind: .image, maxPixelSize: 2400, contentMode: .fit)
-                        .aspectRatio(ratio, contentMode: .fit)
-                        .containerRelativeFrame(.vertical) { height, _ in height * 0.62 }
-                        .clipShape(.rect(cornerRadius: 4))
-                        .accessibilityLabel(item.title)
+                    ThumbnailView(
+                        url: model.fileURL(for: item), kind: .image, maxPixelSize: 2400, contentMode: .fit, showsRetry: true
+                    )
+                    .aspectRatio(ratio, contentMode: .fit)
+                    .containerRelativeFrame(.vertical) { height, _ in height * 0.62 }
+                    .clipShape(.rect(cornerRadius: 4))
+                    .accessibilityLabel(item.title)
                     MetadataColumn(rows: rows)
                         .frame(width: 170, alignment: .leading)
                 }

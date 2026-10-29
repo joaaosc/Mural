@@ -13,6 +13,8 @@ final class OpenBoardSessions {
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
+    // Uma janela fechada não pode ser a única dona de texto que não pôde ser gravado.
+    private var retainedDraftSessions: [ObjectIdentifier: BoardWindowSession] = [:]
 
     /// Chamado a cada sessão que se registra (toda sessão de janela se registra ao carregar, qualquer que seja quem a criou). A
     /// sincronização com o iCloud o usa para ouvir as gravações sem que a sessão a conheça. Um só ouvinte: o do controlador do app.
@@ -24,7 +26,107 @@ final class OpenBoardSessions {
     }
 
     func unregister(_ session: BoardWindowSession) {
+        if !session.noteDrafts.isEmpty {
+            retainedDraftSessions[ObjectIdentifier(session)] = session
+        } else {
+            retainedDraftSessions.removeValue(forKey: ObjectIdentifier(session))
+        }
         entries.removeValue(forKey: ObjectIdentifier(session))
+    }
+
+    func retainDraftsDuringClose(_ session: BoardWindowSession) {
+        if !session.noteDrafts.isEmpty { retainedDraftSessions[ObjectIdentifier(session)] = session }
+    }
+
+    var retainedDrafts: [BoardWindowSession] {
+        retainedDraftSessions.values.sorted { $0.title < $1.title }
+    }
+
+    var sessionsWithUnwrittenDrafts: [BoardWindowSession] {
+        let open = live
+        let openIDs = Set(open.map(ObjectIdentifier.init))
+        return (open + retainedDrafts.filter { !openIDs.contains(ObjectIdentifier($0)) })
+            .filter { !$0.noteDrafts.isEmpty }
+    }
+
+    var unwrittenDraftText: String? {
+        let texts = sessionsWithUnwrittenDrafts.compactMap { session in
+            session.allNoteDraftText.map { "\(session.title)\n\n\($0)" }
+        }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n\n---\n\n")
+    }
+
+    struct DraftSnapshot: Equatable {
+        let drafts: [ObjectIdentifier: [UUID: NoteDraft]]
+    }
+
+    var draftSnapshot: DraftSnapshot {
+        DraftSnapshot(
+            drafts: Dictionary(
+                uniqueKeysWithValues: sessionsWithUnwrittenDrafts.map {
+                    (ObjectIdentifier($0), $0.noteDrafts)
+                }))
+    }
+
+    var closedDraftSnapshot: DraftSnapshot {
+        let openIDs = Set(live.map(ObjectIdentifier.init))
+        return DraftSnapshot(
+            drafts: Dictionary(
+                uniqueKeysWithValues:
+                    retainedDrafts
+                    .filter { !openIDs.contains(ObjectIdentifier($0)) && !$0.noteDrafts.isEmpty }
+                    .map { (ObjectIdentifier($0), $0.noteDrafts) }))
+    }
+
+    func discardRetainedDrafts(_ snapshot: DraftSnapshot) {
+        let current = closedDraftSnapshot
+        for (id, drafts) in snapshot.drafts where current.drafts[id] == drafts {
+            retainedDraftSessions.removeValue(forKey: id)
+        }
+    }
+
+    func reviewRetainedDrafts() {
+        let snapshot = closedDraftSnapshot
+        guard !snapshot.drafts.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Nenhum rascunho de janela fechada"
+            alert.informativeText = "Os rascunhos das janelas abertas aparecem no próprio mural."
+            alert.runModal()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Rascunhos de janelas fechadas"
+        alert.informativeText = "Há rascunhos que não puderam ser gravados. Eles ficam disponíveis somente enquanto o Mural estiver aberto."
+        alert.addButton(withTitle: "Copiar Tudo")
+        alert.addButton(withTitle: "Fechar")
+        alert.addButton(withTitle: "Descartar…")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            let text = retainedDrafts.filter { snapshot.drafts[ObjectIdentifier($0)] == $0.noteDrafts }.compactMap { session in
+                session.allNoteDraftText.map { "\(session.title)\n\n\($0)" }
+            }.joined(separator: "\n\n---\n\n")
+            NSPasteboard.general.clearContents()
+            if text.isEmpty || !NSPasteboard.general.setString(text, forType: .string) {
+                Self.showCopyFailure()
+            }
+        case .alertThirdButtonReturn:
+            let confirmation = NSAlert()
+            confirmation.alertStyle = .warning
+            confirmation.messageText = "Descartar os rascunhos?"
+            confirmation.informativeText = "Os textos das janelas fechadas serão perdidos."
+            confirmation.addButton(withTitle: "Cancelar")
+            confirmation.addButton(withTitle: "Descartar")
+            if confirmation.runModal() == .alertSecondButtonReturn { discardRetainedDrafts(snapshot) }
+        default: break
+        }
+    }
+
+    static func showCopyFailure() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Não foi possível copiar os rascunhos"
+        alert.informativeText = "Os rascunhos continuam disponíveis enquanto o Mural estiver aberto."
+        alert.runModal()
     }
 
     var live: [BoardWindowSession] {
@@ -44,7 +146,7 @@ final class OpenBoardSessions {
             for flush in flushes { await flush.value }
         }
         let finished = await Self.wait(for: flush, timeout: timeout)
-        return sessions.filter { !finished || $0.isDirty }.map(\.title)
+        return sessions.filter { !finished || $0.isDirty || !$0.noteDrafts.isEmpty }.map(\.title)
     }
 
     /// Espera a tarefa ou o prazo, o que vier primeiro, sem esperar a tarefa depois do prazo.
@@ -113,6 +215,7 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     var reply: @MainActor (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
     /// Pergunta o que fazer quando algo não foi salvo. `true` sai mesmo assim.
     var confirmQuitWithUnsavedBoards: @MainActor ([String]) -> Bool = MuralAppDelegate.askToQuitAnyway
+    var confirmQuitWithDrafts: @MainActor (String?) -> Bool = MuralAppDelegate.askAboutDrafts
     /// Há alguma janela do app aberta (inclusive minimizada)?
     var hasOpenWindow: @MainActor () -> Bool = {
         NSApp.windows.contains { ($0.isVisible || $0.isMiniaturized) && $0.canBecomeMain }
@@ -182,15 +285,54 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !openSessions.live.isEmpty else { return .terminateNow }
+        guard !openSessions.live.isEmpty || !openSessions.retainedDrafts.isEmpty else { return .terminateNow }
         guard !isTerminating else { return .terminateLater }
         isTerminating = true
         Task { @MainActor in
+            defer { isTerminating = false }
             let unsaved = await openSessions.flushAll(timeout: flushTimeout)
-            isTerminating = false
-            reply(unsaved.isEmpty || confirmQuitWithUnsavedBoards(unsaved))
+            while true {
+                let snapshot = openSessions.draftSnapshot
+                if !snapshot.drafts.isEmpty && !confirmQuitWithDrafts(openSessions.unwrittenDraftText) {
+                    reply(false)
+                    return
+                }
+                if !unsaved.isEmpty && !confirmQuitWithUnsavedBoards(unsaved) {
+                    reply(false)
+                    return
+                }
+                if snapshot == openSessions.draftSnapshot {
+                    reply(true)
+                    return
+                }
+            }
         }
         return .terminateLater
+    }
+
+    private static func askAboutDrafts(_ text: String?) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Há rascunhos que não foram gravados"
+        alert.informativeText =
+            "Os textos estão somente na memória e serão perdidos se o Mural for encerrado. Copie e revise antes de sair."
+        alert.addButton(withTitle: "Cancelar")
+        alert.addButton(withTitle: "Copiar e Revisar")
+        alert.addButton(withTitle: "Sair e Perder Rascunhos")
+        switch alert.runModal() {
+        case .alertSecondButtonReturn:
+            if let text {
+                NSPasteboard.general.clearContents()
+                if !NSPasteboard.general.setString(text, forType: .string) {
+                    OpenBoardSessions.showCopyFailure()
+                }
+            } else {
+                OpenBoardSessions.showCopyFailure()
+            }
+            return false
+        case .alertThirdButtonReturn: return true
+        default: return false
+        }
     }
 
     private static func askToQuitAnyway(_ titles: [String]) -> Bool {

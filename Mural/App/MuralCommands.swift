@@ -110,6 +110,9 @@ struct MuralCommands: Commands {
             .disabled(tabs.selected == nil)
             Button("Retomar Rascunho de Exemplo") { Task { await tabs.resumeDraft() } }
                 .disabled(!tabs.resumeDraftAvailable)
+            Button("Revisar Rascunhos de Janelas Fechadas…") {
+                OpenBoardSessions.shared.reviewRetainedDrafts()
+            }
         }
         CommandGroup(replacing: .sidebar) {
             Button(tabs.isSidebarVisible ? "Ocultar Barra Lateral" : "Mostrar Barra Lateral") {

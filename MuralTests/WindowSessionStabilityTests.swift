@@ -205,7 +205,7 @@ struct WindowSessionStabilityTests {
         #expect(document.write(to: url))
 
         let view = PDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
-        let coordinator = PDFKitView.Coordinator(itemID: UUID(), url: url, session: nil)
+        let coordinator = PDFKitView.Coordinator(itemID: UUID(), url: url, session: nil, onLoadStateChange: { _ in })
         coordinator.loadDocument(at: url, into: view)
         coordinator.install(on: view)
         for _ in 0..<100 where view.document == nil {

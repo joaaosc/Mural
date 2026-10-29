@@ -117,6 +117,10 @@ struct BoardWindowSessionRemoteTests {
         let (scene, notes) = try await makeScene(["um"])
         defer { try? FileManager.default.removeItem(at: scene.directory) }
         scene.model.isReadOnly = true
+        #expect(!scene.session.canEdit)
+        scene.session.beginEditing(notes[0].id)
+        #expect(scene.session.editingItemID == nil)
+        #expect(scene.session.createCard(.text) == nil)
         let base = synced(scene.model.board)
 
         try await scene.session.applyRemote(
@@ -155,7 +159,10 @@ struct BoardWindowSessionRemoteTests {
         defer { try? FileManager.default.removeItem(at: scene.directory) }
         let note = notes[0]
         let base = synced(scene.model.board)
+        #expect(scene.session.restorationPhase != .ready, "a sessão de teste não restaurou nenhum canvas")
+        #expect(scene.session.canEdit, "a permissão de edição pertence ao domínio carregado")
         scene.session.beginEditing(note.id)
+        #expect(scene.session.editingItemID == note.id)
         var draft = NoteDraft(item: note)
         draft.text = "Parágrafo um editado aqui\n\nParágrafo dois\n\nParágrafo três"
         scene.session.setNoteDraft(draft, for: note.id)

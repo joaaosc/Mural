@@ -12,6 +12,32 @@ import Testing
 @Suite("Sessões de mural por janela")
 @MainActor
 struct BoardWindowSessionTests {
+    private actor PasteImportGate {
+        private var didReachGate = false
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        func pause() async {
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+                didReachGate = true
+                let currentWaiters = waiters
+                waiters.removeAll()
+                for waiter in currentWaiters { waiter.resume() }
+            }
+        }
+
+        func waitUntilReached() async {
+            guard !didReachGate else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func release() {
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+    }
+
     private func root() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("MuralWindowSession-\(UUID().uuidString)", isDirectory: true)
@@ -493,7 +519,8 @@ struct BoardWindowSessionTests {
         let coordinator = PDFKitView.Coordinator(
             itemID: item.id,
             url: URL(fileURLWithPath: "/tmp/mural-test.pdf"),
-            session: session)
+            session: session,
+            onLoadStateChange: { _ in })
         coordinator.install(on: view)
         // Frame zero is intentionally not enough to release the local barrier.
         session.recordReadingPosition(
@@ -538,7 +565,8 @@ struct BoardWindowSessionTests {
         let coordinator = PDFKitView.Coordinator(
             itemID: item.id,
             url: URL(fileURLWithPath: "/tmp/mural-pdf-indisponivel.pdf"),
-            session: session)
+            session: session,
+            onLoadStateChange: { _ in })
 
         coordinator.install(on: view)
         session.recordReadingPosition(
@@ -563,7 +591,8 @@ struct BoardWindowSessionTests {
         view.document = document
         let firstURL = URL(fileURLWithPath: "/tmp/mural-primeiro.pdf")
         let secondURL = URL(fileURLWithPath: "/tmp/mural-segundo.pdf")
-        let coordinator = PDFKitView.Coordinator(itemID: item.id, url: firstURL, session: session)
+        let coordinator = PDFKitView.Coordinator(
+            itemID: item.id, url: firstURL, session: session, onLoadStateChange: { _ in })
         coordinator.install(on: view)
         coordinator.restoreDidChange(in: view)
 
@@ -766,6 +795,169 @@ struct BoardWindowSessionTests {
         session.setNavigation(path: [], filter: nil)
         #expect(session.editingItemID == nil)
         #expect(session.model?.item(id: note.id)?.text == "Saindo da página.")
+    }
+
+    @Test("Permissão somente leitura impede nova edição e preserva rascunho recusado ao navegar")
+    func readOnlyEditingAndNavigationPreserveDraft() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Somente leitura")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let note = try #require(session.model?.importText("Texto original", as: .text))
+
+        session.model?.isReadOnly = true
+        #expect(!session.canEdit)
+        #expect(!session.acceptsNewContent)
+        session.beginEditing(note.id)
+        #expect(session.editingItemID == nil)
+        #expect(session.createCard(.text) == nil)
+
+        session.model?.isReadOnly = false
+        session.setNavigation(path: [.item(note.id)], filter: nil)
+        session.beginEditing(note.id)
+        let draft = NoteDraft(title: "Rascunho", text: "Texto ainda não salvo")
+        session.setNoteDraft(draft, for: note.id)
+        session.model?.isReadOnly = true
+        session.delete(note.id)
+        #expect(session.noteDrafts[note.id] == draft)
+        #expect(session.model?.item(id: note.id) != nil)
+        session.setNavigation(path: [], filter: nil)
+        #expect(session.path.isEmpty)
+        #expect(session.editingItemID == nil)
+        await session.prepareToClose()
+        #expect(session.noteDrafts[note.id] == draft)
+        #expect(session.draftTextToCopy == "Rascunho\n\nTexto ainda não salvo")
+        #expect(session.model?.item(id: note.id)?.text == "Texto original")
+        #expect(session.model?.lastError != nil)
+
+        #expect(session.noteDrafts[note.id] == draft)
+        #expect(session.draftTextToCopy == "Rascunho\n\nTexto ainda não salvo")
+    }
+
+    @Test("Entrega avulsa pode colar antes de o canvas ficar pronto")
+    func detachedDeliveryDoesNotWaitForCanvasRestoration() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Entrega avulsa")
+        let registry = BoardSessionRegistry(library: library)
+        let openSessions = OpenBoardSessions()
+        let delivery = BoardDelivery(registry: registry, covers: nil, openSessions: openSessions)
+        let entry = try #require(try await library.listSaved().first)
+
+        let outcome = await delivery.deliver(.pasted(.text("Comprar leite")), textKind: .sticky, to: entry)
+
+        #expect(outcome == .delivered(count: 1))
+        let saved = try #require(await library.open(route))
+        #expect(saved.board.items.first?.text == "Comprar leite")
+        #expect(saved.board.items.first?.kind == .sticky)
+        #expect(delivery.detachedSession(for: entry.manifest.id) == nil)
+        #expect(await registry.ownerCount(for: entry.manifest.id) == 0)
+    }
+
+    @Test("Colagem interna respeita somente leitura antes de iniciar")
+    func pastedContentIsRefusedWhenReadOnlyBeforeImport() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Somente leitura")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        await session.load()
+        let model = try #require(session.model)
+        #expect(session.restorationPhase != .ready)
+        model.isReadOnly = true
+
+        session.importPastedText(PendingPaste(text: "Não entra", folderID: nil), as: .sticky)
+        await session.importPasted(.text("Também não entra"), into: nil, animation: nil)
+
+        #expect(model.board.items.isEmpty)
+        await session.handleWindowWillClose()
+    }
+
+    @Test("Importação preparada é descartada se a permissão mudar antes de inserir")
+    func preparedPasteIsDiscardedWhenPermissionChanges() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Permissão durante colagem")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        await session.load()
+        let model = try #require(session.model)
+        let gate = PasteImportGate()
+        session.beforePastedImportCommit = { await gate.pause() }
+        let importTask = Task {
+            await session.importPasted(
+                .data(Data([4, 5, 6]), fileExtension: "pdf", kind: .pdf, title: "Não entra"), into: nil,
+                animation: nil)
+        }
+
+        await gate.waitUntilReached()
+        #expect(model.board.items.isEmpty, "a importação está preparada, mas ainda não foi inserida")
+        model.isReadOnly = true
+        await gate.release()
+        await importTask.value
+
+        #expect(model.board.items.isEmpty)
+        await session.handleWindowWillClose()
+    }
+
+    @Test("Rascunho de cartão indisponível continua copiável e não é tratado como salvo")
+    func unavailableNoteDraftRemainsCopyable() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Cartão removido")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let note = try #require(model.importText("Texto original", as: .text))
+        let draft = NoteDraft(title: "Rascunho local", text: "Texto que não pode sumir")
+        session.beginEditing(note.id)
+        session.setNoteDraft(draft, for: note.id)
+        var merged = model.board
+        merged.items.removeAll { $0.id == note.id }
+        #expect(model.applyMergedBoard(merged))
+
+        #expect(!session.finishEditing())
+        #expect(session.noteDrafts[note.id] == draft)
+        #expect(session.draftNeedingCopyItemID == note.id)
+        #expect(session.draftTextToCopy == "Rascunho local\n\nTexto que não pode sumir")
+        #expect(model.lastError?.contains("não está mais disponível") == true)
+    }
+
+    @Test("Todos os rascunhos recusados ficam disponíveis para cópia")
+    func multipleRetainedDraftsCanBeCopied() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Mais de um rascunho")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let first = try #require(model.importText("Primeiro texto", as: .text))
+        let second = try #require(model.importText("Segundo texto", as: .text))
+        let firstDraft = NoteDraft(title: "Primeiro rascunho", text: "Texto um")
+        let secondDraft = NoteDraft(title: "Segundo rascunho", text: "Texto dois")
+
+        session.beginEditing(first.id)
+        session.setNoteDraft(firstDraft, for: first.id)
+        model.isReadOnly = true
+        #expect(!session.finishEditing())
+        model.isReadOnly = false
+        session.beginEditing(second.id)
+        session.setNoteDraft(secondDraft, for: second.id)
+        model.isReadOnly = true
+        #expect(!session.finishEditing())
+
+        #expect(session.draftNeedingCopyItemIDs == [first.id, second.id])
+        #expect(session.draftTextToCopy(for: first.id) == "Primeiro rascunho\n\nTexto um")
+        #expect(session.draftTextToCopy(for: second.id) == "Segundo rascunho\n\nTexto dois")
+        #expect(session.draftTextToCopy?.contains("---") == true)
+        #expect(session.draftTextToCopy?.contains("Texto um") == true)
+        #expect(session.draftTextToCopy?.contains("Texto dois") == true)
+        await session.handleWindowWillClose()
     }
 
     @Test("Fechar a janela no meio da edição grava o rascunho")

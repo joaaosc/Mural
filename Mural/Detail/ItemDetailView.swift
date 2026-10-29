@@ -62,10 +62,18 @@ struct ItemDetailView: View {
                     PillAction(title: "Concluir", symbol: "checkmark", shortcut: KeyboardShortcut(.return, modifiers: .command)) {
                         session.finishEditing()
                     })
-            } else {
+            } else if session.canEdit {
                 actions.append(
                     PillAction(title: "Editar", symbol: "pencil", shortcut: KeyboardShortcut("e", modifiers: .command)) {
                         session.beginEditing(item.id)
+                    })
+            }
+            if session.draftNeedingCopyItemIDs.contains(item.id) {
+                actions.append(
+                    PillAction(title: "Copiar rascunho", symbol: "doc.on.doc") {
+                        guard let text = session.draftTextToCopy(for: item.id) else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
                     })
             }
         }

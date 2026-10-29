@@ -122,4 +122,111 @@ struct AppTerminationTests {
         #expect(replies == [true])
         #expect(try #require(try await library.open(route)).board.items.contains { $0.title.contains("salvo ao sair") })
     }
+
+    @Test("Rascunhos recusados sobrevivem ao fechamento e impedem saída silenciosa")
+    func closedSessionsRetainDraftsAndWarnOnQuit() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let registry = BoardSessionRegistry(library: library)
+        let open = OpenBoardSessions()
+        for name in ["Primeiro", "Segundo"] {
+            let route = try await library.createNamedBoard(name)
+            let session = BoardWindowSession(route: route, registry: registry, openSessions: open)
+            await makeReady(session)
+            let model = try #require(session.model)
+            let note = try #require(model.importText("Original", as: .text))
+            session.setNoteDraft(NoteDraft(title: name, text: "Texto de \(name)"), for: note.id)
+            model.isReadOnly = true
+            await session.handleWindowWillClose()
+        }
+        #expect(open.live.isEmpty)
+        #expect(open.retainedDrafts.count == 2)
+        #expect(open.unwrittenDraftText?.contains("Texto de Primeiro") == true)
+        #expect(open.unwrittenDraftText?.contains("Texto de Segundo") == true)
+
+        let delegate = MuralAppDelegate()
+        delegate.openSessions = open
+        var replies: [Bool] = []
+        delegate.reply = { replies.append($0) }
+        delegate.confirmQuitWithDrafts = { text in
+            #expect(text?.contains("Texto de Primeiro") == true)
+            return false
+        }
+        #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+        for _ in 0..<100 where replies.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(replies == [false])
+        #expect(open.retainedDrafts.count == 2)
+        open.discardRetainedDrafts(open.closedDraftSnapshot)
+        #expect(open.retainedDrafts.isEmpty)
+    }
+
+    @Test("Sair de mural aberto em somente leitura identifica o rascunho recusado")
+    func openReadOnlyDraftIsNotReportedAsSaved() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Compartilhado")
+        let open = OpenBoardSessions()
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library), openSessions: open)
+        await makeReady(session)
+        let model = try #require(session.model)
+        let note = try #require(model.importText("Original", as: .text))
+        session.setNoteDraft(NoteDraft(text: "Edição local"), for: note.id)
+        model.isReadOnly = true
+        #expect(await open.flushAll(timeout: .seconds(5)) == ["Compartilhado"])
+        #expect(open.unwrittenDraftText?.contains("Edição local") == true)
+        await session.handleWindowWillClose()
+        open.discardRetainedDrafts(open.closedDraftSnapshot)
+    }
+    @Test("Sair confirma novamente quando o rascunho muda durante o aviso")
+    func quitRechecksDraftAfterConfirmation() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Mural")
+        let open = OpenBoardSessions()
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library), openSessions: open)
+        await makeReady(session)
+        let model = try #require(session.model)
+        let note = try #require(model.importText("Original", as: .text))
+        session.setNoteDraft(NoteDraft(text: "Primeiro"), for: note.id)
+        model.isReadOnly = true
+        let delegate = MuralAppDelegate()
+        delegate.openSessions = open
+        var replies: [Bool] = []
+        var warnings = 0
+        delegate.reply = { replies.append($0) }
+        delegate.confirmQuitWithDrafts = { _ in
+            warnings += 1
+            if warnings == 1 { session.setNoteDraft(NoteDraft(text: "Mudou"), for: note.id) }
+            return warnings == 1
+        }
+        delegate.confirmQuitWithUnsavedBoards = { _ in true }
+        #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+        for _ in 0..<100 where replies.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(warnings == 2)
+        #expect(replies == [false])
+    }
+
+    @Test("Descarte não remove rascunho alterado depois da confirmação")
+    func discardRechecksDraft() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Mural")
+        let open = OpenBoardSessions()
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library), openSessions: open)
+        await makeReady(session)
+        let model = try #require(session.model)
+        let note = try #require(model.importText("Original", as: .text))
+        session.setNoteDraft(NoteDraft(text: "Primeiro"), for: note.id)
+        model.isReadOnly = true
+        await session.handleWindowWillClose()
+        let snapshot = open.closedDraftSnapshot
+        session.setNoteDraft(NoteDraft(text: "Mudou"), for: note.id)
+        open.discardRetainedDrafts(snapshot)
+        #expect(open.retainedDrafts.count == 1)
+    }
+
 }
