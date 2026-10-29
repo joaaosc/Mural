@@ -35,6 +35,9 @@ public enum BoardLayout {
     /// da janela e esconderia os vizinhos.
     public static let maximumStickySize = BoardSize(width: 480, height: 480)
 
+    public static let minimumImageSize = BoardSize(width: 60, height: 60)
+    public static let maximumImageSize = BoardSize(width: 720, height: 720)
+
     /// Menor tamanho de um texto livre no mural (100 × 60 pontos). É mais largo que alto porque o texto corre em linhas.
     public static let minimumFreeTextSize = BoardSize(width: 100, height: 60)
 
@@ -50,7 +53,7 @@ public enum BoardLayout {
     /// Os nomes mostrados na tela ficam no app.
     public static let freeTextPresetSides: [Double] = [120, 180, 260, 360]
 
-    /// Se a pessoa pode mudar o tamanho de um cartão solto deste tipo. Por ora, só o post-it.
+    /// Se a pessoa pode mudar o tamanho de um cartão solto deste tipo.
     public static func isResizable(_ kind: ItemKind) -> Bool {
         limits(for: kind) != nil
     }
@@ -409,6 +412,7 @@ public enum BoardLayout {
     private static func limits(for kind: ItemKind) -> (minimum: BoardSize, maximum: BoardSize)? {
         switch kind {
         case .sticky: (minimumStickySize, maximumStickySize)
+        case .image: (minimumImageSize, maximumImageSize)
         default: nil
         }
     }

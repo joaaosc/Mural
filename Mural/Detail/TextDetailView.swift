@@ -35,7 +35,7 @@ struct TextDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(36)
             }
-            .frame(maxWidth: 420, maxHeight: .infinity)
+            .frame(width: 420, height: 420)
             .background(Theme.sticky(item.stickyColor), in: .rect(cornerRadius: 6))
             .cardShadow()
             .frame(maxWidth: .infinity, maxHeight: .infinity)

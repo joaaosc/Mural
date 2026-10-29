@@ -14,7 +14,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 9: post-it num lugar livre dentro da pasta (`BoardItem.folderPosition`).
     /// - 10: legenda separada do corpo (`BoardItem.caption`).
     /// - 11: tamanho escolhido para post-it e texto livre (`BoardItem.size`, `BoardFreeText.size`).
-    public static let currentFormatVersion = 11
+    /// - 12: tamanho escolhido para imagens (`BoardItem.size`).
+    public static let currentFormatVersion = 12
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -71,6 +72,7 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.folderPosition != nil }) { version = max(version, 9) }
         if items.contains(where: { $0.caption != nil }) { version = max(version, 10) }
         if items.contains(where: { $0.size != nil }) { version = max(version, 11) }
+        if items.contains(where: { $0.kind == .image && $0.size != nil }) { version = max(version, 12) }
         return version
     }
 
@@ -318,7 +320,7 @@ public struct Board: Codable, Equatable, Sendable {
         return true
     }
 
-    /// Muda o tamanho de um cartão que pode mudar de tamanho (`BoardLayout.isResizable`, hoje só o post-it). O tamanho é
+    /// Muda o tamanho de um cartão que pode mudar de tamanho (`BoardLayout.isResizable`). O tamanho é
     /// normalizado (`BoardLayout.normalizedSize(_:for:)`): `nil`, ou um tamanho igual ao padrão do tipo, devolve o cartão ao padrão,
     /// e o mural deixa de exigir a versão 11 se nenhum outro elemento tiver tamanho. A ordem da lista não muda: o cartão não vai
     /// para cima dos outros. Um post-it guardado numa pasta também aceita o tamanho, que só vale quando ele volta ao mural.

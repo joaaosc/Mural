@@ -167,8 +167,9 @@ struct BoardCanvasView: View {
                     // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do texto, que decide pelo canto.
                     .resizeHandle(isVisible: showsResizeHandle(for: .freeText(freeText.id)), zoom: zoom.zoom)
                     .onHover { inside in resizableHoverChanged(.freeText(freeText.id), inside: inside) }
+                    .cardEmphasis(hoveredFolder == nil ? 1 : 0.3)
                     .offset(freeTextOffset(for: freeText))
-                    .zIndex(100)
+                    .zIndex(hoveredFolder == nil ? 100 : 0)
                     .highPriorityGesture(freeTextMoveGesture(for: freeText))
                 }
             }
@@ -309,6 +310,7 @@ struct BoardCanvasView: View {
         } else if BoardLayout.isResizable(item.kind) {
             cardButton(item, open: [.item(item.id)], size: size)
                 .frame(width: size.width, height: size.height)
+                .environment(\.boardImageShowWhole, item.kind == .image && resizing?.target == .item(item.id))
                 // A letra e a margem do post-it acompanham o tamanho mostrado, inclusive durante o arrasto do canto.
                 .contentScaled(for: item, width: size.width, height: size.height)
                 // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do cartão, que decide pelo canto.

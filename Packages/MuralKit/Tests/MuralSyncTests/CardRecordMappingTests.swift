@@ -203,6 +203,7 @@ struct CardRecordMappingTests {
             ("lugar na pasta", BoardItem(kind: .sticky, title: "p", parentID: UUID(), folderPosition: BoardPoint(x: 1, y: 2)), 9),
             ("legenda", BoardItem(kind: .image, title: "i", caption: "legenda"), 10),
             ("tamanho", BoardItem(kind: .sticky, title: "t", size: BoardSize(width: 200, height: 150)), 11),
+            ("tamanho de imagem", BoardItem(kind: .image, title: "i", size: BoardSize(width: 200, height: 150)), 12),
         ]
         for (name, item, version) in cases {
             let fields = try CardRecordMapping.fields(for: item, layer: 0)
@@ -211,7 +212,7 @@ struct CardRecordMappingTests {
         }
 
         let full = try CardRecordMapping.fields(for: SyncFixtures.fullItem(kind: .text), layer: 0)
-        #expect(full["formatVersion"] == .int(Int64(Board.currentFormatVersion)))
+        #expect(full["formatVersion"] == .int(Int64(Board(items: [SyncFixtures.fullItem(kind: .text)]).requiredFormatVersion)))
     }
 
     @Test("Registro de tipo de cartão desconhecido ou de versão futura não é suportado, e isso não é erro")

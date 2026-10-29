@@ -8,6 +8,7 @@ struct CardView: View {
     let model: BoardModel
 
     @Environment(\.linkPreviewFiles) private var linkPreviewFiles
+    @Environment(\.boardImageShowWhole) private var boardImageShowWhole
 
     var body: some View {
         switch item.kind {
@@ -32,8 +33,11 @@ struct CardView: View {
                 .colorTagDot(item.colorTag)
         case .image, .video, .pdf:
             let url = model.fileURL(for: item)
-            MediaCard(url: url, kind: item.kind, previewVideoURL: item.kind == .video ? url : nil)
-                .colorTagDot(item.colorTag)
+            MediaCard(
+                url: url, kind: item.kind, showsWholeImage: item.kind == .image && (item.size != nil || boardImageShowWhole),
+                previewVideoURL: item.kind == .video ? url : nil
+            )
+            .colorTagDot(item.colorTag)
         case .folder:
             let children = model.children(of: item.id)
             FolderCard(

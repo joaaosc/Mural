@@ -44,7 +44,7 @@ struct BoardResizeTests {
 
     @Test("O tamanho de um post-it exige a versão 11 só enquanto existe, e a versão volta quando ele sai")
     func stickySizeBumpsTheVersionOnlyWhileItExists() {
-        #expect(Board.currentFormatVersion == Self.requiredVersion, "controle: a versão atual do formato")
+        #expect(Board.currentFormatVersion >= Self.requiredVersion, "controle: a versão atual do formato")
         let plain = sticky()
         var board = Board(items: [plain])
         #expect(board.formatVersion == 1)
@@ -214,16 +214,16 @@ struct BoardResizeTests {
 
     // MARK: Quem pode mudar de tamanho
 
-    @Test("Só o post-it muda de tamanho")
+    @Test("Post-its e imagens mudam de tamanho")
     func onlyStickyIsResizable() {
         for kind in ItemKind.allCases {
-            #expect(BoardLayout.isResizable(kind) == (kind == .sticky), "\(kind)")
+            #expect(BoardLayout.isResizable(kind) == (kind == .sticky || kind == .image), "\(kind)")
         }
     }
 
     @Test("Um cartão que não muda de tamanho recusa o tamanho, e o mural fica como estava")
     func nonResizableKindIsRefused() {
-        let before = Board(items: ItemKind.allCases.filter { $0 != .sticky }.map { BoardItem(kind: $0, title: "\($0)") })
+        let before = Board(items: ItemKind.allCases.filter { $0 != .sticky && $0 != .image }.map { BoardItem(kind: $0, title: "\($0)") })
         var board = before
         for item in before.items {
             let accepted = board.resize(id: item.id, to: square(200))
@@ -293,9 +293,23 @@ struct BoardResizeTests {
 
     @Test("O tamanho guardado num cartão que não muda de tamanho é ignorado")
     func storedSizeOnNonResizableKindIsIgnored() {
-        let photo = BoardItem(kind: .image, title: "Foto", size: square(300))
-        #expect(BoardLayout.size(of: photo) == BoardLayout.cardSize(for: .image))
-        #expect(BoardLayout.normalizedSize(square(300), for: .image) == nil)
+        let video = BoardItem(kind: .video, title: "Vídeo", size: square(300))
+        #expect(BoardLayout.size(of: video) == BoardLayout.cardSize(for: .video))
+        #expect(BoardLayout.normalizedSize(square(300), for: .video) == nil)
+    }
+
+    @Test("Imagem redimensionada preserva o tamanho e exige formato 12")
+    func imageSizeUsesNewFormat() throws {
+        let image = BoardItem(kind: .image, title: "Foto")
+        var board = Board(items: [image])
+        let resized = board.resize(id: image.id, to: size(280, 160))
+        #expect(resized)
+        #expect(board.requiredFormatVersion == 12)
+        let decoded = try JSONDecoder().decode(Board.self, from: JSONEncoder().encode(board))
+        #expect(try #require(decoded.item(id: image.id)).size == size(280, 160))
+        let reset = board.resize(id: image.id, to: nil)
+        #expect(reset)
+        #expect(board.requiredFormatVersion < 12)
     }
 
     // MARK: Tamanho mostrado
@@ -482,9 +496,9 @@ struct BoardResizeTests {
 
     @Test("Um cartão que não muda de tamanho continua com o tamanho atual")
     func resizedSizeOfNonResizableKind() {
-        let photo = BoardItem(kind: .image, title: "Foto")
-        let current = BoardLayout.cardSize(for: .image)
-        #expect(BoardLayout.resizedSize(of: photo, deltaWidth: 100, deltaHeight: 100) == size(current.width, current.height))
+        let video = BoardItem(kind: .video, title: "Vídeo")
+        let current = BoardLayout.cardSize(for: .video)
+        #expect(BoardLayout.resizedSize(of: video, deltaWidth: 100, deltaHeight: 100) == size(current.width, current.height))
     }
 
     @Test("O texto livre arrastado respeita os limites dele e a proporção")

@@ -262,6 +262,17 @@ struct CardButton: View {
             ) { size in
                 withAnimation(reduceMotion ? nil : .smooth) { onResize(item.id, size) }
             }
+        } else if let onResize, item.kind == .image {
+            Menu("Tamanho") {
+                Button("Foto inteira") {
+                    let ratio = BoardLayout.aspectRatio(for: item)
+                    let width = max(60.0, 180.0 * min(ratio, 1))
+                    let height = max(60.0, 180.0 / max(ratio, 1))
+                    onResize(item.id, BoardSize(width: width, height: height))
+                }
+                Button("Tamanho padrão") { onResize(item.id, nil) }
+                    .disabled(item.size == nil)
+            }
         }
     }
 
