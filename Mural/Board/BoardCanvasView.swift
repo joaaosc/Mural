@@ -319,6 +319,7 @@ struct BoardCanvasView: View {
                 .contentScaled(for: item, width: size.width, height: size.height)
                 // A alça vem antes do gesto: o arrasto que começa nela chega ao gesto do cartão, que decide pelo canto.
                 .resizeHandle(isVisible: showsResizeHandle(for: .item(item.id)), zoom: zoom.zoom)
+                .resizeProportionFeedback(resizing?.target == .item(item.id) ? resizing?.proportion : nil, zoom: zoom.zoom)
                 .onHover { inside in resizableHoverChanged(.item(item.id), inside: inside) }
                 .highPriorityGesture(moveGesture(for: item))
         } else {
@@ -626,25 +627,37 @@ struct BoardCanvasView: View {
     }
 
     /// O tamanho que o arrasto do canto dá ao elemento, a partir do tamanho gravado. A mesma conta vale enquanto o ponteiro se
-    /// move e ao soltar, quando o estado ao vivo pode já ter sido limpo. `nil` se o elemento deixou de existir.
-    private func resizedSize(for target: ResizeDrag.Target, translation: CGSize, keepingProportion: Bool) -> BoardSize? {
+    /// move e ao soltar, quando o estado ao vivo pode já ter sido limpo. Numa foto, o tamanho encaixa nas proporções da lista
+    /// quando passa perto delas, e a proporção do encaixe vem junto. `nil` se o elemento deixou de existir.
+    private func resizedSize(
+        for target: ResizeDrag.Target, translation: CGSize, keepingProportion: Bool
+    ) -> (size: BoardSize, proportion: ImageProportion?)? {
         switch target {
         case .item(let id):
             guard let item = model.item(id: id) else { return nil }
-            return BoardLayout.resizedSize(
+            guard item.kind == .image else {
+                let size = BoardLayout.resizedSize(
+                    of: item, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
+                return (size, nil)
+            }
+            let result = BoardLayout.resizedImageSize(
                 of: item, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
+            return (result.size, result.proportion)
         case .freeText(let id):
             guard let freeText = model.freeText(id: id) else { return nil }
-            return BoardLayout.resizedSize(
+            let size = BoardLayout.resizedSize(
                 of: freeText, deltaWidth: translation.width, deltaHeight: translation.height, keepingProportion: keepingProportion)
+            return (size, nil)
         }
     }
 
     /// Atualiza o tamanho ao vivo. Com Shift, mantém a proporção do tamanho de partida.
     private func updateResize(_ target: ResizeDrag.Target, with value: DragGesture.Value) {
         let keepsProportion = NSEvent.modifierFlags.contains(.shift)
-        guard let size = resizedSize(for: target, translation: value.translation, keepingProportion: keepsProportion) else { return }
-        resizing = ResizeDrag(target: target, size: size, keepsProportion: keepsProportion)
+        guard let resized = resizedSize(for: target, translation: value.translation, keepingProportion: keepsProportion) else {
+            return
+        }
+        resizing = ResizeDrag(target: target, size: resized.size, keepsProportion: keepsProportion, proportion: resized.proportion)
     }
 
     /// Grava o tamanho em que o arrasto terminou, sem animação: o elemento já está onde o ponteiro o deixou. Recalcula pelo ponto
@@ -652,12 +665,12 @@ struct BoardCanvasView: View {
     /// último movimento, para o valor gravado ser o que a pessoa via.
     private func endResize(_ target: ResizeDrag.Target, with value: DragGesture.Value) {
         let keepsProportion = resizing?.target == target ? resizing?.keepsProportion : nil
-        let size = resizedSize(
+        let resized = resizedSize(
             for: target, translation: value.translation, keepingProportion: keepsProportion ?? NSEvent.modifierFlags.contains(.shift))
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            if let size { commitResize(target, to: size) }
+            if let resized { commitResize(target, to: resized.size) }
             resizing = nil
         }
         onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
