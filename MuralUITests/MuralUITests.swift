@@ -408,10 +408,49 @@ final class MuralUITests: XCTestCase {
         return card
     }
 
-    /// Arrasta o canto inferior direito do cartão, onde fica a alça, pelo deslocamento dado em pontos de tela.
+    /// Arrastar o canto de cima, à esquerda, de uma foto muda a origem e deixa o canto de baixo, à direita, onde estava.
     @MainActor
-    private func dragCorner(of card: XCUIElement, by offset: CGVector) {
-        let corner = card.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.97))
+    func testImageResizeFromTopLeadingKeepsOppositeCorner() throws {
+        let app = launch()
+        let card = try pasteImage(named: "foto-canto-cima", in: app)
+        let before = card.frame
+        XCTAssertEqual(before.height, 190, accuracy: 2, "o teste supõe zoom 1: \(before)")
+        attachScreenshot(of: app, named: "Foto antes do arrasto pelo canto de cima")
+        dragCorner(of: card, from: CGVector(dx: 0.03, dy: 0.03), by: CGVector(dx: -40, dy: -40))
+        let after = card.frame
+        attachScreenshot(of: app, named: "Foto depois do arrasto pelo canto de cima")
+        XCTAssertEqual(after.minX, before.minX - 40, accuracy: 4, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.minY, before.minY - 40, accuracy: 4, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.maxX, before.maxX, accuracy: 2, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.maxY, before.maxY, accuracy: 2, "antes: \(before), depois: \(after)")
+    }
+
+    /// Um post-it redimensionado pelo canto de cima, à direita: a largura e a altura crescem, o canto de baixo, à esquerda, não anda.
+    @MainActor
+    func testStickyResizeFromTopTrailing() throws {
+        let app = launch()
+        let sticky = app.buttons["The idea is this"].firstMatch
+        XCTAssertTrue(sticky.waitForExistence(timeout: 10))
+        // No rascunho, o post-it fica sobre um cartão de texto, que pegaria o arrasto da quina: leva o post-it para o vazio.
+        let grab = sticky.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        grab.click(forDuration: 0.3, thenDragTo: grab.withOffset(CGVector(dx: 700, dy: 120)))
+        Thread.sleep(forTimeInterval: 0.5)
+        let before = sticky.frame
+        XCTAssertEqual(before.width, 110, accuracy: 2, "o teste supõe zoom 1: \(before)")
+        dragCorner(of: sticky, from: CGVector(dx: 0.97, dy: 0.03), by: CGVector(dx: 30, dy: -30))
+        let after = sticky.frame
+        attachScreenshot(of: app, named: "Post-it depois do arrasto pelo canto de cima, à direita")
+        XCTAssertEqual(after.maxX, before.maxX + 30, accuracy: 4, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.minY, before.minY - 30, accuracy: 4, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.minX, before.minX, accuracy: 2, "antes: \(before), depois: \(after)")
+        XCTAssertEqual(after.maxY, before.maxY, accuracy: 2, "antes: \(before), depois: \(after)")
+    }
+
+    /// Arrasta um canto do cartão, a partir de um ponto normalizado dele (por padrão o canto inferior direito, onde fica a alça),
+    /// pelo deslocamento dado em pontos de tela.
+    @MainActor
+    private func dragCorner(of card: XCUIElement, from start: CGVector = CGVector(dx: 0.97, dy: 0.97), by offset: CGVector) {
+        let corner = card.coordinate(withNormalizedOffset: start)
         corner.hover()
         corner.click(forDuration: 0.3, thenDragTo: corner.withOffset(offset))
     }
