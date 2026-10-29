@@ -172,7 +172,7 @@ struct NowPlayingPositioned: View {
     var body: some View {
         let placement = NowPlayingPlacement(container: container, obstacles: obstacles)
         NowPlayingBar(summary: summary, elapsed: elapsed, actions: actions)
-            .frame(maxWidth: placement.maxWidth)
+            .frame(maxWidth: placement.maxWidth, alignment: .leading)
             .padding(.leading, NowPlayingPlacement.margin)
             .padding(.bottom, placement.bottomPadding)
             .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement)
