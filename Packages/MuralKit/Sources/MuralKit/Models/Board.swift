@@ -290,6 +290,21 @@ public struct Board: Codable, Equatable, Sendable {
         return true
     }
 
+    /// Muda posição e tamanho de um texto livre numa só alteração (arrastar um canto que não é o de baixo à direita). Valem as
+    /// regras de `resizeFreeText(id:to:)` para o tamanho e as de `moveFreeText(id:to:)` para a posição.
+    /// - Returns: `false`, sem alterar nada, se o texto não existe ou já estava assim.
+    @discardableResult
+    public mutating func setFreeTextFrame(id: UUID, origin: BoardPoint, size: BoardSize?) -> Bool {
+        guard let index = freeTexts.firstIndex(where: { $0.id == id }) else { return false }
+        let position = BoardLayout.clamped(origin)
+        let normalized = BoardLayout.normalizedFreeTextSize(size)
+        guard freeTexts[index].position != position || freeTexts[index].size != normalized else { return false }
+        freeTexts[index].position = position
+        freeTexts[index].size = normalized
+        formatVersion = requiredFormatVersion
+        return true
+    }
+
     public mutating func update(_ item: BoardItem) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[index] = item
@@ -330,6 +345,24 @@ public struct Board: Codable, Equatable, Sendable {
         guard let index = items.firstIndex(where: { $0.id == id }), BoardLayout.isResizable(items[index].kind) else { return false }
         let normalized = BoardLayout.normalizedSize(size, for: items[index].kind)
         guard items[index].size != normalized else { return false }
+        items[index].size = normalized
+        formatVersion = requiredFormatVersion
+        return true
+    }
+
+    /// Muda posição e tamanho de um cartão solto numa só alteração (arrastar um canto que não é o de baixo à direita). O tamanho
+    /// é normalizado como em `resize(id:to:)` e a posição é arredondada e presa a 0 como em `BoardModel.move`, mas a ordem da lista
+    /// não muda: o cartão não vai para cima dos outros.
+    /// - Returns: `false`, sem alterar nada, se o cartão não existe, não muda de tamanho, está numa pasta ou já estava assim.
+    @discardableResult
+    public mutating func setFrame(id: UUID, origin: BoardPoint, size: BoardSize?) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].parentID == nil,
+            BoardLayout.isResizable(items[index].kind)
+        else { return false }
+        let position = BoardLayout.clamped(origin)
+        let normalized = BoardLayout.normalizedSize(size, for: items[index].kind)
+        guard items[index].position != position || items[index].size != normalized else { return false }
+        items[index].position = position
         items[index].size = normalized
         formatVersion = requiredFormatVersion
         return true

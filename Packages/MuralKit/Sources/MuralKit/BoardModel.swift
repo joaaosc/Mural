@@ -912,6 +912,16 @@ public final class BoardModel {
         return true
     }
 
+    /// Muda posição e tamanho de um texto livre numa só gravação (arrastar um canto que não é o de baixo à direita).
+    /// - Returns: `false` quando o texto não existe ou já estava assim.
+    @discardableResult
+    public func resizeFreeText(_ freeTextID: UUID, to size: BoardSize?, at origin: BoardPoint) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
+        guard board.setFreeTextFrame(id: freeTextID, origin: origin, size: size) else { return false }
+        persist()
+        return true
+    }
+
     /// Apaga um texto livre sem tocar nos arquivos dos cartões.
     @discardableResult
     public func deleteFreeText(_ freeTextID: UUID) -> Bool {
@@ -969,6 +979,17 @@ public final class BoardModel {
     public func resize(_ itemID: UUID, to size: BoardSize?) -> Bool {
         guard !isReadOnly else { return refuseEdit(false) }
         guard board.resize(id: itemID, to: size) else { return false }
+        persist()
+        return true
+    }
+
+    /// Muda posição e tamanho de um cartão solto numa só gravação (arrastar um canto que não é o de baixo à direita), sem levar o
+    /// cartão para cima dos outros (regras em `Board.setFrame`).
+    /// - Returns: `false` quando o cartão não existe, não muda de tamanho, está numa pasta ou já estava assim.
+    @discardableResult
+    public func resize(_ itemID: UUID, to size: BoardSize?, at origin: BoardPoint) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
+        guard board.setFrame(id: itemID, origin: origin, size: size) else { return false }
         persist()
         return true
     }

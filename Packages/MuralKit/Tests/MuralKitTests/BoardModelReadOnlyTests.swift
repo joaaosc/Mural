@@ -252,6 +252,10 @@ struct BoardModelReadOnlyTests {
             Action("resizeFreeText") { readOnly in
                 #expect(model.resizeFreeText(scene.freeText.id, to: BoardSize(width: 400, height: 200)) == !readOnly)
             },
+            Action("resizeFreeTextFrame") { readOnly in
+                let size = BoardSize(width: 400, height: 200)
+                #expect(model.resizeFreeText(scene.freeText.id, to: size, at: BoardPoint(x: 20, y: 20)) == !readOnly)
+            },
             Action("deleteFreeText") { readOnly in
                 #expect(model.deleteFreeText(scene.freeText.id) == !readOnly)
             },
@@ -264,6 +268,10 @@ struct BoardModelReadOnlyTests {
             },
             Action("resize") { readOnly in
                 #expect(model.resize(scene.sticky.id, to: BoardSize(width: 300, height: 240)) == !readOnly)
+            },
+            Action("resizeFrame") { readOnly in
+                let size = BoardSize(width: 300, height: 240)
+                #expect(model.resize(scene.sticky.id, to: size, at: BoardPoint(x: 20, y: 20)) == !readOnly)
             },
             Action("arrange") { readOnly in
                 #expect(model.arrange([scene.sticky.id: BoardPoint(x: 900, y: 600)]).isEmpty == readOnly)
@@ -305,7 +313,7 @@ struct BoardModelReadOnlyTests {
         let probe = try makeScene()
         defer { cleanUp(probe) }
         let total = actions(for: probe).count
-        #expect(total == 41, "a lista mudou: confira se algum método novo que muda o mural ficou de fora")
+        #expect(total == 43, "a lista mudou: confira se algum método novo que muda o mural ficou de fora")
 
         for index in 0..<total {
             let scene = try makeScene()
