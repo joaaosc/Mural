@@ -199,6 +199,54 @@ struct MusicNowPlayingTests {
         #expect(rig.playback.source == nil)
     }
 
+    @Test("Resumo: título e artista vêm da entrada atual; sem ela, do cartão")
+    func summaryTitleAndArtist() async throws {
+        let rig = try await makeRig(snapshots: [
+            MusicSnapshot(kind: .album, catalogID: "100", title: "Álbum A", subtitle: "Banda do Cartão")
+        ])
+        defer { cleanup(rig) }
+        let tabs = MuralTabs(registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: rig.directory)))
+        rig.fake.playDelay = .milliseconds(200)
+
+        let task = Task { await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID) }
+        while !rig.playback.isLoading { await Task.yield() }
+        let loading = try #require(rig.playback.summary(in: tabs))
+        #expect(loading.title == "Álbum A")
+        #expect(loading.artist == "Banda do Cartão")
+        #expect(loading.phase == .loading)
+        await task.value
+
+        let playing = try #require(rig.playback.summary(in: tabs))
+        #expect(playing.title == "Faixa 1")
+        #expect(playing.artist == "Artista")
+        #expect(playing.duration == 180)
+        #expect(playing.phase == .playing)
+        #expect(playing.canSkipBackward)
+    }
+
+    @Test("Resumo: sem aba aberta, usa os nomes guardados na fonte")
+    func summaryUsesStoredNamesWithoutTab() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        let tabs = MuralTabs(registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: rig.directory)))
+        await rig.playback.toggle(
+            rig.ids[0], in: rig.model, boardID: rig.boardID, route: .saved(rig.boardID), boardTitle: "Meu mural")
+
+        let summary = try #require(rig.playback.summary(in: tabs))
+        #expect(summary.boardTitle == "Meu mural")
+        #expect(summary.cardTitle == "Álbum A")
+        #expect(summary.sourceLine == "No mural Meu mural · Álbum A")
+        #expect(summary.route == .saved(rig.boardID))
+    }
+
+    @Test("Resumo: sem música, nada")
+    func summaryIsNilWhenIdle() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        let tabs = MuralTabs(registry: BoardSessionRegistry(library: BoardLibrary(rootDirectory: rig.directory)))
+        #expect(rig.playback.summary(in: tabs) == nil)
+    }
+
     @Test("Pular além da última faixa termina a fila")
     func skippingPastTheLastEntryEnds() async throws {
         let rig = try await makeRig()

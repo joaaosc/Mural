@@ -455,6 +455,23 @@ struct MuralTabsTests {
         await rig.tabs.closeAll()
     }
 
+    @Test("O resumo usa os nomes vivos da aba, e não os guardados")
+    func summaryPrefersLiveNames() async throws {
+        let (library, directory) = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rig = try await makePlayingTabs(library)
+        let source = try #require(rig.tabs.musicPlayback.source)
+
+        rig.playing.session.renameItem(source.itemID, to: "Cartão novo")
+
+        let summary = try #require(rig.tabs.musicPlayback.summary(in: rig.tabs))
+        #expect(summary.cardTitle == "Cartão novo")
+        #expect(source.cardTitle == "Álbum A")
+        #expect(summary.boardTitle == rig.playing.title)
+        #expect(summary.route == rig.playingRoute)
+        await rig.tabs.closeAll()
+    }
+
     @Test("Excluir o mural que toca para a música")
     func deletingThePlayingBoardStops() async throws {
         let (library, directory) = try makeLibrary()
