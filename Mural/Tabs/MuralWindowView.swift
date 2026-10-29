@@ -177,18 +177,26 @@ struct MuralWindowView: View {
         }
     }
 
-    @ViewBuilder
     private var detail: some View {
-        if let tab = tabs.selected {
-            BoardTabContent(tab: tab, tabs: tabs)
-                .id(tab.id)
-        } else {
-            ContentUnavailableView {
-                Label("Nenhum mural aberto", systemImage: "rectangle.on.rectangle")
-            } description: {
-                Text("Escolha um mural na barra lateral ou crie um novo.")
-            } actions: {
-                Button("Novo mural") { tabs.requestNewBoard() }
+        Group {
+            if let tab = tabs.selected {
+                BoardTabContent(tab: tab, tabs: tabs)
+                    .id(tab.id)
+            } else {
+                ContentUnavailableView {
+                    Label("Nenhum mural aberto", systemImage: "rectangle.on.rectangle")
+                } description: {
+                    Text("Escolha um mural na barra lateral ou crie um novo.")
+                } actions: {
+                    Button("Novo mural") { tabs.requestNewBoard() }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Fora do `.id(tab.id)`: o miniplayer sobrevive à troca de aba.
+        .overlayPreferenceValue(NowPlayingObstacleKey.self) { anchors in
+            GeometryReader { proxy in
+                NowPlayingOverlay(tabs: tabs, obstacles: anchors.map { proxy[$0] }, container: proxy.size)
             }
         }
     }

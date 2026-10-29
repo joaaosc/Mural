@@ -262,6 +262,7 @@ struct BoardCanvasView: View {
         )
         .overlay(alignment: .bottomTrailing) {
             CanvasControls(zoom: zoom)
+                .nowPlayingObstacle()
                 .padding(18)
         }
         // O menu Visualizar só age no mural quando ele está na frente.

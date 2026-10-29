@@ -544,6 +544,7 @@ private struct LoadedRootView: View {
                         onAddReminders: { isReminderPickerPresented = true })
                 }
             }
+            .nowPlayingObstacle()
             .padding(.bottom, 18)
             .transition(.opacity)
             .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: session.isSelecting)

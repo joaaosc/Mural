@@ -17,6 +17,7 @@ struct ItemDetailView: View {
             .overlay(alignment: .bottom) {
                 if item.kind != .link {
                     ActionPill(actions: actions)
+                        .nowPlayingObstacle()
                         .padding(.bottom, 22)
                 }
             }

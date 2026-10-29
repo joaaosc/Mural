@@ -26,6 +26,7 @@ struct LinkDetailView: View {
             .padding(.bottom, 80)
             .overlay(alignment: .bottom) {
                 LinkActionPill(actions: pillActions)
+                    .nowPlayingObstacle()
                     .padding(.bottom, 22)
             }
             .onAppear { controller.start(url: item.browserURL, source: source) }
