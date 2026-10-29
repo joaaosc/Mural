@@ -39,10 +39,14 @@ final class MusicPlayback {
     @ObservationIgnored private let provider: any MusicProviding
     /// Distingue cargas sobrepostas: só a mais recente desliga `isLoading`.
     @ObservationIgnored private var loadGeneration = 0
+    /// Espera antes de dar a fila por encerrada: o MusicKit pode avisar uma parada passageira ao trocar a fila.
+    @ObservationIgnored private let endConfirmationDelay: Duration
+    @ObservationIgnored private var endConfirmation: Task<Void, Never>?
     private static let logger = Logger(subsystem: "com.joaocosta.Mural", category: "Música")
 
-    init(provider: any MusicProviding) {
+    init(provider: any MusicProviding, endConfirmationDelay: Duration = .milliseconds(400)) {
         self.provider = provider
+        self.endConfirmationDelay = endConfirmationDelay
         provider.onPlaybackEnded = { [weak self] in self?.playbackEnded() }
     }
 
@@ -181,12 +185,31 @@ final class MusicPlayback {
     }
 
     private func clearCurrent() {
+        endConfirmation?.cancel()
+        endConfirmation = nil
         source = nil
     }
 
     /// A fila acabou ou o sistema parou o tocador. Durante uma carga o aviso é da música anterior.
+    /// Esconder o tocador só depois de confirmar que o áudio parou de fato.
     private func playbackEnded() {
         guard !isLoading else { return }
+        endConfirmation?.cancel()
+        guard endConfirmationDelay > .zero else {
+            confirmEnd()
+            return
+        }
+        let delay = endConfirmationDelay
+        endConfirmation = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.confirmEnd()
+        }
+    }
+
+    private func confirmEnd() {
+        endConfirmation = nil
+        guard !isLoading, provider.status == .stopped, provider.nowPlaying == nil else { return }
         clearCurrent()
     }
 
@@ -217,6 +240,8 @@ final class MusicPlayback {
         if let currentItemID, currentItemID != itemID { provider.stop() }
         loadGeneration += 1
         let generation = loadGeneration
+        endConfirmation?.cancel()
+        endConfirmation = nil
         isLoading = true
         let cardTitle = model.item(id: itemID)?.title ?? ""
         source = MusicPlaybackSource(

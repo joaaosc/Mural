@@ -18,6 +18,7 @@ struct MusicNowPlayingTests {
     }
 
     private func makeRig(
+        endConfirmationDelay: Duration = .zero,
         snapshots: [MusicSnapshot] = [
             MusicSnapshot(kind: .album, catalogID: "100", title: "Álbum A"),
             MusicSnapshot(kind: .album, catalogID: "300", title: "Álbum C"),
@@ -43,7 +44,7 @@ struct MusicNowPlayingTests {
         let fake = FakeMusic(arguments: [])
         return Rig(
             directory: directory, model: model, boardID: session.boardID, ids: ids, fake: fake,
-            playback: MusicPlayback(provider: fake))
+            playback: MusicPlayback(provider: fake, endConfirmationDelay: endConfirmationDelay))
     }
 
     private func cleanup(_ rig: Rig) { try? FileManager.default.removeItem(at: rig.directory) }
@@ -167,6 +168,35 @@ struct MusicNowPlayingTests {
         #expect(rig.playback.source == nil)
         #expect(rig.playback.phase(of: rig.ids[0]) == .idle)
         #expect(rig.playback.nowPlaying == nil)
+    }
+
+    @Test("Um fim de fila seguido de volta a tocar não esconde o tocador")
+    func queueEndFollowedByPlayingKeepsPlayer() async throws {
+        let rig = try await makeRig(endConfirmationDelay: .milliseconds(150))
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+
+        rig.fake.finishQueue()
+        #expect(rig.playback.source != nil)
+        // O tocador volta a tocar antes de o prazo acabar.
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(rig.playback.source?.itemID == rig.ids[0])
+        #expect(rig.playback.phase(of: rig.ids[0]) == .playing)
+    }
+
+    @Test("O fim da fila confirmado depois do prazo esconde o tocador")
+    func confirmedQueueEndClearsAfterDelay() async throws {
+        let rig = try await makeRig(endConfirmationDelay: .milliseconds(100))
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+
+        rig.fake.finishQueue()
+        #expect(rig.playback.source != nil)
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(rig.playback.source == nil)
     }
 
     @Test("Pular além da última faixa termina a fila")
