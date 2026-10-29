@@ -67,6 +67,22 @@ final class NowPlayingUITests: XCTestCase {
         return card
     }
 
+    /// Abre o painel pelo item do menu, achado pelo item e não pelo nome do menu, que segue o idioma do sistema ("View" ou
+    /// "Visualizar"). A barra de menus pode estar oculta: o ponteiro no topo da tela a mostra.
+    @MainActor
+    private func openPanel(in app: XCUIApplication) {
+        app.activate()
+        let menuBar = app.menuBars.firstMatch
+        XCTAssertTrue(menuBar.waitForExistence(timeout: 5), "a barra de menus do app deveria existir")
+        menuBar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).hover()
+        let menu = app.menuBars.menuBarItems.containing(.menuItem, identifier: "Abrir Painel de Murais").firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "o comando do painel deveria estar em um menu da barra")
+        let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: menu)
+        XCTAssertEqual(XCTWaiter.wait(for: [hittable], timeout: 5), .completed, "o menu deveria aparecer no topo da tela")
+        menu.click()
+        app.menuItems["Abrir Painel de Murais"].click()
+    }
+
     @MainActor
     private func element(_ id: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)[id].firstMatch
@@ -143,25 +159,46 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertTrue(bar.exists, "o miniplayer deveria continuar depois de voltar")
     }
 
+    /// Fechar a aba do mural de onde vem a música não a para: o miniplayer continua em outra aba, o painel mostra a origem e
+    /// "Abrir" reabre o mural. Uma segunda aba mantém a janela (e o menu do app) aberta depois do ⌘W.
     @MainActor
     func testClosingTheSourceTabKeepsPlayingInThePanel() throws {
         let app = launch()
         pasteAndPlayAlbum(in: app)
         XCTAssertTrue(element("now-playing-bar", in: app).waitForExistence(timeout: 5))
 
-        app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(app.buttons["Álbum de Teste"].firstMatch.waitForNonExistence(timeout: 5), "⌘W deveria fechar a janela")
-        app.activate()
+        let tabs = app.buttons.matching(identifier: "board-tab")
+        app.buttons["new-board-button"].firstMatch.click()
+        let name = app.textFields["Nome do mural"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click()
+        name.typeText("Mural B\r")
+        XCTAssertTrue(tabs.matching(NSPredicate(format: "label == %@", "Mural B")).firstMatch.waitForExistence(timeout: 10))
+        tabs.matching(NSPredicate(format: "label == %@", "Rascunho de exemplo")).firstMatch.click()
+        XCTAssertTrue(app.buttons["Álbum de Teste"].firstMatch.waitForExistence(timeout: 5))
 
-        app.menuBars.menuBarItems["Visualizar"].click()
-        app.menuItems["Abrir Painel de Murais"].click()
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["Álbum de Teste"].firstMatch.waitForNonExistence(timeout: 5), "⌘W deveria fechar a aba")
+        XCTAssertEqual(tabs.count, 1, "só a aba do Mural B deveria sobrar")
+        waitForLabel("Pausar", of: element("now-playing-play-pause", in: app))
+
+        openPanel(in: app)
         let section = element("menu-bar-now-playing", in: app)
-        XCTAssertTrue(section.waitForExistence(timeout: 10), "a música deveria continuar no painel depois de fechar a janela")
+        XCTAssertTrue(section.waitForExistence(timeout: 10), "a música deveria continuar no painel depois de fechar a aba")
         waitForLabel("Pausar", of: element("menu-bar-now-playing-play-pause", in: app))
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "Painel com o Tocando agora"
+        shot.lifetime = .keepAlways
+        add(shot)
+        let sourceLine = element("menu-bar-now-playing-source", in: app)
+        XCTAssertTrue(sourceLine.exists)
+        XCTAssertTrue(
+            "\(sourceLine.label) \(sourceLine.value ?? "")".contains("Álbum de Teste"),
+            "a linha de origem deveria citar o cartão (é “\(sourceLine.label)”)")
 
         element("menu-bar-now-playing-open", in: app).click()
         XCTAssertTrue(
-            element("now-playing-bar", in: app).waitForExistence(timeout: 10),
-            "Abrir deveria reabrir o mural, com o miniplayer")
+            app.buttons["Álbum de Teste"].firstMatch.waitForExistence(timeout: 10), "Abrir deveria reabrir o mural de origem")
+        XCTAssertTrue(element("now-playing-bar", in: app).exists, "o miniplayer continua no mural reaberto")
     }
 }
