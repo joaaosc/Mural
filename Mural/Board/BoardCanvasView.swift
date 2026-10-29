@@ -154,8 +154,16 @@ struct BoardCanvasView: View {
                 ForEach(renderedItems) { item in
                     let itemEmphasis = currentFocus.emphasis(for: item)
                     let itemSize = displayedSize(for: item, cachedSizes: itemSizes, override: itemSizeOverride)
+                    let shrink = hoverShrinkState(for: item, size: itemSize)
                     cardGroup(for: item, size: itemSize, focus: currentFocus)
                         .cardEmphasis(itemEmphasis)
+                        // Sobre uma pasta: encolhe em direção ao ponteiro para a pasta continuar visível.
+                        .modifier(
+                            FolderHoverShrink(
+                                progress: shrink.isShrunk ? 1 : 0, anchor: shrink.anchor, minScale: shrink.minScale,
+                                reduceMotion: reduceMotion)
+                        )
+                        .animation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.35), value: shrink.isShrunk)
                         // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
                         .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSize))
                         .opacity(storing == item.id ? 0 : 1)
@@ -454,6 +462,19 @@ struct BoardCanvasView: View {
             y: (folder.position.y + folderSize.height / 2 - origin.height) / size.height)
     }
 
+    /// Encolhimento do cartão arrastado (e dos demais do grupo) enquanto o ponteiro está sobre uma pasta:
+    /// se deve estar encolhido, o ponteiro no quadro do cartão e a escala mínima dele.
+    private func hoverShrinkState(for item: BoardItem, size: BoardSize) -> (isShrunk: Bool, anchor: CGPoint, minScale: CGFloat) {
+        let isDragged = drag?.id == item.id || drag?.origins[item.id] != nil
+        let pointer = drag?.pointer ?? .zero
+        let origin = offset(for: item)
+        return (
+            isDragged && drag?.tracker?.candidate != nil,
+            CGPoint(x: pointer.x - origin.width, y: pointer.y - origin.height),
+            FolderHoverShrink.minScale(for: CGSize(width: size.width, height: size.height))
+        )
+    }
+
     /// Destaque da pasta: leve enquanto espera o tempo de liberar, completo quando liberada.
     private func highlightState(of item: BoardItem, focus: BoardFocus) -> DropHighlightState {
         guard focus.dropTarget == item.id else { return .none }
@@ -531,6 +552,7 @@ struct BoardCanvasView: View {
                         acceptedRootItems: acceptedRootItems)
                 }
                 current.translation = current.groupTranslation(value.translation)
+                current.pointer = value.location
                 current.tracker?.update(
                     folderUnderPointer: folderID(
                         at: value.location,
@@ -795,6 +817,8 @@ struct BoardCanvasView: View {
 private struct CardDrag {
     var id: UUID
     var translation: CGSize
+    /// Ponteiro em pontos do mural; é para onde os cartões encolhem sobre uma pasta.
+    var pointer = CGPoint.zero
     var origins: [UUID: BoardPoint]
     /// Acompanha a pasta que receberia o cartão (pastas também podem ser guardadas).
     var tracker: FolderDropTracker?
