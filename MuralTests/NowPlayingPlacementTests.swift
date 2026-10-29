@@ -43,6 +43,14 @@ struct NowPlayingPlacementTests {
         #expect(placement.maxWidth == 420)
     }
 
+    @Test("Com pouco espaço ao lado da barra, sobe para mostrar todos os botões em vez de encolher")
+    func liftsInsteadOfCompacting() {
+        let bar = CGRect(x: 250, y: 520, width: 500, height: 48)
+        let placement = NowPlayingPlacement(container: container, obstacles: [bar])
+        #expect(placement.bottomPadding == 90)  // 600 - 520 + 10
+        #expect(placement.maxWidth == 420)
+    }
+
     @Test("Controles no alto da janela são ignorados")
     func topControlsIgnored() {
         let top = CGRect(x: 10, y: 10, width: 300, height: 40)

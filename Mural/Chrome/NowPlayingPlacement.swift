@@ -16,13 +16,14 @@ extension View {
     }
 }
 
-/// Onde o miniplayer fica no canto inferior esquerdo: ao lado dos controles do rodapé
-/// se couber, ou acima deles.
+/// Onde o miniplayer fica no canto inferior esquerdo: ao lado dos controles do rodapé quando cabe a forma com todos os
+/// botões, ou acima deles. A forma compacta, sem Faixa anterior e Parar, fica para quando a própria janela é estreita.
 struct NowPlayingPlacement: Equatable {
     static let margin: CGFloat = 18
     static let gap: CGFloat = 12
     static let liftGap: CGFloat = 10
-    static let compactWidth: CGFloat = 120
+    /// Largura da forma média do miniplayer (título curto e os quatro botões): menos que isso ao lado da barra, ele sobe.
+    static let preferredWidth: CGFloat = 320
     static let maximumWidth: CGFloat = 420
     /// Só os controles que chegam a esta distância do fundo contam como obstáculo.
     static let bottomZone: CGFloat = 140
@@ -34,7 +35,7 @@ struct NowPlayingPlacement: Equatable {
         let bottom = obstacles.filter { $0.maxY > container.height - Self.bottomZone }
         let free = (bottom.map(\.minX).min() ?? container.width) - Self.gap - Self.margin
         let room = min(Self.maximumWidth, free)
-        if room >= Self.compactWidth {
+        if room >= Self.preferredWidth {
             maxWidth = room
             bottomPadding = Self.margin
         } else {
