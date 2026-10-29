@@ -1904,6 +1904,12 @@ final class BoardWindowSession {
         captureBoardIfNeeded()
     }
 
+    func moveGroupIntoFolder(from origins: [UUID: BoardPoint], folderID: UUID) {
+        guard canEdit, path.isEmpty, model?.moveGroupIntoFolder(origins, folderID: folderID) == true else { return }
+        canonicalizeWorkspaceAfterContentMutation()
+        captureBoardIfNeeded()
+    }
+
     /// Grava o tamanho de um post-it solto no mural; `nil` devolve o tamanho padrão.
     func resize(_ itemID: UUID, to size: BoardSize?) {
         guard !isClosed, model?.resize(itemID, to: size) == true else { return }

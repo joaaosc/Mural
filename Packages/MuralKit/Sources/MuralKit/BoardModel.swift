@@ -1002,6 +1002,24 @@ public final class BoardModel {
         persist()
     }
 
+    /// Guarda todos os cartões juntos, ou não altera o mural se qualquer um deixou de ser válido.
+    @discardableResult
+    public func moveGroupIntoFolder(_ origins: [UUID: BoardPoint], folderID: UUID) -> Bool {
+        guard !isReadOnly else { return refuseEdit(false) }
+        guard !origins.isEmpty,
+            origins.allSatisfy({ id, position in
+                board.item(id: id)?.parentID == nil && board.item(id: id)?.position == position
+            })
+        else { return false }
+        var candidate = board
+        for id in origins.keys {
+            guard candidate.moveIntoFolder(id: id, folderID: folderID) else { return false }
+        }
+        board = candidate
+        persist()
+        return true
+    }
+
     /// Tira o cartão de dentro da pasta e o solta no mural, numa posição livre (a mesma regra de colar).
     public func moveToBoard(_ itemID: UUID) {
         guard !isReadOnly else { return refuseEdit() }

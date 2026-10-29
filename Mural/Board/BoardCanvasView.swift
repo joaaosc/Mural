@@ -24,6 +24,7 @@ struct BoardCanvasView: View {
     var musicPhase: ((UUID) -> MusicCardPhase)? = nil
     var onMove: ((UUID, BoardPoint) -> Void)? = nil
     var onMoveGroup: (([UUID: BoardPoint], [UUID: BoardPoint]) -> Void)? = nil
+    var onMoveGroupIntoFolder: (([UUID: BoardPoint], UUID) -> Void)? = nil
     /// Grava o tamanho de um post-it, arrastando o canto ou pelo menu (`nil` volta ao padrão). `nil` fala direto com o modelo,
     /// como `onMove`.
     var onResize: ((UUID, BoardSize?) -> Void)? = nil
@@ -479,7 +480,10 @@ struct BoardCanvasView: View {
                     let origins =
                         group.count > 1
                         ? Dictionary(uniqueKeysWithValues: group.map { ($0.id, $0.position) }) : [:]
-                    let accepted = Set(model.folderDestinations(for: item.id).map(\.id))
+                    let movingIDs = origins.isEmpty ? [item.id] : Array(origins.keys)
+                    let accepted = movingIDs.dropFirst().reduce(Set(model.folderDestinations(for: movingIDs[0]).map(\.id))) {
+                        $0.intersection(model.folderDestinations(for: $1).map(\.id))
+                    }.subtracting(movingIDs)
                     let acceptedRootItems = model.rootItems.filter { accepted.contains($0.id) }
                     current = CardDrag(
                         id: item.id, translation: .zero,
@@ -492,16 +496,12 @@ struct BoardCanvasView: View {
                         acceptedRootItems: acceptedRootItems)
                 }
                 current.translation = current.groupTranslation(value.translation)
-                if current.origins.isEmpty {
-                    current.tracker?.update(
-                        folderUnderPointer: folderID(
-                            at: value.location,
-                            among: current.acceptedRootItems,
-                            excluding: item.id))
-                } else {
-                    current.tracker = nil
-                    hoveredFolder = nil
-                }
+                current.tracker?.update(
+                    folderUnderPointer: folderID(
+                        at: value.location,
+                        among: current.acceptedRootItems,
+                        excluding: item.id))
+                if !current.origins.isEmpty { hoveredFolder = nil }
                 drag = current
             }
             .onEnded { value in
@@ -511,6 +511,20 @@ struct BoardCanvasView: View {
                 }
                 guard storing == nil, var final = drag, final.id == item.id else { return }
                 if !final.origins.isEmpty {
+                    final.tracker?.update(
+                        folderUnderPointer: folderID(
+                            at: value.location, among: final.acceptedRootItems, excluding: item.id))
+                    if let destination = final.tracker?.target {
+                        if let onMoveGroupIntoFolder {
+                            onMoveGroupIntoFolder(final.origins, destination)
+                        } else {
+                            _ = model.moveGroupIntoFolder(final.origins, folderID: destination)
+                        }
+                        drag = nil
+                        onCanvasChange(boardID, generation, zoom.confirmedWorkspace())
+                        hoveredFolder = pointerFolder
+                        return
+                    }
                     let translation = final.groupTranslation(value.translation)
                     let positions = final.origins.mapValues {
                         BoardPoint(x: $0.x + translation.width, y: $0.y + translation.height)

@@ -299,6 +299,30 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(reopened.buttons["Today"].waitForNonExistence(timeout: 3), "o cartão não volta ao mural")
     }
 
+    @MainActor
+    func testDroppingSelectionOnFolderStoresBothCards() throws {
+        let app = launch()
+        let first = app.buttons["Today"].firstMatch
+        let second = app.buttons["Alpha"].firstMatch
+        let folder = app.buttons["44th Street"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCUIElement.perform(withKeyModifiers: .command) {
+            first.click()
+            second.click()
+        }
+        first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .click(forDuration: 0.3, thenDragTo: folder.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        folder.click()
+        XCTAssertTrue(app.buttons["Voltar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Today"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Alpha"].waitForExistence(timeout: 5))
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        XCTAssertTrue(reopened.buttons["Today"].waitForExistence(timeout: 10))
+        XCTAssertTrue(reopened.buttons["Alpha"].waitForExistence(timeout: 5))
+    }
+
     /// "Mover para o mural" tira o cartão de dentro da pasta e o devolve ao mural.
     @MainActor
     func testMovingCardOutOfFolderReturnsItToBoard() throws {

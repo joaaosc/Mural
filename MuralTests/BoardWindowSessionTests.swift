@@ -89,6 +89,38 @@ struct BoardWindowSessionTests {
         #expect(model.item(id: second.id)?.position == targets[second.id])
     }
 
+    @Test("Guardar seleção em pasta é atômico e recusa estado antigo e somente leitura")
+    func moveGroupIntoFolderIsAtomic() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let route = try await library.createNamedBoard("Grupo")
+        let session = BoardWindowSession(route: route, registry: BoardSessionRegistry(library: library))
+        try await makeReady(session)
+        let model = try #require(session.model)
+        let first = try #require(model.importText("Primeiro", as: .text))
+        let second = try #require(model.importText("Segundo", as: .sticky))
+        let folder = model.createFolder(named: "Destino")
+        let origins = [first.id: first.position, second.id: second.position]
+        session.moveGroupIntoFolder(from: origins.merging([UUID(): .zero]) { a, _ in a }, folderID: folder.id)
+        #expect(model.item(id: first.id)?.parentID == nil)
+        #expect(model.item(id: second.id)?.parentID == nil)
+        session.moveGroupIntoFolder(from: [first.id: first.position, folder.id: folder.position], folderID: folder.id)
+        #expect(model.item(id: first.id)?.parentID == nil)
+        #expect(model.item(id: folder.id)?.parentID == nil)
+        session.move(first.id, to: BoardPoint(x: first.position.x + 30, y: first.position.y))
+        session.moveGroupIntoFolder(from: origins, folderID: folder.id)
+        #expect(model.item(id: second.id)?.parentID == nil)
+        session.move(first.id, to: first.position)
+        model.isReadOnly = true
+        session.moveGroupIntoFolder(from: origins, folderID: folder.id)
+        #expect(model.item(id: first.id)?.parentID == nil)
+        model.isReadOnly = false
+        session.moveGroupIntoFolder(from: origins, folderID: folder.id)
+        #expect(model.item(id: first.id)?.parentID == folder.id)
+        #expect(model.item(id: second.id)?.parentID == folder.id)
+    }
+
     @Test("A, B e A mantêm conteúdo, filtro e canvas isolados após autosave")
     func sessionsRoundTripThroughNewRegistry() async throws {
         let directory = try root()
