@@ -117,6 +117,7 @@ struct MuralApp: App {
                 rootView: MenuBarPanelView(
                     tabs: tabs,
                     model: model,
+                    playback: .shared,
                     close: { MenuBarController.shared.dismiss() },
                     resize: { MenuBarController.shared.fitToContent() },
                     moved: { MenuBarController.shared.panelWasMoved() }

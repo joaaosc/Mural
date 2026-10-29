@@ -13,6 +13,8 @@ import SwiftUI
 struct MenuBarPanelView: View {
     let tabs: MuralTabs
     let model: MenuBarPanelModel
+    /// O tocador, para a seção "Tocando agora".
+    var playback: MusicPlayback = .shared
     /// Fecha o painel em que a vista está.
     ///
     /// Injetado, e não lido do ambiente: o painel é um `NSPanel` aberto pelo ícone, não uma cena do SwiftUI, e não há
@@ -47,12 +49,14 @@ struct MenuBarPanelView: View {
         let stage: PanelStage
         let clipboard: ClipboardState
         let pasteStatus: PasteStatus
+        let showsNowPlaying: Bool
     }
 
     private var layout: Layout {
         Layout(
             isLoaded: model.isLoaded, optionCount: model.options.count, formatCount: model.formats.count,
-            stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus)
+            stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus,
+            showsNowPlaying: playback.source != nil)
     }
 
     /// O ⇧Tab chega como o caractere de tabulação para trás do AppKit (`NSBackTabCharacter`).
@@ -86,6 +90,9 @@ struct MenuBarPanelView: View {
                 .frame(height: BoardCoverflow.height)
                 .padding(.top, PanelMetrics.contentPadding)
                 .padding(.bottom, PanelMetrics.contentSpacing)
+            if let summary = playback.summary(in: tabs) {
+                NowPlayingSection(summary: summary, actions: nowPlayingActions(for: summary))
+            }
             if showsPasteSection {
                 PasteSection(
                     model: model,
@@ -111,6 +118,18 @@ struct MenuBarPanelView: View {
         .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in pasteNow() }
         .onExitCommand { escape() }
         .onChange(of: layout) { resize() }
+    }
+
+    private func nowPlayingActions(for summary: NowPlayingSummary) -> NowPlayingActions {
+        NowPlayingActions(
+            openSource: {
+                close()
+                tabs.showBoard(summary.route, title: summary.boardTitle)
+            },
+            playPause: { Task { await playback.pauseOrResume() } },
+            previous: { Task { await playback.skipToPrevious() } },
+            next: { Task { await playback.skipToNext() } },
+            stop: { playback.stopCurrent() })
     }
 
     /// A seção de colar só aparece com murais na vitrine: sem eles não há para onde colar.
