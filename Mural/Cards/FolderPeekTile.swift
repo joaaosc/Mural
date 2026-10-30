@@ -78,7 +78,7 @@ struct FolderPeekTile: View {
                 .background(Theme.sticky(item.stickyColor))
         case .link where item.fileURL != nil, .music where item.fileURL != nil:
             ThumbnailView(url: item.fileURL, kind: .image, maxPixelSize: 240)
-        case .text, .checklist, .folder, .link, .reminder, .music:
+        case .text, .checklist, .folder, .link, .reminder, .music, .contact:
             label(ink: .secondary, design: .default)
         }
     }

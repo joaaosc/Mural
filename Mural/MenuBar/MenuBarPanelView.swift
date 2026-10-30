@@ -116,7 +116,7 @@ struct MenuBarPanelView: View {
         .onKeyPress(keys: [.tab, Self.backTab], phases: .down) { press in whileNotEditing { tab(press) } }
         .onKeyPress(characters: .alphanumerics, phases: .down) { press in whileNotEditing { type(press) } }
         // O painel transforma o ⌘V em `paste:`, que chega aqui como um colar pedido pela pessoa.
-        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes + ContactVCardReader.pasteTypes) { _ in
             // Com o editor aberto, o campo de texto cola em si mesmo.
             guard !model.isEditingText else { return }
             pasteNow()

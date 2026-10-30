@@ -216,7 +216,9 @@ private struct LoadedRootView: View {
             Task { @MainActor in isCanvasFocused = true }
         }
         .onKeyPress(.escape) { handleEscape() }
-        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in handlePaste() }
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes + ContactVCardReader.pasteTypes) { _ in
+            handlePaste()
+        }
         .sheet(item: $pendingPaste) { paste in
             PasteChoiceSheet(paste: paste, onChoose: { kind in importPaste(paste, as: kind) }, onCancel: cancelPaste)
         }
@@ -419,6 +421,12 @@ private struct LoadedRootView: View {
         let music = MusicPasteboardReader.drafts(from: .general)
         if !music.isEmpty {
             importMusic(music, into: currentFolderID, anchor: session.visibleBoardAnchor, animation: importAnimation)
+            return
+        }
+        // De um vCard (⌘C de um contato): cartão de contato. Sem nada legível, segue o colar comum.
+        let contacts = ContactVCardReader.drafts(from: .general)
+        if !contacts.isEmpty {
+            session.importContacts(contacts, into: currentFolderID, at: session.visibleBoardAnchor, animation: importAnimation)
             return
         }
         let content = PasteboardImporter.read()

@@ -1,9 +1,10 @@
 import Foundation
 import MuralKit
 
-/// O que foi lido da área de transferência para colar: música (lida pelo leitor do Música, como no ⌘V) ou o resto.
+/// O que foi lido da área de transferência para colar: música (lida pelo leitor do Música, como no ⌘V), contatos (vCard) ou o resto.
 enum ClipboardContent: Sendable {
     case music([MusicDraft])
+    case contacts([ContactDraft])
     case pasted(PasteboardImporter.Content)
 }
 
@@ -213,6 +214,8 @@ final class BoardDelivery {
         guard let model = session.model else { return .failed(session.error ?? Self.unopenedMessage) }
         var outcome = await apply(content, textKind: textKind, to: session, model: model)
         guard isDetached, case .delivered = outcome else { return outcome }
+        // As fotos dos contatos recém-criados precisam estar gravadas (e ligadas aos cartões) antes de a sessão avulsa gravar e fechar.
+        await session.contactThumbnails?.waitUntilIdle()
         await session.flushAndPrepareToLeave()
         if session.isDirty {
             // A gravação falhou: o cartão está na sessão de domínio, que o registry guarda (suja) até o mural ser
@@ -254,6 +257,15 @@ final class BoardDelivery {
             // `importMusic` da sessão exige o mural na tela; aqui o modelo recebe direto.
             if model.importMusic(drafts.map(\.snapshot), into: nil, at: anchor).isEmpty {
                 model.lastError = Self.unreadableMessage
+            }
+            session.captureBoardIfNeeded()
+        case .contacts(let drafts):
+            // Como na música: o modelo recebe direto, e a foto de cada contato é guardada depois.
+            let created = model.importContacts(drafts.map(\.snapshot), into: nil, at: anchor)
+            if created.isEmpty {
+                model.lastError = Self.unreadableMessage
+            } else {
+                session.contactThumbnailStore()?.store(drafts, for: created)
             }
             session.captureBoardIfNeeded()
         case .pasted(.nothing):

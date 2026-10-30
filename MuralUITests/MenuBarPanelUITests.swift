@@ -93,6 +93,28 @@ final class MenuBarPanelUITests: XCTestCase {
             "Return deveria colar o post-it no mural do centro")
     }
 
+    /// Um vCard na área de transferência: o ⌘V no painel cola e cria o cartão de contato no mural do centro.
+    @MainActor
+    func testPastedVCardFromThePanelBecomesContactCard() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.joaocosta.Mural.UITests.Clipboard"))
+        pasteboard.clearContents()
+        let vCard = "BEGIN:VCARD\nVERSION:3.0\nN:Painel;Fulana;;;\nFN:Fulana Painel\nTEL;TYPE=CELL:+55 21 99999-0000\nEND:VCARD\n"
+        pasteboard.setData(Data(vCard.utf8), forType: NSPasteboard.PasteboardType("public.vcard"))
+
+        openPanelFromMenu(in: app)
+        let coverflow = app.descendants(matching: .any)["menu-bar-coverflow"].firstMatch
+        XCTAssertTrue(coverflow.waitForExistence(timeout: 10), "o painel deveria abrir com a vitrine de murais")
+
+        app.typeKey("v", modifierFlags: .command)
+        // Contato é a única opção de colar: como música e links, o ⌘V já cola, sem passar pela escolha.
+        XCTAssertTrue(
+            app.buttons["Fulana Painel"].firstMatch.waitForExistence(timeout: 10),
+            "⌘V no painel deveria criar o cartão de contato no mural do centro")
+    }
+
     /// Anexa só a seção de colar do painel: uma captura da tela inteira levaria o que há em outros apps.
     @MainActor
     private func attachPasteSection(of app: XCUIApplication, named name: String) {

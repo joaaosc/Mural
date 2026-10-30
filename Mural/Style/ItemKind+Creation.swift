@@ -14,6 +14,7 @@ extension ItemKind {
         case .link: "Link"
         case .reminder: "Lembrete"
         case .music: "Apple Music"
+        case .contact: "Contato"
         }
     }
 
@@ -30,6 +31,7 @@ extension ItemKind {
         case .link: "link"
         case .reminder: "checklist.checked"
         case .music: "music.note"
+        case .contact: "person.crop.circle"
         }
     }
 }

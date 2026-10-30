@@ -69,9 +69,14 @@ enum BoardCoverRenderer {
                         add(peek.fileURL, kind: peek.kind, maxPixelSize: folderPeekMaxPixelSize)
                     case .link, .music:
                         add(peek.fileURL, kind: .image, maxPixelSize: folderPeekMaxPixelSize)
-                    case .text, .checklist, .sticky, .reminder, .folder:
+                    case .text, .checklist, .sticky, .reminder, .contact, .folder:
                         break
                     }
+                }
+            case .contact:
+                // `ContactCard`: a foto reduzida, se o arquivo está na pasta.
+                if let name = item.contact?.thumbnailFile {
+                    add(linkPreviewFiles?.existingURL(for: name), kind: .image, maxPixelSize: ContactAvatar.thumbnailMaxPixelSize)
                 }
             case .text, .checklist, .sticky, .reminder:
                 break

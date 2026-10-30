@@ -574,6 +574,26 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["1 de 28 marcados"].exists)
     }
 
+    /// ⌘V com um vCard na área de transferência cria um cartão de contato com o nome da pessoa.
+    @MainActor
+    func testPastedVCardBecomesContactCard() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let vCard = "BEGIN:VCARD\nVERSION:3.0\nN:Mural;Beltrana;;;\nFN:Beltrana Mural\nEMAIL;TYPE=WORK:beltrana@example.com\nEND:VCARD\n"
+        pasteboard.setData(Data(vCard.utf8), forType: NSPasteboard.PasteboardType("public.vcard"))
+        app.typeKey("v", modifierFlags: .command)
+
+        let card = app.buttons["Beltrana Mural"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "o vCard colado deveria virar um cartão de contato")
+        let attachment = XCTAttachment(screenshot: card.screenshot())
+        attachment.name = "Cartão de contato"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     @MainActor
     func testPastedTextBecomesStickyAndSurvivesRelaunch() throws {
         let app = launch()

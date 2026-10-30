@@ -57,7 +57,7 @@ enum NotesRichText {
         case .music(let snapshot):
             guard let subtitle = snapshot.subtitle, !subtitle.isEmpty else { return title }
             return "\(title) — \(subtitle)"
-        case .reminder:
+        case .reminder, .contact:
             return title
         case .link(let info):
             return "\(title) (\(WebLink.removingTrackingParameters(from: info.url).absoluteString))"

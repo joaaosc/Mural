@@ -108,6 +108,8 @@ final class BoardWindowSession {
     private(set) var presentationGeneration: UInt64 = 0
     /// Depois de fechada (janela fechada, rascunho promovido), a janela não grava mais.
     private(set) var isClosed = false
+    /// O armazém das fotos dos contatos desta sessão; criado no primeiro contato (`contactThumbnailStore()`).
+    @ObservationIgnored var contactThumbnails: ContactThumbnailStore?
     private(set) var restorationPhase: CanvasRestorationPhase = .loading
     private(set) var error: String?
     private(set) var isDirty = false
@@ -644,6 +646,7 @@ final class BoardWindowSession {
             await photoTask.value
         }
         keySentences?.cancelAll()
+        contactThumbnails?.cancelAll()
         finishEditing()
         await flushAndPrepareToLeave()
     }

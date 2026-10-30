@@ -14,6 +14,7 @@ extension ItemKind {
         case .link: ("link", "links")
         case .reminder: ("lembrete", "lembretes")
         case .music: ("música", "músicas")
+        case .contact: ("contato", "contatos")
         case .folder: ("pasta", "pastas")
         }
     }
@@ -46,6 +47,9 @@ extension ItemKind {
         }
         if item.kind == .reminder {
             return "O cartão será removido. O lembrete no app Lembretes não é afetado."
+        }
+        if item.kind == .contact {
+            return "O cartão será removido. O contato no app Contatos não é afetado."
         }
         if item.kind == .music {
             return "O cartão será removido. O item no app Música não é afetado."

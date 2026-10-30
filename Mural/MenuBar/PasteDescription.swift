@@ -18,6 +18,7 @@ enum PasteDescription {
         case .pdf: "PDF"
         case .files(let count): count > 1 ? "\(count) arquivos" : "arquivo"
         case .music(let count): count > 1 ? "\(count) músicas" : "música"
+        case .contact(let count): count > 1 ? "\(count) contatos" : "contato"
         }
     }
 
@@ -36,6 +37,7 @@ enum PasteDescription {
         case .image: ItemKind.image.creationSymbol
         case .pdf: ItemKind.pdf.creationSymbol
         case .music: ItemKind.music.creationSymbol
+        case .contact: ItemKind.contact.creationSymbol
         }
     }
 
@@ -43,6 +45,8 @@ enum PasteDescription {
     /// link, o nome do primeiro arquivo ou o título do primeiro item de música. `nil` sem leitura e para imagem e PDF.
     static func preview(of content: ClipboardContent?) -> String? {
         switch content {
+        case .contacts(let drafts)?:
+            return drafts.first.flatMap { nonBlank($0.snapshot.displayName) }
         case .music(let drafts)?:
             return drafts.first.flatMap { nonBlank($0.snapshot.title) }
         case .pasted(.text(let text))?:

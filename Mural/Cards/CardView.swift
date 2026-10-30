@@ -30,6 +30,11 @@ struct CardView: View {
         case .music:
             MusicCard(item: item)
                 .colorTagDot(item.colorTag)
+        case .contact:
+            if let contact = item.contact {
+                ContactCard(contact: contact)
+                    .colorTagDot(item.colorTag)
+            }
         case .image, .video, .pdf:
             let url = model.fileURL(for: item)
             // A foto sempre preenche o cartão. No tamanho com a proporção do arquivo ("Foto inteira"), preencher já mostra a

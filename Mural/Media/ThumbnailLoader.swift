@@ -34,7 +34,7 @@ enum ThumbnailLoader {
             let scale = CGFloat(maxPixelSize) / max(bounds.width, bounds.height, 1)
             let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
             image = page.thumbnail(of: size, for: .mediaBox).cgImage(forProposedRect: nil, context: nil, hints: nil)
-        case .text, .checklist, .sticky, .link, .reminder, .music, .folder:
+        case .text, .checklist, .sticky, .link, .reminder, .music, .contact, .folder:
             return nil
         }
         return Task.isCancelled ? nil : image

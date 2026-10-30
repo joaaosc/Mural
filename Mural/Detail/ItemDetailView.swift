@@ -46,6 +46,8 @@ struct ItemDetailView: View {
             LinkDetailView(item: item, model: model) { isConfirmingDelete = true }
         case .reminder:
             ReminderDetailView(item: item)
+        case .contact:
+            ContactDetailView(item: item)
         case .music:
             MusicDetailView(item: item, session: session)
         case .checklist:

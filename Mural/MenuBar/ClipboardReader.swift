@@ -74,13 +74,17 @@ final class ClipboardReader {
     /// Lê o conteúdo para colar. Deve ser chamado de forma síncrona de dentro do colar pedido pela pessoa (⌘V), que o sistema
     /// sempre permite; fora dele a leitura segue o `accessBehavior` e pode gerar o aviso ou ser negada.
     ///
-    /// Música vem primeiro, como no ⌘V (`MusicPasteboardReader`); o resto, de `PasteboardImporter.read`. Sem nada que
+    /// Música vem primeiro, como no ⌘V (`MusicPasteboardReader`), depois os contatos de um vCard (`ContactVCardReader`); o resto, de `PasteboardImporter.read`. Sem nada que
     /// colar, o resultado é `.deniedBySystem` se o comportamento for `.alwaysDeny` (a leitura negada volta vazia e isso
     /// não se distingue de uma área de transferência vazia), e `.nothing` nos outros casos.
     func read() -> ClipboardReading {
         if Self.hasProtectedMarker(Self.typeIdentifiers(of: pasteboard)) { return Self.reading(.protected) }
         let drafts = MusicPasteboardReader.drafts(from: pasteboard)
-        let content: ClipboardContent = drafts.isEmpty ? .pasted(PasteboardImporter.read(from: pasteboard)) : .music(drafts)
+        let contacts = drafts.isEmpty ? ContactVCardReader.drafts(from: pasteboard) : []
+        let content: ClipboardContent =
+            if !drafts.isEmpty { .music(drafts) } else if !contacts.isEmpty { .contacts(contacts) } else {
+                .pasted(PasteboardImporter.read(from: pasteboard))
+            }
         let kind = Self.kind(of: content)
         guard kind != .nothing else {
             return Self.reading(currentAccessBehavior(pasteboard) == .alwaysDeny ? .deniedBySystem : .nothing)
@@ -94,6 +98,8 @@ final class ClipboardReader {
     /// um arquivo.
     nonisolated static func kind(of content: ClipboardContent) -> ClipboardKind {
         switch content {
+        case .contacts(let drafts):
+            .contact(count: drafts.count)
         case .music(let drafts):
             .music(count: drafts.count)
         case .pasted(.files(let urls)):
