@@ -47,7 +47,7 @@ final class HoverVideoPreviewController {
         let player = AVQueuePlayer()
         player.isMuted = true
         player.preventsDisplaySleepDuringVideoPlayback = false
-        let looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+        let looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: AVURLAsset.local(url)))
         return Playback(player: player, looper: looper)
     }
 

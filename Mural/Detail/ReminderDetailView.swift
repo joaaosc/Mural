@@ -25,7 +25,12 @@ struct ReminderDetailView: View {
                         Text(notes).font(.reading).lineSpacing(5).textSelection(.enabled)
                     }
                     if let url = reminder.url {
-                        Link(url.absoluteString, destination: url).lineLimit(2)
+                        // O endereço vem do snapshot, que pode ser de um .mural alheio: só vira link se for seguro.
+                        if ExternalURLPolicy.allowsOpening(url) {
+                            Link(url.absoluteString, destination: url).lineLimit(2)
+                        } else {
+                            Text(url.absoluteString).lineLimit(2).textSelection(.enabled)
+                        }
                     }
                 }
             }

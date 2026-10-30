@@ -17,7 +17,7 @@ enum PasteboardExporter {
             entry.setString(address, forType: .string)
             pasteboard.writeObjects([entry])
         } else if item.kind == .music, let music = item.music {
-            if let url = music.url {
+            if let url = music.url, ExternalURLPolicy.isAppleMusicWebLink(url) {
                 let address = url.absoluteString
                 let entry = NSPasteboardItem()
                 entry.setString(address, forType: .URL)

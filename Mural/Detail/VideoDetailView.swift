@@ -25,7 +25,7 @@ struct VideoDetailView: View {
         .accessibilityLabel("Vídeo \(title)")
         .task(id: url) {
             guard let url else { return }
-            player = AVPlayer(url: url)
+            player = AVPlayer(playerItem: AVPlayerItem(asset: AVURLAsset.local(url)))
         }
         .onDisappear { player?.pause() }
     }

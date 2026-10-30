@@ -18,7 +18,9 @@ enum MusicOpener {
     }
 
     static func target(for music: MusicSnapshot, musicAppURL: URL?) -> Target {
-        switch (music.url, musicAppURL) {
+        // O endereço pode vir de um .mural alheio: só um link do Apple Music é entregue ao app ou ao navegador.
+        let url = music.url.flatMap { ExternalURLPolicy.isAppleMusicWebLink($0) ? $0 : nil }
+        return switch (url, musicAppURL) {
         case (let url?, let app?): .urlInMusicApp(url, app: app)
         case (nil, let app?): .musicApp(app)
         case (let url?, nil): .browser(url)

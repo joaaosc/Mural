@@ -32,4 +32,12 @@ struct MusicOpenerTests {
     func nothing() {
         #expect(MusicOpener.target(for: MusicSnapshot(kind: .song, title: "A"), musicAppURL: nil) == .nothing)
     }
+
+    @Test("Endereço que não é do Apple Music é ignorado")
+    func untrustedURL() {
+        let evil = URL(string: "smb://servidor/pasta")!
+        let music = MusicSnapshot(kind: .album, url: evil, title: "A")
+        #expect(MusicOpener.target(for: music, musicAppURL: app) == .musicApp(app))
+        #expect(MusicOpener.target(for: music, musicAppURL: nil) == .nothing)
+    }
 }

@@ -50,6 +50,7 @@ struct PDFKitView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
+        view.delegate = context.coordinator
         view.displayMode = .singlePageContinuous
         view.backgroundColor = .clear
         // Abre o documento fora do Main Actor; a restauração espera ele chegar.
@@ -73,7 +74,7 @@ struct PDFKitView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, PDFViewDelegate {
         let itemID: UUID
         var url: URL
         weak var session: BoardWindowSession?
@@ -103,6 +104,13 @@ struct PDFKitView: NSViewRepresentable {
         private var isLoadingDocument = false
         private var loadStatePublication = PDFLoadStatePublication()
         private let onLoadStateChange: (PDFLoadState) -> Void
+
+        /// Link dentro do PDF: o arquivo pode ser de um .mural alheio, então só abre endereços seguros.
+        /// Implementar este método substitui o padrão do PDFKit, que abriria qualquer esquema.
+        func pdfViewWillClick(onLink sender: PDFView, with url: URL) {
+            guard ExternalURLPolicy.allowsOpening(url) else { return }
+            NSWorkspace.shared.open(url)
+        }
 
         /// Abre o PDF fora do Main Actor (um PDF grande travaria a janela) e o instala
         /// na view quando pronto; pedidos antigos são descartados.

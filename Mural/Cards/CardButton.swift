@@ -216,7 +216,7 @@ struct CardButton: View {
             }
             Button("Abrir no Música") { if let music = item.music { MusicOpener.open(music) } }
         }
-        if item.kind == .music, item.music?.url != nil {
+        if item.kind == .music, item.music?.url.map(ExternalURLPolicy.isAppleMusicWebLink) == true {
             Button("Copiar link") { PasteboardExporter.copy(item, from: model) }
         }
     }

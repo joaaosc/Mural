@@ -73,7 +73,7 @@ private final class CancellableVideoThumbnailGenerator: @unchecked Sendable {
     private nonisolated(unsafe) let generator: AVAssetImageGenerator
 
     nonisolated init(url: URL, maxPixelSize: Int) {
-        generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator = AVAssetImageGenerator(asset: AVURLAsset.local(url))
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
     }
