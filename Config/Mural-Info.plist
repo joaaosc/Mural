@@ -5,6 +5,8 @@
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<integer>1</integer>
 			<key>CFBundleTypeName</key>
 			<string>Mural Package</string>
 			<key>CFBundleTypeRole</key>
@@ -37,6 +39,25 @@
 			<string>Any</string>
 		</dict>
 	</dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+				<string>public.composite-content</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Mural Package</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.joaocosta.mural</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<string>mural</string>
+			</dict>
+		</dict>
+	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -68,24 +89,6 @@
 			<string>Apple Music Playlist Name</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.apple.music.playlist.name</string>
-		</dict>
-	</array>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>com.apple.package</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Mural Package</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.joaocosta.mural</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<string>mural</string>
-			</dict>
 		</dict>
 	</array>
 </dict>
