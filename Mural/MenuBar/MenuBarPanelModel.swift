@@ -264,8 +264,7 @@ final class MenuBarPanelModel {
     /// O texto com a formatação; uma formatação que o deixaria vazio (só havia caracteres invisíveis) não vale, e o texto
     /// fica como veio.
     private static func formatted(_ text: String, with format: PasteTextFormat) -> String {
-        let result = format.apply(to: text)
-        return result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : result
+        format.applyKeepingNonEmpty(to: text)
     }
 
     // MARK: Abrir

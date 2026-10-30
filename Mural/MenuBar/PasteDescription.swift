@@ -135,28 +135,12 @@ enum PasteDescription {
     /// O título da linha de uma formatação. As de maiúsculas e minúsculas se escrevem como o resultado, para a pessoa ver
     /// o efeito no próprio nome.
     static func title(of format: PasteTextFormat) -> String {
-        switch format {
-        case .original: "Como está"
-        case .tidy: "Limpar espaços"
-        case .joinedLines: "Juntar linhas"
-        case .bulletList: "Lista com marcadores"
-        case .taskList: "Lista de tarefas"
-        case .lowercase: "minúsculas"
-        case .uppercase: "MAIÚSCULAS"
-        }
+        format.title
     }
 
     /// O símbolo da linha de uma formatação.
     static func symbol(of format: PasteTextFormat) -> String {
-        switch format {
-        case .original: "text.alignleft"
-        case .tidy: "eraser"
-        case .joinedLines: "text.justify.left"
-        case .bulletList: "list.bullet"
-        case .taskList: "checklist"
-        case .lowercase: "textformat.size.smaller"
-        case .uppercase: "textformat.size.larger"
-        }
+        format.symbolName
     }
 
     /// A prévia de uma formatação: a primeira linha do texto já formatado, encurtada como a prévia do que foi copiado.

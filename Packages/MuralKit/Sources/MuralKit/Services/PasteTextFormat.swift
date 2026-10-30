@@ -45,6 +45,85 @@ public enum PasteTextFormat: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// O texto com esta formatação; uma formatação que o deixaria só com espaços (só havia caracteres invisíveis) não vale, e o
+    /// texto fica como veio.
+    public func applyKeepingNonEmpty(to text: String, locale: Locale = .current) -> String {
+        let result = apply(to: text, locale: locale)
+        return result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : result
+    }
+
+    /// O texto com esta formatação aplicada só à seleção.
+    ///
+    /// Com uma seleção não vazia, só o trecho selecionado é formatado (com a mesma regra de `applyKeepingNonEmpty`) e o resto do
+    /// texto fica como está. As quebras de linha e os espaços das pontas da seleção não entram na formatação e voltam como
+    /// estavam ("segunda\n" selecionado vira "SEGUNDA\n"). As formatações de linha (`tidy`, `joinedLines`, `bulletList` e
+    /// `taskList`) primeiro ampliam a seleção para as linhas inteiras; maiúsculas e minúsculas ficam com a seleção exata. Sem
+    /// seleção, ou com ela vazia, vale o texto inteiro.
+    /// - Parameters:
+    ///   - selection: o trecho de `text` a formatar; `nil` ou vazio para o texto todo. Os limites precisam estar em fronteiras
+    ///     de caractere: quem converte um `NSRange` usa a visão UTF-16 da string, em fronteiras de escalar.
+    ///   - locale: o idioma das regras de maiúsculas e minúsculas; os testes fixam um.
+    /// - Returns: o texto novo e a seleção nele, cobrindo o trecho formatado, sem as pontas que ficaram como estavam (o texto todo,
+    ///   sem seleção). Uma seleção só de espaços não muda nada e volta como veio.
+    public func apply(
+        to text: String, selection: Range<String.Index>?, locale: Locale = .current
+    ) -> (text: String, selection: Range<String.Index>) {
+        guard let selection, !selection.isEmpty else {
+            let result = applyKeepingNonEmpty(to: text, locale: locale)
+            return (result, result.startIndex..<result.endIndex)
+        }
+        let range = formatsWholeLines ? text.lineRange(for: selection) : selection
+        let piece = text[range]
+        guard let first = piece.firstIndex(where: { !$0.isWhitespace }), let last = piece.lastIndex(where: { !$0.isWhitespace })
+        else { return (text, selection) }
+        let leading = String(piece[..<first])
+        let core = String(piece[first...last])
+        let trailing = String(piece[piece.index(after: last)...])
+
+        let before = String(text[..<range.lowerBound]) + leading
+        let replaced = applyKeepingNonEmpty(to: core, locale: locale)
+        let result = before + replaced + trailing + text[range.upperBound...]
+        // Os limites vêm de escalares inteiros, então a posição em bytes cai num limite válido mesmo se a junção fundir caracteres.
+        let lower = result.utf8.index(result.utf8.startIndex, offsetBy: before.utf8.count)
+        let upper = result.utf8.index(lower, offsetBy: replaced.utf8.count)
+        return (result, lower..<upper)
+    }
+
+    /// As formatações que mexem em linhas inteiras.
+    private var formatsWholeLines: Bool {
+        switch self {
+        case .tidy, .joinedLines, .bulletList, .taskList: true
+        case .original, .lowercase, .uppercase: false
+        }
+    }
+
+    /// O nome da formatação na linha que a oferece. As de maiúsculas e minúsculas se escrevem como o resultado, para a pessoa ver
+    /// o efeito no próprio nome.
+    public var title: String {
+        switch self {
+        case .original: "Como está"
+        case .tidy: "Limpar espaços"
+        case .joinedLines: "Juntar linhas"
+        case .bulletList: "Lista com marcadores"
+        case .taskList: "Lista de tarefas"
+        case .lowercase: "minúsculas"
+        case .uppercase: "MAIÚSCULAS"
+        }
+    }
+
+    /// O símbolo (SF Symbols) da formatação.
+    public var symbolName: String {
+        switch self {
+        case .original: "text.alignleft"
+        case .tidy: "eraser"
+        case .joinedLines: "text.justify.left"
+        case .bulletList: "list.bullet"
+        case .taskList: "checklist"
+        case .lowercase: "textformat.size.smaller"
+        case .uppercase: "textformat.size.larger"
+        }
+    }
+
     // MARK: Espaços
 
     private static func tidy(_ text: String) -> String {
@@ -131,37 +210,14 @@ public enum PasteTextFormat: String, CaseIterable, Identifiable, Sendable {
             .joined(separator: "\n")
     }
 
-    /// Os marcadores de item que saem do começo da linha antes de pôr o novo.
-    private static let bulletCharacters: Set<Character> = ["-", "*", "+", "•", "◦", "▪", "‣", "·", "–", "—"]
-
-    /// O texto do item sem o marcador do começo ("- ", "• ", "1. ", "2) ") e sem a caixa de tarefa ("[ ]", "[x]").
+    /// O texto do item sem o marcador do começo ("- ", "• ", "1. ", "2) ") e sem a caixa de tarefa ("[ ]", "[x]"), pelas regras
+    /// de `ListMarker` (com os marcadores extras da formatação, `lenient`).
     ///
-    /// Um hífen colado ao texto não é marcador ("-5 graus" continua assim), e um número só é marcador seguido de ponto ou
-    /// parêntese e de um espaço. O marcador sozinho na linha é um item vazio.
+    /// O marcador sozinho na linha é um item vazio.
     /// - Parameter line: a linha já sem espaços sobrando (`collapsedSpaces`).
     /// - Returns: o texto e se a caixa de tarefa estava marcada.
     static func listItem(_ line: String) -> (content: String, isDone: Bool) {
-        var rest = Substring(line)
-        if let first = rest.first, bulletCharacters.contains(first), endsMarker(rest.dropFirst()) {
-            rest = rest.dropFirst(2)
-        } else {
-            let digits = rest.prefix { $0.isASCII && $0.isNumber }
-            let afterDigits = rest.dropFirst(digits.count)
-            if !digits.isEmpty, let mark = afterDigits.first, mark == "." || mark == ")", endsMarker(afterDigits.dropFirst()) {
-                rest = afterDigits.dropFirst(2)
-            }
-        }
-        for (box, isDone) in [("[ ]", false), ("[x]", true), ("[X]", true)] where rest.hasPrefix(box) {
-            let afterBox = rest.dropFirst(box.count)
-            // A caixa vale sozinha ou seguida de espaço: "[x]feito" não é uma caixa.
-            guard afterBox.isEmpty || afterBox.first == " " else { break }
-            return (String(afterBox.drop { $0 == " " }), isDone)
-        }
-        return (String(rest), false)
-    }
-
-    /// O que vem depois de um marcador o confirma: um espaço ou o fim da linha.
-    private static func endsMarker(_ rest: Substring) -> Bool {
-        rest.isEmpty || rest.first == " "
+        guard let stripped = ListMarker.strip(line, lenient: true) else { return (line, false) }
+        return (stripped.text, stripped.isDone ?? false)
     }
 }

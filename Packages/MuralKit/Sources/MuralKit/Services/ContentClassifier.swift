@@ -31,7 +31,8 @@ public enum ContentClassifier {
         return type.preferredFilenameExtension
     }
 
-    /// Classifica texto colado: lista, post-it ou nota.
+    /// Classifica texto colado: lista, post-it ou nota. Uma lista numerada (`1. `, `2) `) ou com `+ `, `◦ ` e `▪ ` também
+    /// vale como lista (`ChecklistParser.looksLikeChecklist`), no ⌘V como no painel.
     public static func kind(forText text: String) -> ItemKind {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if ChecklistParser.looksLikeChecklist(trimmed) { return .checklist }

@@ -77,4 +77,82 @@ struct PasteTextFormatTests {
             #expect(self.format(format, "  \n\t \u{200B}\n ").isEmpty, "\(format)")
         }
     }
+
+    @Test("Lista com marcadores e de tarefas convertem linhas numeradas e com marcadores misturados; o resto não muda")
+    func listsConvertNumberedAndBulleted() {
+        let text = "1. Pão\n2) Leite\n• Café\n- [x] Chá\n10. Açúcar\n1-sem marcador"
+        #expect(format(.bulletList, text) == "- Pão\n- Leite\n- Café\n- Chá\n- Açúcar\n- 1-sem marcador")
+        #expect(format(.taskList, text) == "- [ ] Pão\n- [ ] Leite\n- [ ] Café\n- [x] Chá\n- [ ] Açúcar\n- [ ] 1-sem marcador")
+        #expect(format(.tidy, "1.   Pão  \n\n\n2.  Leite") == "1. Pão\n\n2. Leite")
+        #expect(format(.joinedLines, "1. Pão\n2. Leite") == "1. Pão 2. Leite")
+    }
+
+    // MARK: Seleção
+
+    private func selected(_ text: String, _ needle: String) -> Range<String.Index> {
+        text.range(of: needle)!
+    }
+
+    @Test("Com seleção só o trecho muda e a nova seleção cobre o trecho trocado")
+    func partialSelectionOnMultilineText() {
+        let text = "primeira\nsegunda\nterceira"
+        let result = PasteTextFormat.uppercase.apply(to: text, selection: selected(text, "segunda"), locale: portuguese)
+        #expect(result.text == "primeira\nSEGUNDA\nterceira")
+        #expect(result.text[result.selection] == "SEGUNDA")
+
+        let list = PasteTextFormat.bulletList.apply(to: "a\nb\nc", selection: selected("a\nb\nc", "b\nc"), locale: portuguese)
+        #expect(list.text == "a\n- b\n- c" && list.text[list.selection] == "- b\n- c")
+    }
+
+    @Test("Selecionar o meio de uma palavra põe só esse pedaço em maiúsculas")
+    func selectionInsideAWord() {
+        let text = "paralelepípedo"
+        let result = PasteTextFormat.uppercase.apply(to: text, selection: selected(text, "lele"), locale: portuguese)
+        #expect(result.text == "paraLELEpípedo" && result.text[result.selection] == "LELE")
+    }
+
+    @Test("Sem seleção, ou com ela vazia, vale o texto inteiro")
+    func wholeTextWithoutSelection() {
+        let none = PasteTextFormat.uppercase.apply(to: "ola mundo", selection: nil, locale: portuguese)
+        #expect(none.text == "OLA MUNDO" && none.selection == none.text.startIndex..<none.text.endIndex)
+        let text = "ola"
+        let empty = PasteTextFormat.uppercase.apply(to: text, selection: text.startIndex..<text.startIndex, locale: portuguese)
+        #expect(empty.text == "OLA" && empty.selection == empty.text.startIndex..<empty.text.endIndex)
+    }
+
+    @Test("Um resultado só de espaços mantém o original, no texto todo e na seleção")
+    func emptyResultKeepsTheOriginal() {
+        let invisible = "\u{200B}\u{200B}"
+        #expect(PasteTextFormat.tidy.applyKeepingNonEmpty(to: invisible) == invisible)
+        let result = PasteTextFormat.tidy.apply(to: invisible, selection: invisible.startIndex..<invisible.endIndex)
+        #expect(result.text == invisible && result.text[result.selection] == invisible)
+    }
+
+    @Test("Cada formatação tem título e símbolo")
+    func titlesAndSymbols() {
+        #expect(PasteTextFormat.allCases.allSatisfy { !$0.title.isEmpty && !$0.symbolName.isEmpty })
+        #expect(PasteTextFormat.original.title == "Como está" && PasteTextFormat.uppercase.symbolName == "textformat.size.larger")
+    }
+
+    @Test("A quebra de linha da ponta da seleção fica como estava")
+    func selectionEdgesAreKept() {
+        let text = "primeira\nsegunda\nterceira"
+        let upper = PasteTextFormat.uppercase.apply(to: text, selection: selected(text, "segunda\n"), locale: portuguese)
+        #expect(upper.text == "primeira\nSEGUNDA\nterceira" && upper.text[upper.selection] == "SEGUNDA")
+        let list = PasteTextFormat.bulletList.apply(to: text, selection: selected(text, "segunda\n"), locale: portuguese)
+        #expect(list.text == "primeira\n- segunda\nterceira" && list.text[list.selection] == "- segunda")
+        let blank = PasteTextFormat.uppercase.apply(to: "a \n b", selection: selected("a \n b", " \n "))
+        #expect(blank.text == "a \n b")
+    }
+
+    @Test("Formatações de linha ampliam a seleção para a linha inteira; maiúsculas e minúsculas não")
+    func lineFormatsExpandTheSelection() {
+        let text = "paralelepípedo"
+        let list = PasteTextFormat.bulletList.apply(to: text, selection: selected(text, "lele"), locale: portuguese)
+        #expect(list.text == "- paralelepípedo" && list.text[list.selection] == "- paralelepípedo")
+        let tasks = PasteTextFormat.taskList.apply(to: "a\nbcd\nc", selection: selected("a\nbcd\nc", "c"), locale: portuguese)
+        #expect(tasks.text == "a\n- [ ] bcd\nc")
+        let lower = PasteTextFormat.lowercase.apply(to: "ABC DEF", selection: selected("ABC DEF", "BC D"), locale: portuguese)
+        #expect(lower.text == "Abc dEF" && lower.text[lower.selection] == "bc d")
+    }
 }
