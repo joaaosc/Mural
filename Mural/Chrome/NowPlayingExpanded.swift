@@ -60,7 +60,7 @@ struct NowPlayingExpanded: View {
         }
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
         .glassEffectID("card", in: glassNamespace)
-        .glassEffectTransition(reducesMotion ? .identity : .matchedGeometry)
+        .glassEffectTransition(reducesMotion ? .identity : .materialize)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tocando agora, expandido")
         .accessibilityIdentifier("now-playing-expanded")
