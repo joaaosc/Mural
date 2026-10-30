@@ -41,13 +41,8 @@ struct MediaCard: View {
             }
             .background(kind == .pdf ? Theme.paper : .clear)
             .clipShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
-            // O recorte esconde a sobra da miniatura que preenche, mas não a tira do clique, do ponteiro nem da acessibilidade:
-            // sem esta forma, uma foto deitada num cartão em pé recebe cliques e arrastos fora do cartão, e o quadro dele na
-            // acessibilidade fica do tamanho da foto inteira.
-            .contentShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
             .cardShadow()
-            // A folha de trás da foto, como a da pasta. Fica no fundo, depois da forma de toque: não aumenta a área
-            // clicável nem o quadro da acessibilidade.
+            // A folha de trás da foto, como a da pasta.
             .background {
                 if kind == .image {
                     RoundedRectangle(cornerRadius: Theme.mediaCorner)
@@ -58,6 +53,11 @@ struct MediaCard: View {
                         .accessibilityHidden(true)
                 }
             }
+            // O recorte esconde a sobra da miniatura que preenche, mas não a tira do clique, do ponteiro nem da acessibilidade:
+            // sem esta forma, uma foto deitada num cartão em pé recebe cliques e arrastos fora do cartão, e o quadro dele na
+            // acessibilidade fica do tamanho da foto inteira.
+            // Vem depois da folha de trás de propósito: a forma vale para o conjunto e a folha não aumenta a área do cartão.
+            .contentShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
             .onHover { inside in
                 if inside, previewEnabled, let previewVideoURL {
                     preview.pointerEntered(previewVideoURL)
