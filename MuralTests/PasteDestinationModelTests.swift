@@ -303,6 +303,119 @@ struct PasteDestinationModelTests {
         await workspace.finish()
     }
 
+    /// Espera o colar pedido terminar, no modelo.
+    private func waitUntilPasted(_ model: PasteDestinationModel) async throws {
+        for _ in 0..<400 {
+            if case .pasted = model.status { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("o colar não terminou: \(model.status)")
+    }
+
+    @Test("Colar como Card de texto pede o título antes, com o título do texto já preenchido, e o cartão fica com o escolhido")
+    func textCardAsksForTheTitle() async throws {
+        let workspace = try await DestinationWorkspace(boards: ["Obra"])
+        workspace.document.text = "Visita à obra: medir a parede\n\nTrazer a trena e o nível."
+        let model = workspace.makeModel()
+        await model.load()
+        model.selectKind(.text)
+
+        model.requestPaste()
+        #expect(model.titleDraft == "Visita à obra: medir a parede")
+        #expect(model.status == .idle, "nada é colado antes da resposta")
+
+        model.editTitle("  Parede norte  ")
+        model.confirmTitle()
+        #expect(model.titleDraft == nil)
+        try await waitUntilPasted(model)
+        let items = try await workspace.board("Obra").items
+        #expect(items.map(\.title) == ["Parede norte"])
+        #expect(items.first?.kind == .text)
+        #expect(items.first?.text == workspace.document.text, "o título não muda o texto")
+        await workspace.finish()
+    }
+
+    @Test("Cancelar a pergunta do título volta à galeria sem colar")
+    func cancellingTheTitlePastesNothing() async throws {
+        let workspace = try await DestinationWorkspace(boards: ["Obra"])
+        workspace.document.text = "Texto do card"
+        let model = workspace.makeModel()
+        await model.load()
+        model.selectKind(.text)
+        model.requestPaste()
+        model.cancelTitle()
+        #expect(model.titleDraft == nil && model.status == .idle && model.canPaste)
+        model.confirmTitle()
+        #expect(model.status == .idle, "sem pergunta aberta, confirmar não cola")
+        #expect(try await workspace.board("Obra").items.isEmpty)
+        await workspace.finish()
+    }
+
+    @Test("Fechada a pergunta, o campo que entrega o texto mais uma vez não a reabre")
+    func lateFieldCommitDoesNotReopenTheQuestion() async throws {
+        let workspace = try await DestinationWorkspace(boards: ["Obra"])
+        workspace.document.text = "Texto do card"
+        let model = workspace.makeModel()
+        await model.load()
+        model.selectKind(.text)
+        model.requestPaste()
+        model.cancelTitle()
+        model.editTitle("Texto do card")
+        #expect(model.titleDraft == nil)
+
+        model.requestPaste()
+        model.confirmTitle()
+        model.editTitle("Texto do card")
+        #expect(model.titleDraft == nil)
+        try await waitUntilPasted(model)
+        await workspace.finish()
+    }
+
+    @Test("Título apagado deixa o cartão com o título tirado do texto")
+    func emptyTitleKeepsTheOneFromTheText() async throws {
+        let workspace = try await DestinationWorkspace(boards: ["Obra"])
+        workspace.document.text = "Primeira linha\n\nSegunda linha."
+        let model = workspace.makeModel()
+        await model.load()
+        model.selectKind(.text)
+        model.requestPaste()
+        model.editTitle("   ")
+        model.confirmTitle()
+        try await waitUntilPasted(model)
+        #expect(try await workspace.board("Obra").items.map(\.title) == ["Primeira linha"])
+        await workspace.finish()
+    }
+
+    @Test("O título vale também para a nota com cartão embutido")
+    func titleOnANoteWithAnEmbed() async throws {
+        let workspace = try await DestinationWorkspace(boards: ["Obra"])
+        workspace.document.text = "Com contato\n\n"
+        workspace.document.insertCards([.contact(ContactSnapshot(givenName: "Ana"))])
+        let model = workspace.makeModel()
+        await model.load()
+        model.requestPaste()
+        #expect(model.titleDraft == "Com contato")
+        model.editTitle("Equipe")
+        model.confirmTitle()
+        try await waitUntilPasted(model)
+        let item = try #require(try await workspace.board("Obra").items.first)
+        #expect(item.title == "Equipe" && item.attachments?.count == 1)
+        await workspace.finish()
+    }
+
+    @Test("Post-it, lista e links colam sem pedir título")
+    func otherKindsDoNotAsk() async throws {
+        let workspace = try await DestinationWorkspace(boards: ["Obra"])
+        workspace.document.text = "Curto"
+        let model = workspace.makeModel()
+        await model.load()
+        #expect(model.selectedKind == .sticky)
+        model.requestPaste()
+        #expect(model.titleDraft == nil)
+        try await waitUntilPasted(model)
+        await workspace.finish()
+    }
+
     @Test("Os textos dos jeitos de colar")
     func wording() {
         #expect(PasteKindWording.title(of: .sticky) == "Sticker")

@@ -7,10 +7,13 @@ struct PastedNote: Sendable {
     var text: String
     var embeds: [UUID: EmbeddedCard]
     var images: [UUID: NoteImagePaste.Source]
+    /// O título que a pessoa deu ao cartão; `nil` deixa o título sair do texto.
+    var title: String?
 
-    init(text: String, embeds: [UUID: EmbeddedCard] = [:], images: [UUID: NoteImagePaste.Source] = [:]) {
+    init(text: String, embeds: [UUID: EmbeddedCard] = [:], images: [UUID: NoteImagePaste.Source] = [:], title: String? = nil) {
         self.text = text
         self.embeds = embeds
         self.images = images
+        self.title = title
     }
 }

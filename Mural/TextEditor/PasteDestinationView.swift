@@ -5,8 +5,8 @@ import SwiftUI
 /// jeitos de colar o texto do editor.
 ///
 /// O teclado é de um contêiner só: ←/→ (e Home/End) trocam de mural, ↑/↓ trocam o jeito de colar, letras procuram o mural pelo nome,
-/// Return cola e Esc fecha. Depois de colar, a janela mostra "Colado em …" por um segundo e fecha; o editor continua aberto com o
-/// texto. Fechar nunca pergunta nada.
+/// Return cola e Esc fecha. O Card de texto pede o título antes (`PasteTitleSheet`). Depois de colar, a janela mostra "Colado em …"
+/// por um segundo e fecha; o editor continua aberto com o texto. Fechar nunca pergunta nada.
 struct PasteDestinationView: View {
     let model: PasteDestinationModel
 
@@ -62,6 +62,13 @@ struct PasteDestinationView: View {
         }
         .onExitCommand(perform: close)
         .navigationTitle("Colar no mural")
+        .sheet(isPresented: Binding(get: { model.titleDraft != nil }, set: { if !$0 { model.cancelTitle() } })) {
+            PasteTitleSheet(
+                title: Binding(get: { model.titleDraft ?? "" }, set: { model.editTitle($0) }),
+                boardName: model.selectedEntry?.manifest.name ?? "", cancel: model.cancelTitle, confirm: model.confirmTitle)
+        }
+        // Fechada a folha, o teclado volta às setas da galeria.
+        .onChange(of: model.titleDraft == nil) { _, isClosed in if isClosed { hasFocus = true } }
         .task { await model.load() }
         .task(id: model.status) {
             guard case .pasted = model.status else { return }

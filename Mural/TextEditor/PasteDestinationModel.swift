@@ -26,6 +26,8 @@ final class PasteDestinationModel {
     private(set) var status: PasteStatus = .idle
     /// Um aviso do colar que deu certo (uma imagem perdida); `nil` sem aviso.
     private(set) var warning: String?
+    /// O título que a folha do Card de texto está mostrando; `nil` com a folha fechada.
+    private(set) var titleDraft: String?
     let covers: BoardCoverService
 
     /// A chave, nas preferências, do último mural a que o editor colou: o `uuidString` do `BoardID`.
@@ -179,9 +181,11 @@ final class PasteDestinationModel {
     ///
     /// - Links: um cartão de link por endereço do texto.
     /// - Post-it e lista: o texto no tipo escolhido.
-    /// - Nota sem cartões nem imagens: o texto como nota. Com eles, a nota inteira (`PastedNote`), que leva os anexos.
+    /// - Nota sem cartões, imagens nem título: o texto como nota. Com algum deles, a nota inteira (`PastedNote`), que os leva.
+    ///
+    /// O título só vale para o Card de texto; vazio, o cartão fica com o título tirado do texto.
     static func content(
-        for kind: PasteKind, text: String, embeds: [UUID: EmbeddedCard], images: [UUID: NoteImagePaste.Source]
+        for kind: PasteKind, text: String, embeds: [UUID: EmbeddedCard], images: [UUID: NoteImagePaste.Source], title: String? = nil
     ) -> (content: ClipboardContent, textKind: ItemKind?) {
         switch kind {
         case .links:
@@ -189,38 +193,71 @@ final class PasteDestinationModel {
         case .sticky, .checklist:
             return (.pasted(.text(text)), kind.itemKind)
         case .text:
+            let name = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let hasParts = !NoteImageMarkup.references(in: text).cardIDs.isEmpty || !images.isEmpty
-            if hasParts { return (.note(PastedNote(text: text, embeds: embeds, images: images)), nil) }
+            if hasParts || !name.isEmpty {
+                return (.note(PastedNote(text: text, embeds: embeds, images: images, title: name.isEmpty ? nil : name)), nil)
+            }
             return (.pasted(.text(text)), .text)
         }
     }
 
-    /// Pede o colar: a entrega roda numa tarefa do modelo, que continua mesmo se a galeria fechar. Não faz nada se já há um colar
-    /// em andamento ou feito.
+    /// Pede o colar: o Card de texto antes pergunta o título (`titleDraft`, que começa com o tirado do texto); os outros jeitos colam
+    /// direto, e a entrega roda numa tarefa do modelo, que continua mesmo se a galeria fechar. Não faz nada se já há um colar em
+    /// andamento ou feito.
     func requestPaste() {
         guard canPaste else { return }
+        if selectedKind == .text {
+            titleDraft = ContentClassifier.title(forText: document.deliverableText)
+        } else {
+            startPaste(title: nil)
+        }
+    }
+
+    /// O campo do título mudou. Só vale com a pergunta aberta: ao fechar a folha, o campo entrega o texto mais uma vez, e isso a
+    /// reabriria.
+    func editTitle(_ text: String) {
+        guard titleDraft != nil else { return }
+        titleDraft = text
+    }
+
+    /// A folha do título respondeu: cola com ele.
+    func confirmTitle() {
+        guard let title = titleDraft else { return }
+        titleDraft = nil
+        guard canPaste else { return }
+        startPaste(title: title)
+    }
+
+    /// A folha do título foi cancelada: volta à galeria sem colar.
+    func cancelTitle() {
+        titleDraft = nil
+    }
+
+    private func startPaste(title: String?) {
         status = .pasting
         warning = nil
-        pasteTask = Task { await performPaste() }
+        pasteTask = Task { await performPaste(title: title) }
     }
 
     /// Entrega o texto do editor no mural escolhido, do jeito escolhido, e lembra o mural. O documento não é limpo.
     /// - Returns: `true` se o cartão entrou no mural.
-    func paste() async -> Bool {
+    func paste(title: String? = nil) async -> Bool {
         guard canPaste else { return false }
         status = .pasting
         warning = nil
-        return await performPaste()
+        return await performPaste(title: title)
     }
 
-    private func performPaste() async -> Bool {
+    private func performPaste(title: String?) async -> Bool {
         guard let entry = selectedEntry else {
             status = .failed("Não há um mural para receber o texto.")
             return false
         }
         // O editor pode ter ganhado cartões ou imagens depois de a galeria abrir: os jeitos valem para o texto de agora.
         refreshKinds()
-        let built = Self.content(for: selectedKind, text: document.deliverableText, embeds: document.embeds, images: document.images)
+        let built = Self.content(
+            for: selectedKind, text: document.deliverableText, embeds: document.embeds, images: document.images, title: title)
         switch await delivery.deliver(built.content, textKind: built.textKind, to: entry) {
         case .delivered:
             preferences.set(entry.manifest.id.rawValue.uuidString, forKey: Self.lastDestinationKey)

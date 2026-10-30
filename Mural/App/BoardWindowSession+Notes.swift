@@ -9,8 +9,9 @@ extension BoardWindowSession {
     /// cartão é criado, uma vez só, já com o texto pronto e os anexos. O texto gravado nunca tem `mural-colando:`.
     ///
     /// Se a janela fecha enquanto as imagens são gravadas, nada é criado e os arquivos gravados são apagados. Uma troca de aba no
-    /// meio não interrompe (só o fechamento). O título vem do texto (`ContentClassifier.title(forText:)`, que não usa linhas de
-    /// imagem). Uma imagem perdida deixa "Uma imagem não pôde ser colada." em `lastError` do modelo.
+    /// meio não interrompe (só o fechamento). O título é o que a pessoa deu (`PastedNote.title`); sem ele, vem do texto
+    /// (`ContentClassifier.title(forText:)`, que não usa linhas de imagem). Uma imagem perdida deixa "Uma imagem não pôde ser colada."
+    /// em `lastError` do modelo.
     /// - Returns: o id do cartão; `nil`, sem criar nada, se o mural não aceita edição, fechou no meio ou o texto não virou cartão.
     @discardableResult
     func importNote(_ note: PastedNote, at anchor: BoardPoint? = nil) async -> UUID? {
@@ -42,6 +43,7 @@ extension BoardWindowSession {
             model.lastError = "O texto não pôde virar um cartão."
             return nil
         }
+        if let title = note.title { model.renameItem(item.id, to: title) }
         for attachment in attachments { model.addNoteAttachment(attachment, to: item.id) }
         for id in NoteImageMarkup.referencedCardIDs(in: text) {
             guard let card = note.embeds[id] else { continue }
