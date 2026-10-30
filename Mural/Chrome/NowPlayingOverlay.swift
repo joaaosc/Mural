@@ -10,6 +10,8 @@ struct NowPlayingOverlay: View {
     let obstacles: [CGRect]
     let container: CGSize
 
+    var dockStore: NowPlayingDockStore = .shared
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -18,7 +20,8 @@ struct NowPlayingOverlay: View {
             if let summary {
                 NowPlayingPositioned(
                     summary: summary, elapsed: { playback.playbackTime }, actions: actions(for: summary),
-                    obstacles: obstacles, container: container
+                    obstacles: obstacles, container: container, dock: dockStore.dock,
+                    setDock: { dockStore.dock = $0 }
                 )
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }

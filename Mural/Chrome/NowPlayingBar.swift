@@ -145,24 +145,31 @@ struct NowPlayingBar: View {
     }
 }
 
-/// O miniplayer no canto inferior esquerdo, acima dos controles do rodapé quando não cabe ao lado deles. Clicar na
-/// cápsula abre o cartão expandido acima dela.
+/// O miniplayer no rodapé da janela, encaixado à esquerda, no centro ou à direita, acima dos controles do rodapé que
+/// cruzem o lugar dele. Arrastar a cápsula na horizontal a leva ao ponto mais perto; clicar nela abre o cartão expandido
+/// acima.
 struct NowPlayingPositioned: View {
     let summary: NowPlayingSummary
     let elapsed: () -> TimeInterval
     let actions: NowPlayingActions
     let obstacles: [CGRect]
     let container: CGSize
+    let dock: NowPlayingDock
+    let setDock: (NowPlayingDock) -> Void
 
     @Namespace private var glassNamespace
     @State private var isExpanded = false
+    @State private var dragX: CGFloat = 0
+    @State private var isDragging = false
+    @State private var lastDragEnd = Date.distantPast
     @FocusState private var cardHasFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let placement = NowPlayingPlacement(container: container, obstacles: obstacles)
+        let placement = NowPlayingPlacement(
+            container: container, obstacles: obstacles, dock: dock, barWidth: NowPlayingPlacement.pillWidth)
         GlassEffectContainer(spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: dock.horizontalAlignment, spacing: 8) {
                 if isExpanded {
                     NowPlayingExpanded(
                         summary: summary, elapsed: elapsed, actions: expandedActions, glassNamespace: glassNamespace,
@@ -176,15 +183,20 @@ struct NowPlayingPositioned: View {
                     .transition(reduceMotion ? .opacity : .identity)
                 }
                 NowPlayingBar(
-                    summary: summary, elapsed: elapsed, actions: actions, expand: { setExpanded(!isExpanded) },
+                    summary: summary, elapsed: elapsed, actions: barActions, expand: { setExpanded(!isExpanded) },
                     glassNamespace: glassNamespace
                 )
-                .frame(width: min(NowPlayingPlacement.pillWidth, placement.maxWidth))
+                .frame(width: placement.maxWidth)
+                .simultaneousGesture(drag(placement))
+                .accessibilityAction(named: "Encaixar à esquerda") { snap(to: .leading) }
+                .accessibilityAction(named: "Encaixar no centro") { snap(to: .center) }
+                .accessibilityAction(named: "Encaixar à direita") { snap(to: .trailing) }
             }
         }
-        .padding(.leading, NowPlayingPlacement.margin)
+        .offset(x: dragX)
+        .padding(.horizontal, NowPlayingPlacement.margin)
         .padding(.bottom, placement.bottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: dock.bottomAlignment)
         .background {
             // Um clique fora do cartão o recolhe.
             if isExpanded {
@@ -193,8 +205,46 @@ struct NowPlayingPositioned: View {
                     .onTapGesture { setExpanded(false) }
             }
         }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement)
+        .sensoryFeedback(.alignment, trigger: dock)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement.bottomPadding)
     }
+
+    // MARK: Arrastar
+
+    private func drag(_ placement: NowPlayingPlacement) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                isDragging = true
+                let lower = NowPlayingPlacement.margin - placement.originX
+                let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
+                dragX = min(max(value.translation.width, lower), max(upper, lower))
+            }
+            .onEnded { _ in
+                let midX = placement.originX + placement.maxWidth / 2 + dragX
+                lastDragEnd = Date()
+                isDragging = false
+                snap(to: NowPlayingDock.nearest(toMidX: midX, container: container, barWidth: placement.maxWidth))
+            }
+    }
+
+    private func snap(to target: NowPlayingDock) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.45, bounce: 0.25)) {
+            setDock(target)
+            dragX = 0
+        }
+    }
+
+    /// Cliques que terminam um arrasto não contam: a cápsula acompanha o ponteiro, que acaba solto sobre um botão.
+    private var justDragged: Bool { isDragging || Date().timeIntervalSince(lastDragEnd) < 0.3 }
+
+    private var barActions: NowPlayingActions {
+        var guarded = actions
+        guarded.playPause = { if !justDragged { actions.playPause() } }
+        guarded.next = { if !justDragged { actions.next() } }
+        return guarded
+    }
+
+    // MARK: Expandir
 
     /// O cartão com "Abrir" recolhendo-o depois de abrir o mural.
     private var expandedActions: NowPlayingActions {
@@ -207,6 +257,7 @@ struct NowPlayingPositioned: View {
     }
 
     private func setExpanded(_ value: Bool) {
+        guard !justDragged else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.4, bounce: 0.15)) {
             isExpanded = value
         }
@@ -233,6 +284,7 @@ private struct PreviewBar: View {
 /// Simula a janela: uma barra de criação ao centro e o zoom à direita, ambos marcados como obstáculos.
 private struct PreviewPlacement: View {
     let size: CGSize
+    @State private var dock = NowPlayingDock.leading
 
     var body: some View {
         Theme.canvas
@@ -250,9 +302,8 @@ private struct PreviewPlacement: View {
                 GeometryReader { proxy in
                     NowPlayingPositioned(
                         summary: .playing, elapsed: { 60 }, actions: previewActions,
-                        obstacles: anchors.map { proxy[$0] }, container: proxy.size
+                        obstacles: anchors.map { proxy[$0] }, container: proxy.size, dock: dock, setDock: { dock = $0 }
                     )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
             }
             .frame(width: size.width, height: size.height)

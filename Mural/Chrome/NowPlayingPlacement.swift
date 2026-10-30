@@ -16,8 +16,7 @@ extension View {
     }
 }
 
-/// Onde o miniplayer fica no canto inferior esquerdo: ao lado dos controles do rodapé quando cabe a forma com todos os
-/// botões, ou acima deles. A forma compacta, sem Faixa anterior e Parar, fica para quando a própria janela é estreita.
+/// Onde o miniplayer fica no rodapé da janela, em relação aos controles que já estão ali.
 struct NowPlayingPlacement: Equatable {
     static let margin: CGFloat = 18
     static let gap: CGFloat = 12
@@ -32,9 +31,23 @@ struct NowPlayingPlacement: Equatable {
 
     let maxWidth: CGFloat
     let bottomPadding: CGFloat
+    /// Onde começa a cápsula, na horizontal.
+    let originX: CGFloat
 
-    init(container: CGSize, obstacles: [CGRect]) {
+    /// Sem `barWidth`, vale a regra antiga (canto esquerdo, ao lado dos controles ou acima deles). Com ele, a cápsula
+    /// fica no `dock` escolhido e sobe acima de qualquer controle do rodapé que cruze a faixa que ela ocupa ali.
+    init(container: CGSize, obstacles: [CGRect], dock: NowPlayingDock = .leading, barWidth: CGFloat? = nil) {
         let bottom = obstacles.filter { $0.maxY > container.height - Self.bottomZone }
+        if let barWidth {
+            let width = max(min(barWidth, container.width - 2 * Self.margin), 0)
+            let originX = Self.originX(for: dock, container: container, width: width)
+            let crossing = bottom.filter { $0.minX < originX + width + Self.gap && $0.maxX > originX - Self.gap }
+            maxWidth = width
+            self.originX = originX
+            bottomPadding = crossing.map(\.minY).min().map { container.height - $0 + Self.liftGap } ?? Self.margin
+            return
+        }
+        originX = Self.margin
         let free = (bottom.map(\.minX).min() ?? container.width) - Self.gap - Self.margin
         let room = min(Self.maximumWidth, free)
         if room >= Self.preferredWidth {
@@ -44,6 +57,15 @@ struct NowPlayingPlacement: Equatable {
             let top = bottom.map(\.minY).min() ?? container.height
             bottomPadding = container.height - top + Self.liftGap
             maxWidth = min(Self.maximumWidth, container.width - 2 * Self.margin)
+        }
+    }
+
+    /// A posição horizontal de uma cápsula de `width` em cada ponto: margem à esquerda, centro ou margem à direita.
+    static func originX(for dock: NowPlayingDock, container: CGSize, width: CGFloat) -> CGFloat {
+        switch dock {
+        case .leading: margin
+        case .center: (container.width - width) / 2
+        case .trailing: container.width - margin - width
         }
     }
 }
