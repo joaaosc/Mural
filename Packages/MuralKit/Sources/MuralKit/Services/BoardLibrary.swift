@@ -435,7 +435,8 @@ public actor BoardLibrary {
     /// É a mesma montagem de `exportPackage`, mas o pacote fica onde está: serve de rede de segurança antes de o mural ser enviado
     /// ao iCloud pela primeira vez, e quem chama passa uma pasta própria (`Application Support/Mural/Backups/`). A data vem de
     /// `now` em UTC, sem separadores, para o nome servir em qualquer volume. Duas cópias do mesmo mural no mesmo segundo
-    /// recusam a segunda (`BoardPortablePackageError.destinationExists`) em vez de sobrescrever a primeira.
+    /// recusam a segunda (`BoardPortablePackageError.destinationExists`) em vez de sobrescrever a primeira. Ficam as 3 cópias mais
+    /// novas de cada mural; as anteriores vão para o descarte (o Lixo, por padrão) depois que a nova é criada.
     public func backupPackage(_ route: BoardRoute, to directory: URL, now: Date = .now) async throws -> URL {
         let source = try packageSource(for: route)
         do {
@@ -444,7 +445,10 @@ public actor BoardLibrary {
         let stamp = now.formatted(
             .iso8601.year().month().day().dateSeparator(.omitted).time(includingFractionalSeconds: false).timeSeparator(.omitted)
                 .timeZone(separator: .omitted))
-        return try await assemblePackage(from: source, in: directory, named: "\(source.id.rawValue.uuidString)-\(stamp).mural")
+        let backup = try await assemblePackage(from: source, in: directory, named: "\(source.id.rawValue.uuidString)-\(stamp).mural")
+        // Só depois de a nova existir: as mais antigas além das últimas cópias vão para o descarte, para a pasta não crescer sem fim.
+        BackupRetention.prune(source.id, in: directory, keeping: BackupRetention.keptPerBoard, discard: discardPackage)
+        return backup
     }
 
     private typealias PackageSource = (repository: BoardRepository, id: BoardID)

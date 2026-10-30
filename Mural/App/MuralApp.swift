@@ -28,6 +28,17 @@ struct MuralApp: App {
         let library = BoardLibrary(rootDirectory: LaunchConfiguration.store().directory, discardPackage: discard)
         let registry = BoardSessionRegistry(library: library)
 
+        // Pastas de prévias de murais que não existem mais (rascunho de exemplo promovido, mural compartilhado que a pessoa deixou).
+        // Depois da primeira listagem; quem decide o que sobra é `OrphanPreviews`. Sem listagem, não se apaga nada.
+        let previews = LaunchConfiguration.libraryRoot().appendingPathComponent("LinkPreviews", isDirectory: true)
+        Task.detached(priority: .utility) {
+            guard let listing = try? await library.listReport() else { return }
+            // Um pacote ilegível não aparece nas entradas, mas o nome dele é o id do mural: as prévias ficam.
+            let unreadable = listing.unreadable.compactMap { UUID(uuidString: ($0.packageName as NSString).deletingPathExtension) }
+            let known = Set(listing.entries.map(\.manifest.id.rawValue)).union(unreadable)
+            OrphanPreviews.clean(in: previews, keeping: known)
+        }
+
         // As capas da vitrine do painel. Um serviço só para o app inteiro: ele guarda as imagens na memória entre uma
         // abertura do painel e outra. `libraryRoot()` só calcula o endereço; `store()` apagaria a pasta dos testes de
         // interface.
@@ -61,6 +72,10 @@ struct MuralApp: App {
         tabs.removeBoardCaches = { boardID in
             clearBoardCaches(boardID)
             remoteContent.forget(boardID)
+            // As cópias de segurança do mural excluído vão para o Lixo junto: a pessoa pode desfazer por lá.
+            BackupRetention.discardAll(
+                of: boardID, in: LaunchConfiguration.libraryRoot().appendingPathComponent("Backups", isDirectory: true),
+                discard: discard)
         }
         _remoteContent = State(initialValue: remoteContent)
 
