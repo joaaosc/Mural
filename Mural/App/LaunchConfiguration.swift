@@ -66,9 +66,15 @@ enum LaunchConfiguration {
     static func linkPreviewsDirectory(
         for boardID: BoardID, arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> URL {
-        libraryRoot(arguments: arguments)
-            .appendingPathComponent("LinkPreviews", isDirectory: true)
-            .appendingPathComponent(boardID.rawValue.uuidString, isDirectory: true)
+        linkPreviewsDirectoryProvider(arguments: arguments)(boardID)
+    }
+
+    /// O mesmo endereço como função que não depende do ator principal, para a biblioteca chamar de onde roda (a raiz é fixada agora).
+    static func linkPreviewsDirectoryProvider(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> @Sendable (BoardID) -> URL {
+        let root = libraryRoot(arguments: arguments).appendingPathComponent("LinkPreviews", isDirectory: true)
+        return { root.appendingPathComponent($0.rawValue.uuidString, isDirectory: true) }
     }
 
     /// O modelo do aparelho escolhe as frases curtas, menos nos testes: lá a frase

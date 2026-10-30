@@ -121,6 +121,8 @@ final class BoardWindowSession {
     private(set) var isPreparingExport = false
     private(set) var isFinishingExport = false
     var isExporterPresented = false
+    /// A folha que pergunta sobre a localização antes do painel de salvar a cópia.
+    var isSaveCopyOptionsPresented = false
     var successMessage: String?
     var warningMessage: String?
     /// Escolha das frases curtas pelo modelo do aparelho; `nil` quando desligada.
@@ -1306,20 +1308,31 @@ final class BoardWindowSession {
         return text.isEmpty ? nil : text
     }
 
-    func beginSaveCopy() {
-        guard exportTask == nil, exportTransfer == nil, exportDocument == nil,
-            !isExporterPresented, !isFinishingExport, model != nil, !isClosed
-        else { return }
+    /// Dá para começar uma cópia: nenhuma outra está sendo preparada, salva ou concluída.
+    var canBeginSaveCopy: Bool {
+        exportTask == nil && exportTransfer == nil && exportDocument == nil
+            && !isExporterPresented && !isFinishingExport && model != nil && !isClosed
+    }
+
+    /// Abre a folha de opções da cópia; o painel de salvar só vem depois de "Continuar…".
+    func presentSaveCopyOptions() {
+        guard canBeginSaveCopy else { return }
+        isSaveCopyOptionsPresented = true
+    }
+
+    /// Prepara a cópia para enviar a outras pessoas. `includeLocation` mantém a localização de fotos e vídeos.
+    func beginSaveCopy(includeLocation: Bool = false) {
+        guard canBeginSaveCopy else { return }
         isPreparingExport = true
         exportTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.prepareSaveCopy()
+            await self.prepareSaveCopy(includeLocation: includeLocation)
             self.exportTask = nil
             self.isPreparingExport = false
         }
     }
 
-    private func prepareSaveCopy() async {
+    private func prepareSaveCopy(includeLocation: Bool) async {
         let capturedRoute = route
         let capturedBoardID = boardID
         guard await flushAndPrepareToLeaveSuccessfully(),
@@ -1332,7 +1345,10 @@ final class BoardWindowSession {
         }
         let capturedGeneration = generation
         do {
-            let packageURL = try await registry.library.exportPackage(route)
+            // Cópia privada: sem dados do Mac de origem e com as imagens das prévias (a cópia do iCloud Drive e o backup não passam por aqui).
+            let packageURL = try await registry.library.exportPackage(
+                route, profile: .share(includeLocation: includeLocation),
+                previewsDirectory: LaunchConfiguration.linkPreviewsDirectory(for: capturedBoardID))
             guard boardID == capturedBoardID, generation == capturedGeneration else {
                 try? await registry.library.cleanupTransfer(packageURL)
                 error = "A exportação foi cancelada porque o mural mudou."

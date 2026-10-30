@@ -27,7 +27,7 @@ final class FocusedBoardActions {
     }
 
     func saveCopy() {
-        session?.beginSaveCopy()
+        session?.presentSaveCopyOptions()
     }
 
     func rename() {

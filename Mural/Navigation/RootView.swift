@@ -641,6 +641,14 @@ private struct LoadedRootView: View {
             .sheet(isPresented: $isReminderPickerPresented) {
                 ReminderPickerSheet(session: session)
             }
+            .sheet(isPresented: $session.isSaveCopyOptionsPresented) {
+                SaveCopyOptionsSheet(
+                    onCancel: { session.isSaveCopyOptionsPresented = false },
+                    onContinue: { includeLocation in
+                        session.isSaveCopyOptionsPresented = false
+                        session.beginSaveCopy(includeLocation: includeLocation)
+                    })
+            }
             .sheet(item: $freeTextEditor) { request in
                 if let freeText = model.freeText(id: request.id) {
                     BoardFreeTextEditorView(
@@ -937,6 +945,39 @@ private struct LoadedRootView: View {
         }
         isFolderInfoPresented = false
         isCanvasFocused = true
+    }
+}
+
+/// Folha que antecede o painel de salvar uma cópia: explica o que a cópia leva e deixa a pessoa decidir sobre a localização.
+/// O interruptor começa desligado a cada abertura, porque a folha é criada de novo cada vez que aparece.
+private struct SaveCopyOptionsSheet: View {
+    let onCancel: () -> Void
+    let onContinue: (_ includeLocation: Bool) -> Void
+    @State private var includeLocation = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Salvar uma Cópia").font(.headline)
+            Text(
+                "A cópia leva os cartões, as imagens, os vídeos e as prévias dos links. Ficam de fora a origem dos downloads, "
+                    + "as etiquetas do Finder, os vínculos com o Lembretes e com a biblioteca do Música, os números de série "
+                    + "das câmeras e a posição de leitura. Documentos PDF vão como estão."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            Toggle("Incluir a localização das fotos e vídeos", isOn: $includeLocation)
+            HStack {
+                Spacer()
+                Button("Cancelar", role: .cancel, action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Continuar…") { onContinue(includeLocation) }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
     }
 }
 

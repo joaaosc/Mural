@@ -64,7 +64,9 @@ enum MuralPackageImport {
         using library: BoardLibrary
     ) async throws -> BoardImportResult {
         try await SecurityScopedAccess.withAccess(to: [source]) {
-            try await library.importPackageWithReport(from: source)
+            // As imagens de prévia do pacote vão para a pasta de prévias do mural novo.
+            try await library.importPackageWithReport(
+                from: source, previewsDirectory: LaunchConfiguration.linkPreviewsDirectoryProvider())
         }
     }
 }
