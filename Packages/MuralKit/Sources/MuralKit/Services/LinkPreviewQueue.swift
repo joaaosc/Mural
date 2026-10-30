@@ -11,6 +11,7 @@ public actor LinkPreviewQueue {
     private let maxPerHost: Int
     private let batchDelay: Duration
     private let now: @Sendable () -> Date
+    private let sleep: @Sendable (Duration) async throws -> Void
     private let deliver: @Sendable ([LinkPreviewUpdate]) async -> Void
 
     /// Pedidos esperando vaga, na ordem de chegada.
@@ -34,6 +35,8 @@ public actor LinkPreviewQueue {
     ///   - maxPerHost: buscas ao mesmo tempo no mesmo host (`WebLink.displayHost`).
     ///   - batchDelay: espera, depois do primeiro resultado de um lote, para juntar os que chegarem; com `.zero` entrega logo.
     ///   - now: relógio, trocável nos testes.
+    ///   - sleep: a espera do lote, trocável nos testes para não depender da velocidade da máquina; precisa lançar ao ser
+    ///     cancelada, como `Task.sleep`.
     ///   - deliver: recebe cada lote de resultados.
     public init(
         fetcher: any LinkPreviewFetching,
@@ -42,6 +45,7 @@ public actor LinkPreviewQueue {
         maxPerHost: Int = 2,
         batchDelay: Duration = .milliseconds(750),
         now: @escaping @Sendable () -> Date = { .now },
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         deliver: @escaping @Sendable ([LinkPreviewUpdate]) async -> Void
     ) {
         self.fetcher = fetcher
@@ -50,6 +54,7 @@ public actor LinkPreviewQueue {
         self.maxPerHost = max(1, maxPerHost)
         self.batchDelay = batchDelay
         self.now = now
+        self.sleep = sleep
         self.deliver = deliver
     }
 
@@ -57,6 +62,9 @@ public actor LinkPreviewQueue {
     public var isIdle: Bool {
         waiting.isEmpty && running.isEmpty && batch.isEmpty && deliveryTask == nil
     }
+
+    /// Resultados prontos que esperam o prazo do lote; os testes esperam por ele antes de liberar a entrega.
+    var undeliveredCount: Int { batch.count }
 
     /// Espera a fila ficar ociosa: tudo buscado e entregue, ou cancelado.
     public func waitUntilIdle() async {
@@ -167,7 +175,7 @@ public actor LinkPreviewQueue {
     private func runDeliveries(epoch: Int) async {
         while epoch == self.epoch, !batch.isEmpty {
             if batchDelay > .zero {
-                do { try await Task.sleep(for: batchDelay) } catch { return }
+                do { try await sleep(batchDelay) } catch { return }
             }
             guard epoch == self.epoch else { return }
             let updates = batch

@@ -81,16 +81,26 @@ private struct Harness {
     let files: LinkPreviewFiles
     let queue: LinkPreviewQueue
 
-    init(maxConcurrent: Int = 4, maxPerHost: Int = 2, batchDelay: Duration = .zero, filesDirectory: URL? = nil) {
+    /// - Parameter sleeper: com ele, a espera do lote só termina quando o teste a libera; sem ele, é a espera real.
+    init(
+        maxConcurrent: Int = 4, maxPerHost: Int = 2, batchDelay: Duration = .zero, filesDirectory: URL? = nil,
+        sleeper: ManualSleeper? = nil
+    ) {
         let fetcher = fetcher
         let deliveries = deliveries
         let files = LinkPreviewFiles(
             directory: filesDirectory
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("MuralQueue-\(UUID().uuidString)", isDirectory: true))
         self.files = files
+        let sleep: @Sendable (Duration) async throws -> Void
+        if let sleeper {
+            sleep = { _ in try await sleeper.sleep() }
+        } else {
+            sleep = { try await Task.sleep(for: $0) }
+        }
         queue = LinkPreviewQueue(
             fetcher: fetcher, files: files, maxConcurrent: maxConcurrent, maxPerHost: maxPerHost, batchDelay: batchDelay,
-            now: { fixedNow }, deliver: { await deliveries.add($0) })
+            now: { fixedNow }, sleep: sleep, deliver: { await deliveries.add($0) })
     }
 
     func cleanup() {
@@ -112,6 +122,15 @@ private struct Harness {
     /// Espera a `count`-ésima busca começar.
     func waitForStarts(_ count: Int) async {
         await waitUntil("\(count) buscas começarem") { await fetcher.started.count >= count }
+    }
+}
+
+/// Espera o lote ter `count` resultados E a entrega estar parada no prazo: liberar antes disso não acharia ninguém esperando.
+private func waitUntilBatchWaits(_ harness: Harness, _ sleeper: ManualSleeper, count: Int) async {
+    await waitUntil("\(count) resultados esperando o prazo do lote") {
+        let pending = await harness.queue.undeliveredCount
+        let sleeping = await sleeper.waitingCount
+        return pending == count && sleeping == 1
     }
 }
 
@@ -388,15 +407,19 @@ struct LinkPreviewQueueTests {
 
     // MARK: Lotes
 
-    @Test("Buscas que terminam juntas são entregues num lote só, e uma onda posterior forma outro lote")
+    @Test("Buscas que terminam juntas são entregues num lote só, e uma onda posterior forma outro lote", .timeLimit(.minutes(1)))
     func finishesTogetherAreDeliveredInOneBatch() async {
-        let harness = Harness(batchDelay: .milliseconds(400))
+        // O prazo do lote só acaba quando o teste libera: com a máquina lenta, as três buscas continuam no mesmo lote.
+        let sleeper = ManualSleeper()
+        let harness = Harness(batchDelay: .seconds(1), sleeper: sleeper)
         defer { harness.cleanup() }
         let wave = (0..<3).map { harness.request("host\($0).example.com", $0) }
         await harness.queue.enqueue(wave)
         await harness.waitForStarts(3)
 
         await harness.fetcher.releaseAll()
+        await waitUntilBatchWaits(harness, sleeper, count: 3)
+        await sleeper.releaseAll()
         await harness.settle()
 
         let batches = await harness.deliveries.batches
@@ -405,6 +428,8 @@ struct LinkPreviewQueueTests {
 
         let later = harness.request("outro.example.com")
         await harness.queue.enqueue([later])
+        await waitUntilBatchWaits(harness, sleeper, count: 1)
+        await sleeper.releaseAll()
         await harness.settle()
         #expect(await harness.deliveries.batches.count == 2)
         #expect(await harness.deliveries.batches.last?.map(\.itemID) == [later.itemID])
@@ -464,19 +489,22 @@ struct LinkPreviewQueueTests {
         await harness.settle()
     }
 
-    @Test("cancelAll descarta o lote que ainda não foi entregue")
+    @Test("cancelAll descarta o lote que ainda não foi entregue", .timeLimit(.minutes(1)))
     func cancelAllDiscardsTheUndeliveredBatch() async {
-        let harness = Harness(batchDelay: .seconds(1))
+        // O lote fica parado no prazo até o teste liberar: com a máquina lenta, ele não sai antes do cancelamento.
+        let sleeper = ManualSleeper()
+        let harness = Harness(batchDelay: .seconds(1), sleeper: sleeper)
         defer { harness.cleanup() }
         await harness.fetcher.releaseAll()
         await harness.queue.enqueue([harness.request("a.example.com")])
-        await waitUntil("busca terminar") { await harness.fetcher.finishedCount == 1 }
-        try? await Task.sleep(for: .milliseconds(100))
+        await waitUntilBatchWaits(harness, sleeper, count: 1)
         #expect(!(await harness.queue.isIdle), "controle: o resultado espera no lote")
 
         await harness.queue.cancelAll()
         #expect(await harness.queue.isIdle)
-        try? await Task.sleep(for: .milliseconds(1_300))
+        // Mesmo com o prazo liberado, a entrega cancelada não acontece.
+        await sleeper.releaseAll()
+        try? await Task.sleep(for: .milliseconds(100))
 
         #expect(await harness.deliveries.batches.isEmpty)
     }

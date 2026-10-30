@@ -93,3 +93,42 @@ func waitUntil(
         try? await Task.sleep(for: .milliseconds(5))
     }
 }
+
+/// Espera de lote que só o teste libera: cada `sleep()` fica parado até `releaseAll()`. Cancelar a tarefa encerra a espera
+/// com `CancellationError`, como `Task.sleep`. Assim os testes de lote não dependem da velocidade da máquina.
+actor ManualSleeper {
+    private var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    /// Cancelamento que chegou antes de a espera começar (a tarefa já estava cancelada).
+    private var cancelledEarly: Set<UUID> = []
+
+    var waitingCount: Int { waiters.count }
+
+    func sleep() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if cancelledEarly.remove(id) != nil {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+    }
+
+    func releaseAll() {
+        let released = waiters.values
+        waiters.removeAll()
+        for continuation in released { continuation.resume() }
+    }
+
+    private func cancel(_ id: UUID) {
+        if let continuation = waiters.removeValue(forKey: id) {
+            continuation.resume(throwing: CancellationError())
+        } else {
+            cancelledEarly.insert(id)
+        }
+    }
+}
