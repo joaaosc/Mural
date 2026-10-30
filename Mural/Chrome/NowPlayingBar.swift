@@ -151,6 +151,10 @@ struct NowPlayingBar: View {
 /// O miniplayer no rodapé da janela, encaixado à esquerda, no centro ou à direita, acima dos controles do rodapé que
 /// cruzem o lugar dele. Arrastar a cápsula na horizontal a leva ao ponto mais perto; clicar nela abre o cartão expandido
 /// acima.
+///
+/// Com o ponteiro parado sobre ele por `optionsDelay`, surgem acima da cápsula duas opções: levar a música para a barra
+/// lateral ou fechá-la. Sem ponteiro (VoiceOver, teclado), as mesmas duas ações estão no menu de contexto da cápsula e entre
+/// as ações de acessibilidade dela.
 struct NowPlayingPositioned: View {
     let summary: NowPlayingSummary
     let elapsed: () -> TimeInterval
@@ -160,11 +164,29 @@ struct NowPlayingPositioned: View {
     let dock: NowPlayingDock
     let setDock: (NowPlayingDock) -> Void
 
+    /// Quanto o ponteiro fica sobre o miniplayer até as opções surgirem.
+    static let optionsDelay: Duration = .seconds(2)
+    /// Quanto as opções esperam depois que o ponteiro sai, para ele poder ir da cápsula até elas.
+    static let optionsGrace: Duration = .milliseconds(300)
+
     /// O vão entre o cartão expandido e a cápsula, em pontos.
     private static let cardGap: CGFloat = 10
 
+    /// O que fazer com as opções, segundo o ponteiro e o estado do miniplayer.
+    private enum OptionsIntent {
+        /// O ponteiro está sobre o miniplayer: mostra depois de `optionsDelay`.
+        case show
+        /// O ponteiro saiu: esconde depois de `optionsGrace`.
+        case hideSoon
+        /// O cartão expandiu ou a cápsula está sendo arrastada: esconde já.
+        case hideNow
+    }
+
     @Namespace private var glassNamespace
     @State private var isExpanded = false
+    /// O ponteiro está sobre a cápsula, as opções ou o cartão.
+    @State private var isHovering = false
+    @State private var showsOptions = false
     @GestureState private var dragX: CGFloat = 0
     @GestureState private var isDragging = false
     @State private var lastDragEnd = Date.distantPast
@@ -190,6 +212,12 @@ struct NowPlayingPositioned: View {
                     .onExitCommand { setExpanded(false) }
                     .transition(reduceMotion ? .opacity : .identity)
                 }
+                if showsOptions && !isExpanded && !isDragging {
+                    NowPlayingHoverOptions(
+                        moveToSidebar: actions.moveToSidebar, stop: actions.stop, reducesMotion: reduceMotion
+                    )
+                    .transition(reduceMotion ? .opacity : .identity)
+                }
                 NowPlayingBar(
                     summary: summary, elapsed: elapsed, actions: barActions, expand: { setExpanded(!isExpanded) },
                     glassNamespace: glassNamespace
@@ -199,7 +227,15 @@ struct NowPlayingPositioned: View {
                 .accessibilityAction(named: "Encaixar à esquerda") { snap(to: .leading) }
                 .accessibilityAction(named: "Encaixar no centro") { snap(to: .center) }
                 .accessibilityAction(named: "Encaixar à direita") { snap(to: .trailing) }
+                .contextMenu {
+                    Button("Levar para a barra lateral", systemImage: "sidebar.left", action: actions.moveToSidebar)
+                    Button("Parar a música e fechar", systemImage: "xmark", action: actions.stop)
+                }
+                .accessibilityAction(named: "Levar para a barra lateral") { actions.moveToSidebar() }
+                .accessibilityAction(named: "Parar a música e fechar o miniplayer") { actions.stop() }
             }
+            .onHover { isHovering = $0 }
+            .task(id: optionsIntent) { await apply(optionsIntent) }
         }
         .offset(x: dragX)
         .padding(.horizontal, NowPlayingPlacement.margin)
@@ -215,6 +251,38 @@ struct NowPlayingPositioned: View {
         }
         .onChange(of: dock) { HapticFeedback.play() }
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement.bottomPadding)
+    }
+
+    // MARK: Opções ao segurar o ponteiro
+
+    private var optionsIntent: OptionsIntent {
+        if isExpanded || isDragging { return .hideNow }
+        return isHovering ? .show : .hideSoon
+    }
+
+    /// Roda a cada mudança da intenção; a tarefa anterior é cancelada, e com ela a espera que ainda estava correndo.
+    private func apply(_ intent: OptionsIntent) async {
+        switch intent {
+        case .show:
+            guard !showsOptions else { return }
+            try? await Task.sleep(for: Self.optionsDelay)
+            guard !Task.isCancelled else { return }
+            setOptions(true)
+        case .hideSoon:
+            guard showsOptions else { return }
+            try? await Task.sleep(for: Self.optionsGrace)
+            guard !Task.isCancelled else { return }
+            setOptions(false)
+        case .hideNow:
+            setOptions(false)
+        }
+    }
+
+    private func setOptions(_ value: Bool) {
+        guard showsOptions != value else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.4, bounce: 0.15)) {
+            showsOptions = value
+        }
     }
 
     // MARK: Arrastar

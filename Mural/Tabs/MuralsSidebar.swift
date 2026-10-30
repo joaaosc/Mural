@@ -7,6 +7,8 @@ struct MuralsSidebar: View {
     static let width: CGFloat = 240
 
     let tabs: MuralTabs
+    var playback: MusicPlayback = .shared
+    var dockStore: NowPlayingDockStore = .shared
 
     @State private var entries: [BoardLibraryEntry] = []
     /// Pacotes que não puderam ser lidos; os outros murais continuam na lista.
@@ -62,13 +64,16 @@ struct MuralsSidebar: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
-                .buttonStyle(.borderless)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .help("Novo mural (⌘N)")
-                .accessibilityIdentifier("sidebar-new-board")
+            VStack(spacing: 0) {
+                SidebarNowPlaying(tabs: tabs, playback: playback, dockStore: dockStore)
+                Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
+                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .help("Novo mural (⌘N)")
+                    .accessibilityIdentifier("sidebar-new-board")
+            }
         }
         .frame(width: Self.width)
         .background {
@@ -100,6 +105,26 @@ extension BoardRoute {
     var isDraft: Bool {
         if case .welcomeDraft = self { return true }
         return false
+    }
+}
+
+/// A seção "Tocando agora" com os divisores: aparece quando o miniplayer foi levado para a barra lateral e há música; senão,
+/// não desenha nada. Numa view à parte, para que só ela releia o tocador a cada faixa, e não a lista de murais.
+private struct SidebarNowPlaying: View {
+    let tabs: MuralTabs
+    let playback: MusicPlayback
+    let dockStore: NowPlayingDockStore
+
+    var body: some View {
+        if dockStore.isInSidebar, let summary = playback.summary(in: tabs) {
+            Divider()
+            NowPlayingSidebarSection(
+                summary: summary,
+                actions: playback.nowPlayingActions(
+                    openSource: { tabs.showBoard(summary.route, title: summary.boardTitle) }),
+                returnToMiniPlayer: { dockStore.isInSidebar = false })
+            Divider()
+        }
     }
 }
 

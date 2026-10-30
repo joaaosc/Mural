@@ -171,6 +171,70 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertTrue(bar.waitForNonExistence(timeout: 5), "Parar deveria esconder o miniplayer")
     }
 
+    /// Segura o ponteiro sobre a cápsula até as opções surgirem (depois de 2 s) e devolve a pedida.
+    @MainActor
+    private func hoverForOption(_ id: String, in app: XCUIApplication) -> XCUIElement {
+        let bar = element("now-playing-bar", in: app)
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "o miniplayer deveria aparecer ao tocar")
+        XCTAssertFalse(element(id, in: app).exists, "as opções só surgem depois de um tempo com o ponteiro parado")
+        bar.hover()
+        let option = element(id, in: app)
+        XCTAssertTrue(option.waitForExistence(timeout: 4), "o ponteiro parado sobre a cápsula deveria mostrar as opções")
+        Thread.sleep(forTimeInterval: 0.6)
+        attachScreenshot("Opções ao segurar o ponteiro")
+        return option
+    }
+
+    /// Com o ponteiro parado sobre a cápsula, "Barra lateral" leva os controles para a barra lateral. Fechar a barra lateral
+    /// devolve a cápsula (a música nunca fica sem controle à vista), e "Voltar ao miniplayer" a traz de volta de vez.
+    @MainActor
+    func testHoverOptionMovesMiniPlayerToSidebarAndBack() throws {
+        let app = launch()
+        pasteAndPlayAlbum(in: app)
+        let bar = element("now-playing-bar", in: app)
+        let section = element("sidebar-now-playing", in: app)
+        let playPause = element("sidebar-now-playing-play-pause", in: app)
+        let sidebarButton = app.buttons["murals-sidebar-button"].firstMatch
+
+        hoverForOption("now-playing-option-sidebar", in: app).click()
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 5), "a cápsula deveria sair com o miniplayer na barra lateral")
+        XCTAssertTrue(section.waitForExistence(timeout: 5), "a barra lateral deveria mostrar o Tocando agora")
+        XCTAssertTrue(element("sidebar-now-playing-previous", in: app).exists, "um álbum tem faixa anterior")
+        waitForLabel("Pausar", of: playPause)
+        attachScreenshot("Tocando agora na barra lateral")
+
+        playPause.click()
+        waitForLabel("Tocar", of: playPause)
+        playPause.click()
+        waitForLabel("Pausar", of: playPause)
+        element("sidebar-now-playing-next", in: app).click()
+        XCTAssertFalse(bar.exists, "controlar pela barra lateral não traz a cápsula de volta")
+
+        // Sem a barra lateral à vista, a cápsula volta; com ela de novo, a cápsula sai outra vez.
+        sidebarButton.click()
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "sem a barra lateral à vista, a cápsula deveria voltar")
+        XCTAssertTrue(section.waitForNonExistence(timeout: 5))
+        sidebarButton.click()
+        XCTAssertTrue(section.waitForExistence(timeout: 5), "o miniplayer continua na barra lateral")
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 5))
+
+        element("sidebar-now-playing-return", in: app).click()
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "voltar ao miniplayer deveria trazer a cápsula")
+        XCTAssertTrue(section.waitForNonExistence(timeout: 5), "a seção da barra lateral deveria sair")
+    }
+
+    /// "Fechar" nas opções da cápsula para a música e some com o miniplayer.
+    @MainActor
+    func testHoverOptionCloseStopsMusic() throws {
+        let app = launch()
+        pasteAndPlayAlbum(in: app)
+        let bar = element("now-playing-bar", in: app)
+
+        hoverForOption("now-playing-option-close", in: app).click()
+        XCTAssertTrue(bar.waitForNonExistence(timeout: 5), "Fechar deveria esconder o miniplayer")
+        XCTAssertFalse(element("sidebar-now-playing", in: app).exists, "Fechar não leva a música para a barra lateral")
+    }
+
     @MainActor
     func testExpandedPlayerTogglesShuffleAndRepeat() throws {
         let app = launch()

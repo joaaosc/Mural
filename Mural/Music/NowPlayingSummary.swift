@@ -66,6 +66,27 @@ struct NowPlayingActions {
     var toggleShuffle: () -> Void = {}
     var cycleRepeat: () -> Void = {}
     var seek: (TimeInterval) -> Void = { _ in }
+    /// Leva o miniplayer para a barra lateral de murais.
+    var moveToSidebar: () -> Void = {}
+}
+
+extension MusicPlayback {
+    /// Os controles ligados a este tocador. Quem pede diz o que "Abrir" faz, que muda conforme o lugar (a janela, o painel), e,
+    /// se o lugar a oferece, o que "Levar para a barra lateral" faz.
+    func nowPlayingActions(
+        openSource: @escaping () -> Void, moveToSidebar: @escaping () -> Void = {}
+    ) -> NowPlayingActions {
+        NowPlayingActions(
+            openSource: openSource,
+            playPause: { Task { await self.pauseOrResume() } },
+            previous: { Task { await self.skipToPrevious() } },
+            next: { Task { await self.skipToNext() } },
+            stop: { self.stopCurrent() },
+            toggleShuffle: { self.toggleShuffle() },
+            cycleRepeat: { self.cycleRepeat() },
+            seek: { self.seek(to: $0) },
+            moveToSidebar: moveToSidebar)
+    }
 }
 
 #if DEBUG
