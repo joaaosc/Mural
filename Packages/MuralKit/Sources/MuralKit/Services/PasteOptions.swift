@@ -9,8 +9,8 @@ public struct PasteOption: Hashable, Sendable, Identifiable {
         case text(ItemKind)
         /// Ainda não se sabe o que é: lê a área de transferência na hora de colar.
         case read
-        /// Abre o texto copiado num editor dentro do painel, para mudá-lo antes de colar.
-        case edit
+        /// Abre o editor de texto, vazio, em vez de colar o que está copiado.
+        case openEditor
     }
 
     public let action: Action
@@ -28,12 +28,12 @@ public struct PasteOption: Hashable, Sendable, Identifiable {
         self.isSuggested = isSuggested
     }
 
-    /// Estável por ação: `asRead`, `read`, `edit` e `text-<tipo>` (por exemplo `text-sticky`).
+    /// Estável por ação: `asRead`, `read`, `openEditor` e `text-<tipo>` (por exemplo `text-sticky`).
     public var id: String {
         switch action {
         case .asRead: "asRead"
         case .read: "read"
-        case .edit: "edit"
+        case .openEditor: "openEditor"
         case .text(let kind): "text-\(kind.rawValue)"
         }
     }
@@ -41,19 +41,13 @@ public struct PasteOption: Hashable, Sendable, Identifiable {
 
 /// As opções de colar que o painel oferece para o que está na área de transferência.
 public enum PasteOptions {
-    /// As opções na ordem em que aparecem; vazio quando não há o que colar. Uma opção única é sempre a sugerida.
+    /// As opções na ordem em que aparecem. As de colar vêm primeiro e a última é sempre abrir o editor de texto, nunca sugerida,
+    /// para qualquer conteúdo, inclusive nenhum. Uma opção única de colar é sempre a sugerida.
     ///
     /// Texto usa `ContentClassifier.pasteChoice(forText:)`: uma opção por tipo de cartão possível, com a sugestão
     /// do classificador marcada. Texto só com espaços não conta.
-    ///
-    /// Com `allowsEditing`, o texto (lido ou não) que tem opções de colar ganha no fim a opção de editar antes de colar,
-    /// nunca sugerida. Os outros tipos nunca a têm.
-    public static func options(for kind: ClipboardKind, allowsEditing: Bool = false) -> [PasteOption] {
-        var options = pasteOptions(for: kind)
-        if allowsEditing, case .text = kind, !options.isEmpty {
-            options.append(PasteOption(action: .edit, kind: nil, count: 0, isSuggested: false))
-        }
-        return options
+    public static func options(for kind: ClipboardKind) -> [PasteOption] {
+        pasteOptions(for: kind) + [PasteOption(action: .openEditor, kind: nil, count: 0, isSuggested: false)]
     }
 
     private static func pasteOptions(for kind: ClipboardKind) -> [PasteOption] {

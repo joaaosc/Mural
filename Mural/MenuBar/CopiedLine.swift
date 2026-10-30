@@ -8,12 +8,10 @@ import SwiftUI
 struct CopiedLine: View {
     let kind: ClipboardKind
     let content: ClipboardContent?
-    /// O nome curto da etapa que o Tab mostra ("Colar", "Formatar"); `nil` quando não há o que mostrar a mais.
+    /// O nome curto da etapa que o Tab mostra ("Colar"); `nil` quando não há o que mostrar a mais.
     let nextStage: String?
     /// Vai à etapa seguinte.
     let advance: @MainActor () -> Void
-    /// O texto foi mudado no editor do painel: o rótulo diz "Editado:" em vez de "Copiado:".
-    var isEdited = false
 
     var body: some View {
         if let nextStage {
@@ -23,7 +21,7 @@ struct CopiedLine: View {
             .buttonStyle(.plain)
             .focusable(false)
             .help("Tab: \(nextStage)")
-            .accessibilityHint(nextStage == "Colar" ? "Mostra as maneiras de colar." : "Mostra como formatar o texto.")
+            .accessibilityHint("Mostra as maneiras de colar.")
             .accessibilityIdentifier("menu-bar-copied-line")
         } else {
             line(nextStage: nil)
@@ -36,10 +34,15 @@ struct CopiedLine: View {
             Image(systemName: PasteDescription.symbol(for: kind))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text(PasteDescription.copiedLabel(isEdited: isEdited))
-                .foregroundStyle(.secondary)
-            Text(PasteDescription.name(for: kind))
-                .fontWeight(.medium)
+            if kind == .nothing {
+                Text(PasteDescription.nothingCopied)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(PasteDescription.copiedLabel())
+                    .foregroundStyle(.secondary)
+                Text(PasteDescription.name(for: kind))
+                    .fontWeight(.medium)
+            }
             if let preview = PasteDescription.preview(of: content) {
                 Text("·")
                     .foregroundStyle(.tertiary)
@@ -62,12 +65,7 @@ struct CopiedLine: View {
     }
 }
 
-#Preview("Copiado e editado", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 90)) {
-    VStack(alignment: .leading) {
-        CopiedLine(kind: .text("Comprar pão"), content: .pasted(.text("Comprar pão")), nextStage: "Colar", advance: {})
-        CopiedLine(
-            kind: .text("Comprar pão (editado)"), content: .pasted(.text("Comprar pão (editado)")), nextStage: "Colar",
-            advance: {}, isEdited: true)
-    }
-    .padding()
+#Preview("Copiado", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 60)) {
+    CopiedLine(kind: .text("Comprar pão"), content: .pasted(.text("Comprar pão")), nextStage: "Colar", advance: {})
+        .padding()
 }

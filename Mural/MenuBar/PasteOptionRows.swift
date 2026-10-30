@@ -52,8 +52,8 @@ struct PasteOptionRows: View {
     }
 }
 
-#Preview("Texto com a opção de editar", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 150)) {
-    let options = PasteOptions.options(for: .text("Comprar pão\n- leite\n- ovos"), allowsEditing: true)
+#Preview("Texto com a opção de abrir o editor", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 150)) {
+    let options = PasteOptions.options(for: .text("Comprar pão\n- leite\n- ovos"))
     PasteOptionRows(
         options: options, selectedOption: options.count - 1, clipboard: .text("Comprar pão\n- leite\n- ovos"),
         boardName: "Compras", choose: { _ in }

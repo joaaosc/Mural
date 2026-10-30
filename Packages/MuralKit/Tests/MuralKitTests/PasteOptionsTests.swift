@@ -10,6 +10,11 @@ struct PasteOptionsTests {
         PasteOption(action: action, kind: kind, count: count, isSuggested: suggested)
     }
 
+    /// As opções de colar, sem a de abrir o editor, que todo conteúdo ganha no fim.
+    private func pasteOnly(_ kind: ClipboardKind) -> [PasteOption] {
+        PasteOptions.options(for: kind).filter { $0.action != .openEditor }
+    }
+
     private let shortText = "Ligar para o marceneiro"
     private let longText = String(repeating: "palavra ", count: 40)
     private let listText = "Compras da obra\n- [ ] Tinta azul\n- [ ] Rolo"
@@ -18,67 +23,67 @@ struct PasteOptionsTests {
 
     @Test("Área de transferência vazia não tem opção")
     func nothingHasNoOptions() {
-        #expect(PasteOptions.options(for: .nothing).isEmpty)
+        #expect(pasteOnly(.nothing).isEmpty)
     }
 
     @Test("Links já lidos: uma opção que cola os cartões de link, com a contagem")
     func readLinks() {
-        #expect(PasteOptions.options(for: .links(count: 3)) == [option(.asRead, .link, 3, suggested: true)])
-        #expect(PasteOptions.options(for: .links(count: 1)) == [option(.asRead, .link, 1, suggested: true)])
+        #expect(pasteOnly(.links(count: 3)) == [option(.asRead, .link, 3, suggested: true)])
+        #expect(pasteOnly(.links(count: 1)) == [option(.asRead, .link, 1, suggested: true)])
     }
 
     @Test("Links ainda não lidos: uma opção que lê na hora, de cartão de link e sem contagem")
     func unreadLinks() {
-        #expect(PasteOptions.options(for: .links(count: 0)) == [option(.read, .link, 0, suggested: true)])
+        #expect(pasteOnly(.links(count: 0)) == [option(.read, .link, 0, suggested: true)])
     }
 
     @Test("Imagem e PDF: uma opção de um cartão do tipo certo")
     func imageAndPDF() {
-        #expect(PasteOptions.options(for: .image) == [option(.asRead, .image, 1, suggested: true)])
-        #expect(PasteOptions.options(for: .pdf) == [option(.asRead, .pdf, 1, suggested: true)])
+        #expect(pasteOnly(.image) == [option(.asRead, .image, 1, suggested: true)])
+        #expect(pasteOnly(.pdf) == [option(.asRead, .pdf, 1, suggested: true)])
     }
 
     @Test("Arquivos lidos: uma opção sem tipo fixo (varia por arquivo) e com a contagem")
     func readFiles() {
-        #expect(PasteOptions.options(for: .files(count: 4)) == [option(.asRead, nil, 4, suggested: true)])
+        #expect(pasteOnly(.files(count: 4)) == [option(.asRead, nil, 4, suggested: true)])
     }
 
     @Test("Arquivos ainda não lidos: uma opção que lê na hora, sem tipo e sem contagem")
     func unreadFiles() {
-        #expect(PasteOptions.options(for: .files(count: 0)) == [option(.read, nil, 0, suggested: true)])
+        #expect(pasteOnly(.files(count: 0)) == [option(.read, nil, 0, suggested: true)])
     }
 
     @Test("Contato lido: uma opção que cola os cartões de contato, com a contagem; sem ler, uma que lê na hora")
     func contact() {
-        #expect(PasteOptions.options(for: .contact(count: 2)) == [option(.asRead, .contact, 2, suggested: true)])
-        #expect(PasteOptions.options(for: .contact(count: 0)) == [option(.read, .contact, 0, suggested: true)])
+        #expect(pasteOnly(.contact(count: 2)) == [option(.asRead, .contact, 2, suggested: true)])
+        #expect(pasteOnly(.contact(count: 0)) == [option(.read, .contact, 0, suggested: true)])
     }
 
     @Test("Música lida: uma opção que cola os cartões de música, com a contagem; sem ler, uma que lê na hora")
     func music() {
-        #expect(PasteOptions.options(for: .music(count: 2)) == [option(.asRead, .music, 2, suggested: true)])
-        #expect(PasteOptions.options(for: .music(count: 0)) == [option(.read, .music, 0, suggested: true)])
+        #expect(pasteOnly(.music(count: 2)) == [option(.asRead, .music, 2, suggested: true)])
+        #expect(pasteOnly(.music(count: 0)) == [option(.read, .music, 0, suggested: true)])
     }
 
     @Test("Texto ainda não lido: uma opção que lê na hora, sem tipo e sem contagem")
     func unreadText() {
-        #expect(PasteOptions.options(for: .text(nil)) == [option(.read, nil, 0, suggested: true)])
+        #expect(pasteOnly(.text(nil)) == [option(.read, nil, 0, suggested: true)])
     }
 
     @Test("Contagem negativa vale como ainda não lido", arguments: [-1, -50])
     func negativeCountsAreUnread(count: Int) {
-        #expect(PasteOptions.options(for: .links(count: count)) == [option(.read, .link, 0, suggested: true)])
-        #expect(PasteOptions.options(for: .files(count: count)) == [option(.read, nil, 0, suggested: true)])
+        #expect(pasteOnly(.links(count: count)) == [option(.read, .link, 0, suggested: true)])
+        #expect(pasteOnly(.files(count: count)) == [option(.read, nil, 0, suggested: true)])
     }
 
     @Test("Texto em branco não tem opção", arguments: ["", " ", "   \n  ", "\t\n\r\n"])
     func blankTextHasNoOptions(text: String) {
-        #expect(PasteOptions.options(for: .text(text)).isEmpty)
+        #expect(pasteOnly(.text(text)).isEmpty)
     }
 
     @Test("Texto curto: post-it sugerido, nota como alternativa e nada de lista")
     func shortTextSuggestsSticky() {
-        let options = PasteOptions.options(for: .text(shortText))
+        let options = pasteOnly(.text(shortText))
 
         #expect(
             options == [
@@ -89,7 +94,7 @@ struct PasteOptionsTests {
 
     @Test("Texto longo: nota sugerida, com o post-it como alternativa")
     func longTextSuggestsNote() {
-        let options = PasteOptions.options(for: .text(longText))
+        let options = pasteOnly(.text(longText))
 
         #expect(
             options == [
@@ -100,7 +105,7 @@ struct PasteOptionsTests {
 
     @Test("Texto que parece lista: três opções, na ordem dos botões, com a lista sugerida")
     func listTextOffersAChecklist() {
-        let options = PasteOptions.options(for: .text(listText))
+        let options = pasteOnly(.text(listText))
 
         #expect(
             options == [
@@ -115,7 +120,7 @@ struct PasteOptionsTests {
         for text in [shortText, longText, listText, "Só um item\n- pão", "Compras\n- pão\n- leite"] {
             let choice = ContentClassifier.pasteChoice(forText: text)
 
-            let options = PasteOptions.options(for: .text(text))
+            let options = pasteOnly(.text(text))
 
             #expect(options.map(\.kind) == choice.options.map { Optional($0) }, "\(text.debugDescription)")
             #expect(options.map(\.action) == choice.options.map { PasteOption.Action.text($0) })
@@ -126,7 +131,7 @@ struct PasteOptionsTests {
 
     @Test("Um item só com marcador não é lista: sem a opção de lista")
     func singleBulletIsNotAChecklist() {
-        let options = PasteOptions.options(for: .text("Só um item\n- pão"))
+        let options = pasteOnly(.text("Só um item\n- pão"))
 
         #expect(options.map(\.kind) == [.sticky, .text])
         #expect(options.filter(\.isSuggested).map(\.kind) == [.sticky])
@@ -134,7 +139,7 @@ struct PasteOptionsTests {
 
     @Test("Espaços e quebras de linha nas pontas não atrapalham a classificação")
     func surroundingWhitespaceIsIgnored() {
-        let options = PasteOptions.options(for: .text("\n\n  Compras\n- pão\n- leite\n\n  "))
+        let options = pasteOnly(.text("\n\n  Compras\n- pão\n- leite\n\n  "))
 
         #expect(options.map(\.kind) == [.sticky, .text, .checklist])
         #expect(options.filter(\.isSuggested).map(\.kind) == [.checklist])
@@ -147,7 +152,7 @@ struct PasteOptionsTests {
         ]
 
         for kind in single {
-            let options = PasteOptions.options(for: kind)
+            let options = pasteOnly(kind)
             #expect(options.count == 1 && options[0].isSuggested, "\(kind)")
         }
     }
@@ -160,7 +165,7 @@ struct PasteOptionsTests {
         #expect(option(.text(.text), .text, 1, suggested: false).id == "text-text")
         #expect(option(.text(.checklist), .checklist, 1, suggested: false).id == "text-checklist")
 
-        let ids = PasteOptions.options(for: .text(listText)).map(\.id)
+        let ids = pasteOnly(.text(listText)).map(\.id)
         #expect(ids == ["text-sticky", "text-text", "text-checklist"])
         #expect(Set(ids).count == ids.count, "sem repetição na mesma lista")
     }
@@ -168,64 +173,39 @@ struct PasteOptionsTests {
     @Test("O id não muda com a contagem nem com a sugestão")
     func identifiersIgnoreCountAndSuggestion() {
         #expect(option(.asRead, .link, 1, suggested: true).id == option(.asRead, nil, 9, suggested: false).id)
-        #expect(PasteOptions.options(for: .text(shortText)).map(\.id) == PasteOptions.options(for: .text(longText)).map(\.id))
+        #expect(pasteOnly(.text(shortText)).map(\.id) == pasteOnly(.text(longText)).map(\.id))
     }
 
-    // MARK: edição
+    // MARK: editor
 
-    @Test("Com a edição permitida, o texto (lido ou não) ganha a opção de editar no fim, nunca sugerida")
-    func editIsAppendedForText() {
-        let edit = option(.edit, nil, 0, suggested: false)
-
-        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(longText), .text(listText)] {
-            let base = PasteOptions.options(for: kind)
-            let options = PasteOptions.options(for: kind, allowsEditing: true)
-
-            #expect(options == base + [edit], "\(kind)")
+    @Test("Qualquer conteúdo, inclusive nenhum, ganha no fim a opção de abrir o editor, nunca sugerida")
+    func openEditorIsAlwaysLast() {
+        let kinds: [ClipboardKind] = [
+            .nothing, .image, .pdf, .links(count: 0), .links(count: 2), .files(count: 0), .files(count: 3), .music(count: 0),
+            .music(count: 2), .contact(count: 0), .contact(count: 2), .text(nil), .text(shortText), .text(longText), .text(listText),
+            .text("  "),
+        ]
+        let editor = option(.openEditor, nil, 0, suggested: false)
+        for kind in kinds {
+            let options = PasteOptions.options(for: kind)
+            #expect(options == pasteOnly(kind) + [editor], "\(kind)")
             #expect(options.last?.isSuggested == false)
         }
+        #expect(PasteOptions.options(for: .nothing) == [editor])
     }
 
-    @Test("Imagem, PDF, links, arquivos, música e área vazia nunca ganham a opção de editar")
-    func editIsNeverOfferedForOtherKinds() {
-        let others: [ClipboardKind] = [
-            .nothing, .image, .pdf, .links(count: 0), .links(count: 2), .files(count: 0), .files(count: 3), .music(count: 0),
-            .music(count: 2), .contact(count: 0), .contact(count: 2),
-        ]
-
-        for kind in others {
-            #expect(PasteOptions.options(for: kind, allowsEditing: true) == PasteOptions.options(for: kind), "\(kind)")
-        }
+    @Test("O id da opção de abrir o editor é estável")
+    func openEditorIdentifier() {
+        #expect(option(.openEditor, nil, 0, suggested: false).id == "openEditor")
+        #expect(PasteOptions.options(for: .text(listText)).map(\.id) == ["text-sticky", "text-text", "text-checklist", "openEditor"])
     }
 
-    @Test("Texto em branco continua sem opção, mesmo com a edição permitida", arguments: ["", "  ", "\n\t"])
-    func blankTextHasNoOptionsEvenWhenEditingIsAllowed(text: String) {
-        #expect(PasteOptions.options(for: .text(text), allowsEditing: true).isEmpty)
-    }
-
-    @Test("Sem pedir a edição, a lista é a de sempre")
-    func editingIsOffByDefault() {
-        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(listText)] {
-            #expect(PasteOptions.options(for: kind) == PasteOptions.options(for: kind, allowsEditing: false), "\(kind)")
-            #expect(!PasteOptions.options(for: kind).contains { $0.action == .edit })
-        }
-    }
-
-    @Test("O id da opção de editar é estável")
-    func editIdentifier() {
-        #expect(option(.edit, nil, 0, suggested: false).id == "edit")
-        #expect(
-            PasteOptions.options(for: .text(listText), allowsEditing: true).map(\.id) == [
-                "text-sticky", "text-text", "text-checklist", "edit",
-            ])
-    }
-
-    @Test("A posição sugerida nunca é a da opção de editar")
-    func suggestedIndexSkipsEdit() throws {
-        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(longText), .text(listText)] {
-            let options = PasteOptions.options(for: kind, allowsEditing: true)
+    @Test("A posição sugerida nunca é a da opção de abrir o editor, quando há o que colar")
+    func suggestedIndexSkipsTheEditor() throws {
+        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(longText), .text(listText), .image, .links(count: 2)] {
+            let options = PasteOptions.options(for: kind)
             let index = try #require(PasteOptions.suggestedIndex(in: options))
-            #expect(options[index].action != .edit, "\(kind)")
+            #expect(options[index].action != .openEditor, "\(kind)")
         }
     }
 
@@ -234,18 +214,18 @@ struct PasteOptionsTests {
     @Test("Sem opções, não há posição sugerida")
     func suggestedIndexOfNoOptions() {
         #expect(PasteOptions.suggestedIndex(in: []) == nil)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .nothing)) == nil)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .text("  "))) == nil)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.nothing)) == nil)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.text("  "))) == nil)
     }
 
     @Test("A posição sugerida é a da opção marcada")
     func suggestedIndexFollowsTheSuggestion() {
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .text(shortText))) == 0)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .text(longText))) == 1)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .text(listText))) == 2)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .image)) == 0)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .links(count: 2))) == 0)
-        #expect(PasteOptions.suggestedIndex(in: PasteOptions.options(for: .text(nil))) == 0)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.text(shortText))) == 0)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.text(longText))) == 1)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.text(listText))) == 2)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.image)) == 0)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.links(count: 2))) == 0)
+        #expect(PasteOptions.suggestedIndex(in: pasteOnly(.text(nil))) == 0)
     }
 
     @Test("Sem nenhuma marcada, a primeira; com mais de uma marcada, a primeira delas")
@@ -429,7 +409,7 @@ struct ClipboardKindTests {
         ]
 
         for (identifiers, actions) in table {
-            let options = PasteOptions.options(for: ClipboardKind.hint(typeIdentifiers: identifiers))
+            let options = PasteOptions.options(for: ClipboardKind.hint(typeIdentifiers: identifiers)).filter { $0.action != .openEditor }
             #expect(options.map(\.action) == actions, "\(identifiers)")
         }
     }

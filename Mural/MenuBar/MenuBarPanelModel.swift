@@ -12,13 +12,11 @@ enum PasteStatus: Equatable, Sendable {
 }
 
 /// O estado do painel da barra de menus: os murais da vitrine, qual está no centro, a busca por letras, o último
-/// mural aberto por ali, o que há para colar nele, em que etapa está o teclado (``PanelStage``) e como formatar o texto
-/// copiado.
+/// mural aberto por ali, o que há para colar nele e em que etapa está o teclado (``PanelStage``).
 ///
 /// Sem SwiftUI, para ser testado sem desenhar nada. Quem decide qual mural abre no centro e como a busca anda pela lista
 /// é `BoardPicker`; as capas são de `BoardCoverService`; a ordem em que elas são pedidas, de `CoverflowGeometry`; a
-/// leitura da área de transferência, de `ClipboardReader`; a entrega do que foi copiado, de `BoardDelivery`; as
-/// formatações do texto, de `PasteTextFormat`.
+/// leitura da área de transferência, de `ClipboardReader`; a entrega do que foi copiado, de `BoardDelivery`.
 @MainActor
 @Observable
 final class MenuBarPanelModel {
@@ -42,20 +40,8 @@ final class MenuBarPanelModel {
     /// escolhida, porque ali o teclado escolhe o mural.
     private(set) var selectedOption = 0
     private(set) var pasteStatus: PasteStatus = .idle
-    /// O editor de texto do painel está aberto, no lugar do "Copiado" e das maneiras de colar.
-    private(set) var isEditingText = false
-    /// O texto que o editor mostra; a vista o liga ao campo de edição.
-    var editorText = ""
-    /// O texto que está para colar foi mudado no editor, e não vem da área de transferência.
-    private(set) var hasEditedText = false
-
     /// A etapa em que está o teclado. O painel abre na vitrine.
     private(set) var stage: PanelStage = .boards
-    /// As formatações que o texto copiado aceita, na ordem do painel; vazio quando o que está copiado não é texto.
-    private(set) var formats: [PasteTextFormat] = []
-    /// A formatação escolhida; começa no texto como foi copiado.
-    private(set) var selectedFormat: PasteTextFormat = .original
-
     /// A chave, nas preferências, do último mural a que o painel levou: o `uuidString` do `BoardID`.
     static let lastDestinationKey = "menuBarLastBoardID"
     /// A pausa, em segundos, que faz a busca por letras recomeçar: digitar com um intervalo maior que ela começa outra
@@ -66,7 +52,6 @@ final class MenuBarPanelModel {
     private static let protectedMessage = "O que está copiado é privado (como uma senha) e o Mural não lê."
     private static let deniedMessage = "O macOS não deixou o Mural ler o que foi copiado."
     private static let noBoardMessage = "Não há um mural para receber o que foi copiado."
-    private static let emptyEditMessage = "O texto ficou vazio."
 
     private let library: BoardLibrary
     private let activeBoard: @MainActor () -> BoardID?
@@ -183,23 +168,26 @@ final class MenuBarPanelModel {
     // MARK: Etapas
 
     /// As etapas que o painel tem agora, na ordem do Tab: a vitrine sempre; as maneiras de colar quando há um mural no
-    /// centro e alguma opção de colar; a formatação quando, além disso, o que está copiado é texto e a opção escolhida o
-    /// cola (escolher "Editar antes de colar" tira a etapa).
+    /// centro e alguma opção (a de abrir o editor de texto sempre existe).
     var stages: [PanelStage] {
         guard selectedEntry != nil, !options.isEmpty else { return [.boards] }
-        return formats.isEmpty || !selectedOptionPastesText ? [.boards, .paste] : [.boards, .paste, .format]
+        return [.boards, .paste]
     }
 
-    /// A opção escolhida cola texto: é uma das de tipo de cartão ou a que lê na hora.
-    private var selectedOptionPastesText: Bool {
-        options.indices.contains(selectedOption) && Self.pastesText(options[selectedOption])
+    /// A opção escolhida é a de abrir o editor de texto.
+    var isEditorSelected: Bool {
+        options.indices.contains(selectedOption) && options[selectedOption].action == .openEditor
     }
 
-    private static func pastesText(_ option: PasteOption) -> Bool {
-        switch option.action {
-        case .text, .read: true
-        case .asRead, .edit: false
-        }
+    /// Há como colar o que está copiado: alguma opção além da de abrir o editor, que sempre existe.
+    var hasPasteOptions: Bool {
+        options.contains { $0.action != .openEditor }
+    }
+
+    /// Return ou clique abrem o editor de texto: nas maneiras de colar com a opção do editor escolhida. O ⌘V não conta: ele
+    /// sempre lê e cola o que está copiado (e sem nada copiado o motivo aparece).
+    var opensEditorOnPaste: Bool {
+        stage == .paste && isEditorSelected
     }
 
     /// Tab: vai para a etapa seguinte e, depois da última, volta à vitrine.
@@ -237,34 +225,7 @@ final class MenuBarPanelModel {
     private func keepStageAvailable() {
         let available = stages
         guard !available.contains(stage) else { return }
-        stage = stage == .format && available.contains(.paste) ? .paste : .boards
-    }
-
-    // MARK: Formatação
-
-    /// Anda `offset` formatações a partir da escolhida, parando nas pontas (sem dar a volta).
-    func moveFormat(by offset: Int) {
-        guard let index = formats.firstIndex(of: selectedFormat) else { return }
-        selectFormat(formats[min(max(index + offset, 0), formats.count - 1)])
-    }
-
-    /// Escolhe a formatação, se o texto copiado a aceita; senão não faz nada.
-    func selectFormat(_ format: PasteTextFormat) {
-        guard formats.contains(format) else { return }
-        selectedFormat = format
-    }
-
-    /// O texto copiado com a formatação, para a prévia; `nil` enquanto o texto não foi lido (o macOS só deixa ler num
-    /// colar pedido pela pessoa) e quando o que está copiado não é texto.
-    func formattedText(_ format: PasteTextFormat) -> String? {
-        guard case .pasted(.text(let text))? = clipboardContent else { return nil }
-        return Self.formatted(text, with: format)
-    }
-
-    /// O texto com a formatação; uma formatação que o deixaria vazio (só havia caracteres invisíveis) não vale, e o texto
-    /// fica como veio.
-    private static func formatted(_ text: String, with format: PasteTextFormat) -> String {
-        format.applyKeepingNonEmpty(to: text)
+        stage = .boards
     }
 
     // MARK: Abrir
@@ -296,14 +257,13 @@ final class MenuBarPanelModel {
     /// Dá para colar agora: há um mural no centro e, ou há opções de colar, ou o macOS nega a leitura automática (o ⌘V
     /// da pessoa ainda pode ler).
     var canPaste: Bool {
-        selectedEntry != nil && (!options.isEmpty || clipboard == .deniedBySystem)
+        selectedEntry != nil && (hasPasteOptions || clipboard == .deniedBySystem)
     }
 
     /// Olha a área de transferência e monta as opções de colar, com a sugerida escolhida. Só os tipos são olhados, a menos
     /// que o sistema deixe ler sem avisar (`ClipboardReader.peek()`).
     func prepareClipboard() {
         apply(reader.peek())
-        hasEditedText = false
     }
 
     /// Anda `offset` opções a partir da escolhida, parando nas pontas (sem dar a volta).
@@ -324,15 +284,13 @@ final class MenuBarPanelModel {
     ///
     /// Se o conteúdo ainda não foi lido, lê agora. Sem nada para colar, o motivo fica em ``pasteStatus``.
     /// - Returns: `true` se pode seguir para ``paste()``. É `false` quando não há o que colar, quando já há uma entrega
-    ///   em andamento ou feita (um Return a mais não cola duas vezes), quando o editor de texto está aberto e quando
-    ///   acabou de ler um texto com mais de um tipo de cartão possível: o painel passa às maneiras de colar, e a pessoa
-    ///   escolhe o tipo e confirma com um segundo Return.
+    ///   em andamento ou feita (um Return a mais não cola duas vezes) e quando acabou de ler um texto com mais de um tipo de
+    ///   cartão possível: o painel passa às maneiras de colar, e a pessoa escolhe o tipo e confirma com um segundo Return.
     ///
-    /// Se a opção escolhida era "Editar antes de colar", ela continua escolhida depois da leitura e não há parada na escolha
-    /// do tipo de cartão: quem edita decide o tipo depois. Se a leitura a faz sumir (um texto que virou links, por
-    /// exemplo), nada é aberto nem colado: o painel só passa às maneiras de colar.
+    /// Abrir o editor de texto não passa por aqui: quem confirma uma linha (Return ou clique) confere `opensEditorOnPaste` antes;
+    /// o ⌘V sempre lê e cola.
     func readForPaste() -> Bool {
-        guard !isBusy, !isEditingText else { return false }
+        guard !isBusy else { return false }
         pasteStatus = .idle
         guard selectedEntry != nil else {
             pasteStatus = .failed(Self.noBoardMessage)
@@ -340,21 +298,10 @@ final class MenuBarPanelModel {
         }
         guard clipboardContent == nil else { return true }
 
-        let chosenID = options.indices.contains(selectedOption) ? options[selectedOption].id : nil
         apply(reader.read())
-        hasEditedText = false
         guard let content = clipboardContent else {
             pasteStatus = .failed(Self.message(for: clipboard))
             return false
-        }
-        if chosenID == "edit" {
-            guard let index = options.firstIndex(where: { $0.action == .edit }) else {
-                stage = .paste
-                return false
-            }
-            selectedOption = index
-            keepStageAvailable()
-            return true
         }
         if case .pasted(.text) = content, options.filter({ if case .text = $0.action { true } else { false } }).count > 1 {
             stage = .paste
@@ -363,8 +310,7 @@ final class MenuBarPanelModel {
         return true
     }
 
-    /// Entrega o que foi lido no mural do centro, no tipo de cartão da opção escolhida e, se for texto, com a formatação
-    /// escolhida, e lembra o mural como o último destino. Chamada depois de ``readForPaste()``; o resultado fica em
+    /// Entrega o que foi lido no mural do centro, no tipo de cartão da opção escolhida, e lembra o mural como o último destino. Chamada depois de ``readForPaste()``; o resultado fica em
     /// ``pasteStatus``.
     /// - Returns: `true` se o cartão entrou no mural.
     func paste() async -> Bool {
@@ -373,12 +319,8 @@ final class MenuBarPanelModel {
             pasteStatus = .failed(Self.noBoardMessage)
             return false
         }
-        guard var content = clipboardContent, options.indices.contains(selectedOption) else {
+        guard let content = clipboardContent, options.indices.contains(selectedOption) else {
             pasteStatus = .failed(Self.message(for: clipboard))
-            return false
-        }
-        if options[selectedOption].action == .edit {
-            beginTextEditing()
             return false
         }
         let textKind: ItemKind?
@@ -386,9 +328,6 @@ final class MenuBarPanelModel {
             textKind = kind
         } else {
             textKind = nil
-        }
-        if case .pasted(.text(let text)) = content {
-            content = .pasted(.text(Self.formatted(text, with: selectedFormat)))
         }
 
         pasteStatus = .pasting
@@ -406,45 +345,6 @@ final class MenuBarPanelModel {
         }
     }
 
-    // MARK: Editar antes de colar
-
-    /// Abre o editor de texto com o texto que está para colar. Sem texto lido, não faz nada.
-    func beginTextEditing() {
-        guard case .pasted(.text(let text))? = clipboardContent else { return }
-        editorText = text
-        pasteStatus = .idle
-        isEditingText = true
-    }
-
-    /// Termina a edição com o texto do editor: ele passa a ser o que está para colar, com as maneiras de colar dele (o tipo
-    /// de cartão sugerido para o texto novo já vem escolhido), e o painel volta às maneiras de colar.
-    /// - Returns: `false`, ficando no editor com "O texto ficou vazio.", quando o texto é só espaços.
-    @discardableResult
-    func finishTextEditing() -> Bool {
-        guard isEditingText else { return false }
-        let text = editorText
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            pasteStatus = .failed(Self.emptyEditMessage)
-            return false
-        }
-        isEditingText = false
-        pasteStatus = .idle
-        apply(ClipboardReading(state: .available(.text(text)), content: .pasted(.text(text))))
-        hasEditedText = true
-        stage = .paste
-        return true
-    }
-
-    /// Esc no editor: termina a edição e, se o texto ficou em branco, só sai dele, mantendo o texto de antes.
-    func leaveTextEditing() {
-        guard isEditingText else { return }
-        if !finishTextEditing() {
-            isEditingText = false
-            pasteStatus = .idle
-            stage = .paste
-        }
-    }
-
     /// Há uma entrega em andamento ou feita: outro pedido de colar seria um cartão repetido.
     private var isBusy: Bool {
         switch pasteStatus {
@@ -456,16 +356,8 @@ final class MenuBarPanelModel {
     private func apply(_ reading: ClipboardReading) {
         clipboard = reading.state
         clipboardContent = reading.content
-        options = PasteOptions.options(for: clipboardKind, allowsEditing: true)
+        options = PasteOptions.options(for: clipboardKind)
         selectedOption = PasteOptions.suggestedIndex(in: options) ?? 0
-        // Texto ainda não lido também aceita formatação: ela vale para o que o colar ler. Sem opção que cole texto, não há o
-        // que formatar.
-        if case .text = clipboardKind, options.contains(where: Self.pastesText) {
-            formats = PasteTextFormat.allCases
-        } else {
-            formats = []
-        }
-        if !formats.contains(selectedFormat) { selectedFormat = .original }
         keepStageAvailable()
     }
 

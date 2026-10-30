@@ -62,33 +62,28 @@ enum PasteDescription {
 
     /// O título da linha de uma opção: "Colar como Sticker" para texto; para o resto, "Colar" e o tipo ("Colar link",
     /// "Colar 3 links", "Colar imagem", "Colar PDF", "Colar 2 arquivos", "Colar música", "Colar texto" antes de ler). A opção
-    /// de editar se chama "Editar antes de colar".
+    /// de abrir o editor se chama "Abrir editor de texto".
     static func title(of option: PasteOption, clipboard kind: ClipboardKind) -> String {
         switch option.action {
         case .text(let cardKind): "Colar como \(cardKind.creationTitle)"
         case .asRead, .read: "Colar \(noun(for: kind))"
-        case .edit: "Editar antes de colar"
+        case .openEditor: "Abrir editor de texto"
         }
     }
 
-    /// O título do botão de colar do editor de texto: o da opção que o classificador sugere para esse texto ("Colar como
-    /// Sticker", "Colar como Lista"…), que muda enquanto se digita; "Colar" com o texto em branco.
-    static func editorPasteTitle(for text: String) -> String {
-        let kind = ClipboardKind.text(text)
-        guard let suggested = PasteOptions.options(for: kind).first(where: \.isSuggested) else { return "Colar" }
-        return title(of: suggested, clipboard: kind)
+    /// O rótulo da linha de cima.
+    static func copiedLabel() -> String {
+        "Copiado:"
     }
 
-    /// O rótulo da linha de cima: "Copiado:" ou, com o texto mudado no editor do painel, "Editado:".
-    static func copiedLabel(isEdited: Bool = false) -> String {
-        isEdited ? "Editado:" : "Copiado:"
-    }
+    /// A linha de cima quando não há o que colar: no lugar de "Copiado: nada".
+    static let nothingCopied = "Nada copiado"
 
-    /// O nome curto da tecla Return na linha escolhida: "Colar" ou, na de editar, "Editar".
+    /// O nome curto da tecla Return na linha escolhida: "Colar" ou, na de abrir o editor, "Abrir".
     static func returnHintLabel(of option: PasteOption) -> String {
         switch option.action {
         case .asRead, .read, .text: "Colar"
-        case .edit: "Editar"
+        case .openEditor: "Abrir"
         }
     }
 
@@ -96,7 +91,7 @@ enum PasteDescription {
     static func returnHintDescription(of option: PasteOption) -> String {
         switch option.action {
         case .asRead, .read, .text: "Return cola o que foi copiado"
-        case .edit: "Return abre o editor"
+        case .openEditor: "Return abre o editor de texto"
         }
     }
 
@@ -104,15 +99,15 @@ enum PasteDescription {
     static func accessibilityHint(of option: PasteOption) -> String {
         switch option.action {
         case .asRead, .read, .text: "Cola o que foi copiado no mural do centro da vitrine."
-        case .edit: "Abre um editor aqui no painel para mudar o texto antes de colar."
+        case .openEditor: "Abre o editor de texto, em branco. Se ele já estiver aberto com texto, só o traz para a frente."
         }
     }
 
-    /// O símbolo da linha de uma opção: o lápis da edição (`square.and.pencil`) na de editar; nas demais, o do tipo de cartão
+    /// O símbolo da linha de uma opção: o lápis (`square.and.pencil`) na de abrir o editor; nas demais, o do tipo de cartão
     /// que sai, ou `clipboard` quando não se sabe.
     static func symbol(of option: PasteOption) -> String {
         switch option.action {
-        case .edit: "square.and.pencil"
+        case .openEditor: "square.and.pencil"
         case .asRead, .read, .text: option.kind?.creationSymbol ?? "clipboard"
         }
     }
@@ -128,31 +123,6 @@ enum PasteDescription {
         case .nothing, .available:
             "Copie um link, uma imagem, um texto ou uma música para colar num mural."
         }
-    }
-
-    // MARK: Formatação
-
-    /// O título da linha de uma formatação. As de maiúsculas e minúsculas se escrevem como o resultado, para a pessoa ver
-    /// o efeito no próprio nome.
-    static func title(of format: PasteTextFormat) -> String {
-        format.title
-    }
-
-    /// O símbolo da linha de uma formatação.
-    static func symbol(of format: PasteTextFormat) -> String {
-        format.symbolName
-    }
-
-    /// A prévia de uma formatação: a primeira linha do texto já formatado, encurtada como a prévia do que foi copiado.
-    /// Sem o texto (ainda não lido), avisa que ela vale para o que o colar ler.
-    static func formatPreview(of formattedText: String?) -> String {
-        guard let formattedText else { return "vale para o texto ao colar" }
-        return firstLine(of: formattedText) ?? ""
-    }
-
-    /// A linha de cima da etapa de formatação: a maneira de colar escolhida e o mural, como "Colar como Sticker em Casa".
-    static func chosenOption(_ option: PasteOption, clipboard kind: ClipboardKind, board: String) -> String {
-        "\(title(of: option, clipboard: kind)) em \(board)"
     }
 
     private static func firstLine(of text: String) -> String? {
