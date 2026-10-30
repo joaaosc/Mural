@@ -89,8 +89,9 @@ public enum PasteTextFormat: String, CaseIterable, Identifiable, Sendable {
         return (result, lower..<upper)
     }
 
-    /// As formatações que mexem em linhas inteiras.
-    private var formatsWholeLines: Bool {
+    /// Verdadeiro para as formatações que mexem em linhas inteiras (`tidy`, `joinedLines`, `bulletList` e `taskList`); as de
+    /// maiúsculas e minúsculas valem para o trecho exato.
+    public var formatsWholeLines: Bool {
         switch self {
         case .tidy, .joinedLines, .bulletList, .taskList: true
         case .original, .lowercase, .uppercase: false
