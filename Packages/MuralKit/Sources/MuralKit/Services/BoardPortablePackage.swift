@@ -663,7 +663,7 @@ public actor BoardPortablePackageService {
             var container = encoder.singleValueContainer()
             try container.encode(date.timeIntervalSinceReferenceDate)
         }
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.outputFormatting = .sortedKeys
         return try encoder.encode(value)
     }
 

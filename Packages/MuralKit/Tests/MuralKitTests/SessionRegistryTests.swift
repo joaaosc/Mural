@@ -47,9 +47,9 @@ struct SessionRegistryTests {
         try Data("{".utf8).write(
             to: boards.appendingPathComponent("\(corrupted.rawValue.uuidString).mural/manifest.json"))
         let futureManifest = boards.appendingPathComponent("\(future.rawValue.uuidString).mural/manifest.json")
-        let text = try String(contentsOf: futureManifest, encoding: .utf8)
-            .replacingOccurrences(of: "\"schemaVersion\" : 1", with: "\"schemaVersion\" : 99")
-        try text.write(to: futureManifest, atomically: true, encoding: .utf8)
+        var manifest = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: futureManifest)) as? [String: Any])
+        manifest["schemaVersion"] = 99
+        try JSONSerialization.data(withJSONObject: manifest).write(to: futureManifest, options: .atomic)
 
         let report = try await library.listSavedReport()
         #expect(report.entries.map(\.route) == [good])
