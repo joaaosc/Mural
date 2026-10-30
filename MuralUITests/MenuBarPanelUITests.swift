@@ -93,9 +93,14 @@ final class MenuBarPanelUITests: XCTestCase {
             "Return deveria colar o post-it no mural do centro")
     }
 
-    /// Tab mantém o fluxo pelas etapas e, sem opções de colagem, chega ao primeiro botão do rodapé.
+    /// O atributo de foco do teclado da acessibilidade; `XCUIElement` não o expõe como propriedade no macOS.
+    private func hasKeyboardFocus(_ element: XCUIElement) -> Bool {
+        (element.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+    }
+
+    /// Tab e ⇧Tab só andam entre as etapas do conteúdo: os botões do rodapé são só para o mouse.
     @MainActor
-    func testTabMovesFocusFromBoardsToFooter() {
+    func testTabNeverFocusesTheFooter() {
         let app = launch()
         openPanelFromMenu(in: app)
 
@@ -106,11 +111,17 @@ final class MenuBarPanelUITests: XCTestCase {
             app.descendants(matching: .any)["menu-bar-paste-option-text-sticky"].exists,
             "a área de transferência nomeada começa sem opções de colagem neste teste"
         )
+
+        app.typeKey(.tab, modifierFlags: [])
+        XCTAssertFalse(hasKeyboardFocus(openBoard), "Tab na última etapa não deveria focar Abrir mural")
+        app.typeKey(.tab, modifierFlags: .shift)
+        XCTAssertFalse(hasKeyboardFocus(openBoard), "⇧Tab na primeira etapa não deveria focar nenhum botão do rodapé")
         app.typeKey(.tab, modifierFlags: [])
         app.typeKey(.space, modifierFlags: [])
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["menu-bar-coverflow"].waitForNonExistence(timeout: 5),
-            "Tab deveria focar Abrir mural e Espaço deveria ativar o botão")
+        let coverflow = app.descendants(matching: .any)["menu-bar-coverflow"].firstMatch
+        XCTAssertFalse(
+            coverflow.waitForNonExistence(timeout: 2),
+            "Espaço não deveria ativar Abrir mural: o painel continua aberto")
     }
 }
