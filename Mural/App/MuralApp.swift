@@ -63,6 +63,7 @@ struct MuralApp: App {
         let pasteEditor = PasteEditor(
             roots: LaunchConfiguration.pasteEditRoots(), launcher: LaunchConfiguration.pasteEditorLauncher())
         pasteEditor.sweep()
+        pasteEditor.onPendingChange = { MenuBarController.shared.setEditPending($0) }
         let tabs = MuralTabs(
             registry: registry,
             makeSession: { route in
