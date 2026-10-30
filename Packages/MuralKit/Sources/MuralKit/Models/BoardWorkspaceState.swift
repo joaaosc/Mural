@@ -57,3 +57,28 @@ extension BoardWorkspaceState {
             openStretches: try container.decodeIfPresent([UUID: OpenStretchMemory].self, forKey: .openStretches) ?? [:])
     }
 }
+
+extension BoardWorkspaceState {
+    /// Grava os dois dicionários no formato de sempre (lista plana chave, valor, chave, valor…), mas ordenados pelo id: a ordem de
+    /// iteração de um `[UUID: …]` muda a cada execução, e a cópia do iCloud Drive compara bytes, então regravaria sem mudança real.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(contentRevision, forKey: .contentRevision)
+        try container.encode(canvas, forKey: .canvas)
+        try container.encode(path, forKey: .path)
+        try container.encodeIfPresent(filter, forKey: .filter)
+        try Self.encodeFlat(readingPositions, into: &container, forKey: .readingPositions)
+        try Self.encodeFlat(openStretches, into: &container, forKey: .openStretches)
+    }
+
+    private static func encodeFlat<Value: Encodable>(
+        _ dictionary: [UUID: Value], into container: inout KeyedEncodingContainer<CodingKeys>, forKey key: CodingKeys
+    ) throws {
+        var list = container.nestedUnkeyedContainer(forKey: key)
+        for (id, value) in dictionary.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            try list.encode(id)
+            try list.encode(value)
+        }
+    }
+}
