@@ -365,17 +365,27 @@ private struct NewBoardSheet: View {
     var onCancel: () -> Void
     var onCreate: () -> Void
 
+    /// O que o macOS não aceita num nome de arquivo bloqueia "Criar" e aparece embaixo do campo.
+    private var issue: BoardName.Issue? { BoardName.issue(in: name) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Novo mural").font(.headline)
             TextField("Nome do mural", text: $name)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit(onCreate)
+                .onSubmit { if issue == nil { onCreate() } }
+            if let issue {
+                Text(issue.message)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
                 Button("Cancelar", role: .cancel, action: onCancel)
                 Button("Criar", action: onCreate)
                     .buttonStyle(.borderedProminent)
+                    .disabled(issue != nil)
             }
         }
         .padding(24)

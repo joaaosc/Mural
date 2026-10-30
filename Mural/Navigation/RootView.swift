@@ -581,7 +581,9 @@ private struct LoadedRootView: View {
     private func withDialogs(_ content: some View) -> some View {
         content
             .sheet(isPresented: $isRenamePresented) {
-                nameSheet(title: "Renomear mural", text: $boardNameDraft, actionTitle: "Renomear") {
+                nameSheet(
+                    title: "Renomear mural", text: $boardNameDraft, actionTitle: "Renomear", issue: BoardName.issue(in:)
+                ) {
                     renameBoard(to: boardNameDraft)
                 }
             }
@@ -653,13 +655,22 @@ private struct LoadedRootView: View {
         placeholder: String = "Nome do mural",
         text: Binding<String>,
         actionTitle: String,
+        issue validate: (String) -> BoardName.Issue? = { _ in nil },
         action: @escaping () -> Void
     ) -> some View {
+        // O problema do nome (só o do mural tem regra) bloqueia a ação e aparece embaixo do campo.
+        let issue = validate(text.wrappedValue)
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.headline)
             TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit(action)
+                .onSubmit { if issue == nil { action() } }
+            if let issue {
+                Text(issue.message)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
                 Button("Cancelar", role: .cancel) {
@@ -669,6 +680,7 @@ private struct LoadedRootView: View {
                 }
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
+                    .disabled(issue != nil)
             }
         }
         .padding(24)
@@ -906,7 +918,8 @@ private struct SaveCopyExporter: View {
                 isPresented: $session.isExporterPresented,
                 document: session.exportDocument,
                 contentType: .muralPackage,
-                defaultFilename: session.title
+                // Um mural salvo antes da regra do nome pode ter `:` ou `/`, que o painel de salvar não aceita.
+                defaultFilename: BoardName.sanitized(session.title)
             ) { result in
                 finish(result)
             } onCancellation: {

@@ -1389,7 +1389,8 @@ final class BoardWindowSession {
     @discardableResult
     func promoteDraft(named requestedName: String) async -> BoardRoute? {
         guard case .welcomeDraft = route else { return nil }
-        let name = Self.normalizedName(requestedName)
+        // O nome vem do rascunho, sem campo para corrigir: o que o macOS não aceita num nome de arquivo vira traço.
+        let name = BoardName.sanitized(Self.normalizedName(requestedName))
         guard await flushAndPrepareToLeaveSuccessfully() else { return nil }
         do {
             let promoted = try await registry.promoteWelcomeDraft(name: name)
@@ -1411,6 +1412,11 @@ final class BoardWindowSession {
     /// sessão antiga que possa regravar o nome anterior.
     func rename(to requestedName: String) async {
         let name = Self.normalizedName(requestedName)
+        // A folha já bloqueia o nome; esta trava cobre quem chamar por outro caminho. O nome que chega do iCloud não passa aqui.
+        if let issue = BoardName.issue(in: name) {
+            error = "Não foi possível renomear o mural: \(issue.message)"
+            return
+        }
         guard !isClosed, let domainSession else { return }
         let previous = sessionPipeline
         let task = Task { @MainActor [weak self] in
