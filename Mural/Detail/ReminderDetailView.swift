@@ -19,6 +19,9 @@ struct ReminderDetailView: View {
                     if reminder.isMissing {
                         Label("Apagado no Lembretes", systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.secondary)
+                    } else if reminder.isDetached {
+                        Label("Importado", systemImage: "tray.and.arrow.down")
+                            .foregroundStyle(.secondary)
                     }
                     details(of: reminder)
                     if let notes = reminder.notes, !notes.isEmpty {

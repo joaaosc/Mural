@@ -61,19 +61,21 @@ final class EventKitReminders: RemindersProviding {
     }
 
     func lookup(_ snapshot: ReminderSnapshot) async -> ReminderLookup {
-        guard access == .granted else { return .unavailable }
+        // Lembrete importado não tem identificador: procurar com texto vazio no EventKit seria um tiro no escuro.
+        guard !snapshot.isDetached, access == .granted else { return .unavailable }
         guard let reminder = findReminder(snapshot) else { return .missing }
         return .found(Self.snapshot(of: reminder))
     }
 
     func setCompleted(_ completed: Bool, for snapshot: ReminderSnapshot) async throws -> ReminderSnapshot {
-        guard access == .granted, let reminder = findReminder(snapshot) else { throw ReminderNotFound() }
+        guard !snapshot.isDetached, access == .granted, let reminder = findReminder(snapshot) else { throw ReminderNotFound() }
         reminder.isCompleted = completed
         try store.save(reminder, commit: true)
         return Self.snapshot(of: reminder)
     }
 
     func open(_ snapshot: ReminderSnapshot) {
+        guard !snapshot.isDetached else { return }
         if let url = URL(string: "x-apple-reminderkit://REMCDReminder/\(snapshot.identifier)"),
             NSWorkspace.shared.open(url)
         {
@@ -86,7 +88,7 @@ final class EventKitReminders: RemindersProviding {
 
     /// Procura pelo identificador local; se ele se perdeu numa sincronização completa, pelo externo.
     private func findReminder(_ snapshot: ReminderSnapshot) -> EKReminder? {
-        if let reminder = store.calendarItem(withIdentifier: snapshot.identifier) as? EKReminder {
+        if !snapshot.identifier.isEmpty, let reminder = store.calendarItem(withIdentifier: snapshot.identifier) as? EKReminder {
             return reminder
         }
         if let external = snapshot.externalIdentifier {

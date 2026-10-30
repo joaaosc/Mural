@@ -1039,7 +1039,8 @@ final class BoardWindowSession {
         let epoch = presentationEpoch
         var results: [(UUID, ReminderLookup)] = []
         for item in model.reminderItems {
-            guard let snapshot = item.reminder else { continue }
+            // Lembrete importado não está ligado ao app Lembretes: fica com o último estado e não conta como apagado.
+            guard let snapshot = item.reminder, !snapshot.isDetached else { continue }
             results.append((item.id, await reminders.lookup(snapshot)))
         }
         guard !isClosed, presentationEpoch == epoch else { return }
@@ -1062,7 +1063,7 @@ final class BoardWindowSession {
 
     /// Marca ou desmarca o lembrete como concluído no app Lembretes e no cartão.
     func toggleReminder(_ itemID: UUID) async {
-        guard let model, !isClosed, let snapshot = model.item(id: itemID)?.reminder else { return }
+        guard let model, !isClosed, let snapshot = model.item(id: itemID)?.reminder, !snapshot.isDetached else { return }
         let epoch = presentationEpoch
         do {
             let updated = try await reminders.setCompleted(!snapshot.isCompleted, for: snapshot)
@@ -1077,7 +1078,7 @@ final class BoardWindowSession {
 
     /// Abre o lembrete no app Lembretes.
     func openReminder(_ itemID: UUID) {
-        guard let snapshot = model?.item(id: itemID)?.reminder else { return }
+        guard let snapshot = model?.item(id: itemID)?.reminder, !snapshot.isDetached else { return }
         reminders.open(snapshot)
     }
 

@@ -133,7 +133,7 @@ struct CardButton: View {
     /// Com o seletor de ⌘ aberto some, e o clique marca o cartão.
     @ViewBuilder
     private var reminderToggle: some View {
-        if item.kind == .reminder, let reminder = item.reminder, let onToggleReminder, selection?.isActive != true {
+        if item.kind == .reminder, let reminder = item.reminder, !reminder.isDetached, let onToggleReminder, selection?.isActive != true {
             Button {
                 onToggleReminder(item.id)
             } label: {

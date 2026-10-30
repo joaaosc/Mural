@@ -116,6 +116,9 @@ struct ReminderCard: View {
             Text("Apagado no Lembretes").font(.system(size: 6.5, weight: .medium)).foregroundStyle(.secondary)
         } else {
             HStack(spacing: 3) {
+                if reminder.isDetached {
+                    Text("Importado").font(.system(size: 6.5, weight: .medium)).foregroundStyle(.secondary)
+                }
                 if let due = reminder.dueDescription(now: now) {
                     Text(due.text)
                         .font(.system(size: 6.5, weight: .medium))

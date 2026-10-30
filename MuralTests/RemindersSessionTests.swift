@@ -157,6 +157,26 @@ struct RemindersSessionTests {
         #expect(fake.openedIdentifiers == [snapshot.identifier])
     }
 
+    @Test("lembrete importado fica como está: sem busca, sem marcar, sem abrir e sem virar apagado")
+    func detachedReminderIsLeftAlone() async throws {
+        let directory = try root()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (session, fake) = try await makeSession(directory: directory)
+        let model = try #require(session.model)
+        var detached = await firstSnapshot(fake)
+        detached.identifier = ""
+        detached.externalIdentifier = nil
+        let id = try #require(session.addReminders([detached]).first)
+        #expect(detached.isDetached)
+        await session.refreshReminders()
+        await session.toggleReminder(id)
+        session.openReminder(id)
+        #expect(fake.lookupCalls == 0)
+        #expect(fake.setCompletedCalls.isEmpty)
+        #expect(fake.openedIdentifiers.isEmpty)
+        #expect(model.item(id: id)?.reminder == detached)
+    }
+
     // MARK: Central e conversão
 
     @Test("RemindersCenter usa a versão falsa nos testes de interface")

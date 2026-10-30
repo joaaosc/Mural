@@ -78,7 +78,8 @@ struct ItemDetailView: View {
                     })
             }
         }
-        if let session, item.kind == .reminder, let reminder = item.reminder {
+        // Lembrete importado só mostra o último estado: não há o que marcar nem abrir no app Lembretes.
+        if let session, item.kind == .reminder, let reminder = item.reminder, !reminder.isDetached {
             actions.append(
                 PillAction(
                     title: reminder.isCompleted ? "Reabrir" : "Marcar como concluído",
