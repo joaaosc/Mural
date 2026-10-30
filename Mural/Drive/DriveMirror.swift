@@ -42,12 +42,21 @@ actor DriveMirror {
         }
     }
 
+    /// O que a pasta tem: pacotes `*.mural` e pastas que perderam a extensão.
+    struct Listing: Equatable, Sendable {
+        /// Nome do pacote (`*.mural`) → id do manifesto dele, ou `nil` quando o manifesto não pôde ser lido.
+        var copies: [String: BoardID?] = [:]
+        /// Nome do pacote → nome do mural gravado no manifesto dele (só dos legíveis).
+        var names: [String: String] = [:]
+        /// Pasta de primeiro nível sem `.mural` mas com manifesto legível → id do mural.
+        var strays: [String: BoardID] = [:]
+    }
+
     // MARK: Operações
 
-    /// O que há na pasta: nome do pacote (`*.mural`) → id do manifesto dele, ou `nil` quando o manifesto não pôde ser lido. Cria a
-    /// pasta se faltar.
+    /// O que há na pasta (ver `Listing`). Cria a pasta se faltar.
     /// - Throws: `DriveMirrorError.unavailable` sem iCloud Drive.
-    func scan() async throws -> [String: BoardID?] {
+    func scan() async throws -> Listing {
         let folder = try await ensureFolder()
         return try await Self.coordinate([.readingIntent(with: folder, options: [])], on: queue) { urls in
             try Self.copies(in: urls[0])
@@ -116,16 +125,23 @@ actor DriveMirror {
         }
     }
 
-    /// Os pacotes `*.mural` (pastas, sem ocultos) e o id do manifesto de cada um; ilegível vira `nil`.
-    private static func copies(in folder: URL) throws -> [String: BoardID?] {
+    /// Os pacotes `*.mural` (pastas, sem ocultos) com o id e o nome do manifesto de cada um (ilegível vira `nil`), e as pastas sem a
+    /// extensão cujo manifesto é legível.
+    private static func copies(in folder: URL) throws -> Listing {
         let urls = try FileManager.default.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
-        var copies: [String: BoardID?] = [:]
-        for url in urls where url.pathExtension.lowercased() == "mural" {
+        var listing = Listing()
+        for url in urls {
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-            copies.updateValue((try? BoardPackageMirror.manifest(ofPackageAt: url))?.id, forKey: url.lastPathComponent)
+            let manifest = try? BoardPackageMirror.manifest(ofPackageAt: url)
+            if url.pathExtension.lowercased() == "mural" {
+                listing.copies.updateValue(manifest?.id, forKey: url.lastPathComponent)
+                if let manifest { listing.names[url.lastPathComponent] = manifest.name }
+            } else if let manifest {
+                listing.strays[url.lastPathComponent] = manifest.id
+            }
         }
-        return copies
+        return listing
     }
 
     /// Resolve os conflitos do iCloud Drive ficando com a versão atual: as outras são marcadas como resolvidas e saem.

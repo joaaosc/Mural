@@ -106,6 +106,26 @@ struct DriveMirrorTests {
         #expect(controller.pendingWrites.isEmpty)
     }
 
+    @Test("Cópia renomeada no Finder: o controlador pede a renomeação do mural e não desfaz o nome do arquivo")
+    func finderRenameCallsTheRenameClosure() async throws {
+        let env = try DriveMirrorEnvironment()
+        defer { env.removeFiles() }
+        let id = try await env.seed("Um")
+        await env.makeController().reconcileNow()
+        try FileManager.default.moveItem(at: env.package(named: "Um"), to: env.package(named: "Dois"))
+
+        var calls: [String] = []
+        let controller = env.makeController(renameBoard: { boardID, name in
+            calls.append("\(boardID.rawValue.uuidString) \(name)")
+            return true
+        })
+        await controller.reconcileNow()
+
+        #expect(calls == ["\(id.rawValue.uuidString) Dois"])
+        #expect(FileManager.default.fileExists(atPath: env.package(named: "Dois").path))
+        #expect(!FileManager.default.fileExists(atPath: env.package(named: "Um").path))
+    }
+
     @Test("boardDeletedByUser leva a cópia ao Lixo; o mural que some da biblioteca sem o aviso mantém a cópia")
     func onlyTheUsersDeletionTrashesTheCopy() async throws {
         let env = try DriveMirrorEnvironment()
@@ -361,7 +381,9 @@ struct DriveMirrorTests {
 
         let found = try await mirror.scan()
         let expected: [String: BoardID?] = ["Um.mural": first, "Dois.mural": second, "Quebrado.mural": nil]
-        #expect(found == expected)
+        #expect(found.copies == expected)
+        #expect(found.names == ["Um.mural": "Um", "Dois.mural": "Dois"])
+        #expect(found.strays.isEmpty)
 
         await #expect(throws: (any Error).self) { try await mirror.move(from: "Um.mural", to: "Dois.mural") }
         #expect(try env.copyManifest("Um").id == first && env.copyManifest("Dois").id == second, "nada foi sobrescrito")
@@ -479,10 +501,13 @@ private final class DriveMirrorEnvironment {
     }
 
     /// Um controlador deste "Mac": os de um mesmo ambiente dividem a pasta do estado e as opções, como duas execuções do app.
-    func makeController(delay: Duration = .seconds(60), launchDelay: Duration = .seconds(60)) -> DriveMirrorController {
+    func makeController(
+        delay: Duration = .seconds(60), launchDelay: Duration = .seconds(60),
+        renameBoard: @escaping @MainActor (BoardID, String) async -> Bool = { _, _ in false }
+    ) -> DriveMirrorController {
         DriveMirrorController(
             library: library, mirror: makeMirror(), awaitingFirstFetch: { [self] in awaiting },
-            isAvailable: { [self] in startPass() }, defaults: defaults,
+            isAvailable: { [self] in startPass() }, renameBoard: renameBoard, defaults: defaults,
             stateDirectory: directory.appendingPathComponent("Estado", isDirectory: true), delay: delay, launchDelay: launchDelay)
     }
 

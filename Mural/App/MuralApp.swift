@@ -85,7 +85,17 @@ struct MuralApp: App {
         var mirror: DriveMirrorController?
         if LaunchConfiguration.mirrorsToICloudDrive() {
             let controller = DriveMirrorController(
-                library: library, awaitingFirstFetch: { [weak syncController] in syncController?.boardsAwaitingFirstFetch ?? [] })
+                library: library, awaitingFirstFetch: { [weak syncController] in syncController?.boardsAwaitingFirstFetch ?? [] },
+                renameBoard: { [weak tabs, delivery] id, name in
+                    // Mesmo caminho do nome que chega do iCloud: a sessão do mural (aberto ou não) grava, e a cópia o segue.
+                    let renamed = try? await delivery.withSession(for: .saved(id)) { session, _ in
+                        await session.rename(to: name)
+                        return session.manifestName == name
+                    }
+                    guard renamed == true else { return false }
+                    tabs?.libraryDidChange()
+                    return true
+                })
             syncController?.onLocalSave = { controller.boardChanged($0) }
             tabs.onBoardDeletedByUser = { controller.boardDeletedByUser($0) }
             tabs.onLibraryChanged = { controller.libraryChanged() }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MuralKit
 import Observation
@@ -58,6 +59,8 @@ final class DriveMirrorController {
     private let mirror: DriveMirror
     private let awaitingFirstFetch: @MainActor () -> Set<BoardID>
     private let isAvailable: @MainActor () -> Bool
+    /// Renomeia o mural no app com o nome que a pessoa deu à cópia no Finder; `false` se não deu.
+    private let renameBoard: @MainActor (BoardID, String) async -> Bool
     private let defaults: UserDefaults
     private let stateURL: URL
     private let delay: Duration
@@ -69,10 +72,12 @@ final class DriveMirrorController {
     /// Chegou aviso durante a passada: outra passada vem depois dela.
     @ObservationIgnored private var passAgain = false
     @ObservationIgnored private var accountObserver: Task<Void, Never>?
+    @ObservationIgnored private var activationObserver: Task<Void, Never>?
 
     /// - Parameters:
     ///   - awaitingFirstFetch: os murais adotados do iCloud que ainda esperam o conteúdo (pacote provisório): sem cópia.
     ///   - isAvailable: se este Mac tem conta com iCloud Drive; sem ela nenhuma passada faz nada.
+    ///   - renameBoard: renomeia o mural no app (`.renameBoard` do plano); sem ele nenhuma renomeação do Finder é aplicada.
     ///   - stateDirectory: onde fica `state.json`, o que este Mac anotou entre uma execução e outra.
     ///   - delay: a espera, contada do primeiro aviso, até a passada.
     ///   - launchDelay: a espera até a primeira passada depois de `start()`.
@@ -81,6 +86,7 @@ final class DriveMirrorController {
         mirror: DriveMirror = DriveMirror(),
         awaitingFirstFetch: @escaping @MainActor () -> Set<BoardID> = { [] },
         isAvailable: @escaping @MainActor () -> Bool = { FileManager.default.ubiquityIdentityToken != nil },
+        renameBoard: @escaping @MainActor (BoardID, String) async -> Bool = { _, _ in false },
         defaults: UserDefaults = .standard,
         stateDirectory: URL = LaunchConfiguration.libraryRoot().appendingPathComponent("DriveMirror", isDirectory: true),
         delay: Duration = .seconds(30),
@@ -90,6 +96,7 @@ final class DriveMirrorController {
         self.mirror = mirror
         self.awaitingFirstFetch = awaitingFirstFetch
         self.isAvailable = isAvailable
+        self.renameBoard = renameBoard
         self.defaults = defaults
         self.stateURL = stateDirectory.appendingPathComponent(Self.stateFileName, isDirectory: false)
         self.delay = delay
@@ -152,6 +159,14 @@ final class DriveMirrorController {
                 self.accountDidChange()
             }
         }
+        // Quem renomeou a cópia no Finder volta ao app: a passada vê o nome novo logo, sem esperar outro aviso.
+        activationObserver = Task { @MainActor [weak self] in
+            let activations = NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification)
+            for await _ in activations {
+                guard let self else { return }
+                self.schedule(after: .seconds(2))
+            }
+        }
         schedule(after: launchDelay)
     }
 
@@ -206,10 +221,10 @@ final class DriveMirrorController {
     private func reconcile() async {
         guard isEnabled, isAvailable() else { return }
         let boards: [BoardManifest]
-        let copies: [String: BoardID?]
+        let listing: DriveMirror.Listing
         do {
             boards = try await library.listSaved().map(\.manifest)
-            copies = try await mirror.scan()
+            listing = try await mirror.scan()
         } catch {
             Self.log.error("Passada interrompida: \(String(describing: error), privacy: .public)")
             return
@@ -222,13 +237,13 @@ final class DriveMirrorController {
             guard let manifest = current[id] else { return false }
             return lastWritten[id] != Mark(manifest)
         }
-        let copied = Set(copies.values.compactMap { $0 })
+        let copied = Set(listing.copies.values.compactMap { $0 })
         pendingTrash = pendingTrash.filter { copied.contains($0) && current[$0] == nil }
         lastWritten = lastWritten.filter { current[$0.key] != nil }
 
         let plan = DriveMirrorPlan.make(
-            boards: boards, copies: copies, pendingWrites: pendingWrites, pendingTrash: pendingTrash,
-            awaitingFirstFetch: awaitingFirstFetch())
+            boards: boards, copies: listing.copies, copyNames: listing.names, strays: listing.strays,
+            pendingWrites: pendingWrites, pendingTrash: pendingTrash, awaitingFirstFetch: awaitingFirstFetch())
         // Um mural cujo `move` falhou não grava no nome novo: criaria uma segunda cópia ao lado da antiga.
         var failedMoves = Set<BoardID>()
         for action in plan.actions {
@@ -236,6 +251,10 @@ final class DriveMirrorController {
             switch action {
             case .trash(let id, let fileName):
                 await trash(id, fileName: fileName)
+            case .renameBoard(let id, let name):
+                if await !renameBoard(id, name) {
+                    Self.log.error("Mural não foi renomeado pelo nome da cópia: \(id.rawValue.uuidString, privacy: .public)")
+                }
             case .move(let id, let oldName, let newName):
                 if await !move(from: oldName, to: newName) { failedMoves.insert(id) }
             case .write(let id, let fileName):
