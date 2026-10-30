@@ -1,6 +1,21 @@
 import MuralKit
 import SwiftUI
 
+extension MusicSnapshot {
+    /// A cor da capa, quando veio; `nil` deixa o papel com quem desenha.
+    var paperColor: Color? { Color(muralHex: backgroundHex) }
+
+    /// O texto principal sobre a cor da capa.
+    var primaryTextColor: Color {
+        Color(muralHex: primaryTextHex) ?? Color.readable(onHex: backgroundHex) ?? .primary
+    }
+
+    /// O texto secundário sobre a cor da capa.
+    var secondaryTextColor: Color {
+        Color(muralHex: secondaryTextHex) ?? Color.readable(onHex: backgroundHex)?.opacity(0.7) ?? .secondary
+    }
+}
+
 /// O desenho de um cartão de música a partir do estado guardado: a capa quadrada no topo e, abaixo, o tipo, o título e o
 /// artista.
 ///
@@ -12,13 +27,9 @@ struct MusicCardContent: View {
     /// Maior lado, em pixels, da capa; sobe quando o cartão é ampliado, para a capa não ficar borrada.
     var artworkMaxPixelSize = 480
 
-    private var primary: Color {
-        Color(muralHex: music.primaryTextHex) ?? Color.readable(onHex: music.backgroundHex) ?? .primary
-    }
-    private var secondary: Color {
-        Color(muralHex: music.secondaryTextHex) ?? Color.readable(onHex: music.backgroundHex)?.opacity(0.7) ?? .secondary
-    }
-    private var paper: Color { Color(muralHex: music.backgroundHex) ?? Theme.paper }
+    private var primary: Color { music.primaryTextColor }
+    private var secondary: Color { music.secondaryTextColor }
+    private var paper: Color { music.paperColor ?? Theme.paper }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

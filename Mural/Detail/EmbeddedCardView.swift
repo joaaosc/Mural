@@ -4,9 +4,9 @@ import SwiftUI
 
 /// Cartão embutido numa nota, no lugar da linha `![título](mural-card:<UUID>)` do Markdown.
 ///
-/// Na página de leitura desenha o cartão inteiro (`EmbeddedCardScaledContent`): a música toca ou pausa, com o selo do estado, e o
-/// link da web abre no navegador; lembrete, contato e link que não é da web só mostram o estado. Na miniatura do mural vira uma
-/// linha com o símbolo e o título (`EmbeddedCardCompactRow`), sem botão.
+/// Na página de leitura desenha a tira (`EmbeddedCardStrip`): a música toca ou pausa, com o selo do estado, e o link da web abre no
+/// navegador; lembrete, contato e link que não é da web só mostram o estado. Na miniatura do mural vira uma linha com o símbolo e
+/// o título (`EmbeddedCardCompactRow`), sem botão.
 struct EmbeddedCardView: View {
     let card: EmbeddedCard
     /// O `UUID` da linha `mural-card:<UUID>`; é também o id com que a música embutida toca.
@@ -17,7 +17,7 @@ struct EmbeddedCardView: View {
     let maxPixelSize: Int
     var session: BoardWindowSession?
 
-    /// A partir deste `maxPixelSize` a nota está na página de leitura, onde o cartão é desenhado inteiro e é interativo.
+    /// A partir deste `maxPixelSize` a nota está na página de leitura, onde o cartão é desenhado como tira e é interativo.
     static let interactiveMinimumPixelSize = 1600
 
     /// Verdadeiro na página de leitura; falso na miniatura.
@@ -32,14 +32,14 @@ struct EmbeddedCardView: View {
                 .accessibilityLabel(EmbeddedCardWording.label(for: card, title: title))
         } else if let action {
             Button(action: action) {
-                EmbeddedCardScaledContent(card: card, title: title, phase: phase)
+                EmbeddedCardStrip(card: card, title: title, phase: phase)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(EmbeddedCardWording.label(for: card, title: title))
             .accessibilityValue(EmbeddedCardWording.playbackValue(for: phase))
             .accessibilityHint(EmbeddedCardWording.hint(for: card) ?? "")
         } else {
-            EmbeddedCardScaledContent(card: card, title: title)
+            EmbeddedCardStrip(card: card, title: title)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(EmbeddedCardWording.label(for: card, title: title))
         }

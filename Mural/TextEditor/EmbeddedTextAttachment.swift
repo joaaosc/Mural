@@ -38,9 +38,8 @@ nonisolated final class EmbeddedTextAttachment: NSTextAttachment {
 
     private static func heightRatio(of content: Content) -> CGFloat {
         switch content {
-        case .card(let card, _):
-            let size = BoardLayout.cardSize(for: card.itemKind)
-            return size.height / size.width
+        case .card:
+            return EmbeddedCardStrip.height / EmbeddedCardStrip.maximumWidth
         case .image(let image, _):
             guard let size = image?.size, size.width > 0, size.height > 0 else { return 0.75 }
             return min(size.height / size.width, 1.5)

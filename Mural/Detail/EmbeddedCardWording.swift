@@ -19,6 +19,23 @@ enum EmbeddedCardWording {
         return name.isEmpty ? kindName(of: card) : "\(kindName(of: card)), \(name)"
     }
 
+    /// A segunda linha da tira (`EmbeddedCardStrip`): o artista, a data ou a lista do lembrete, o site, a organização ou o contato
+    /// da pessoa. `nil` quando não há o que dizer.
+    static func detail(for card: EmbeddedCard, now: Date = .now) -> String? {
+        switch card {
+        case .music(let music):
+            return music.subtitle.flatMap { $0.isEmpty ? nil : $0 } ?? music.detailLine
+        case .reminder(let reminder):
+            if reminder.isMissing { return "Apagado no Lembretes" }
+            return reminder.dueDescription(now: now)?.text ?? (reminder.listTitle.isEmpty ? nil : reminder.listTitle)
+        case .link(let link):
+            return link.displaySiteName
+        case .contact(let contact):
+            let organization = contact.organization.flatMap { $0.isEmpty || $0 == contact.displayName ? nil : $0 }
+            return organization ?? contact.primaryPhone ?? contact.primaryEmail
+        }
+    }
+
     /// O que o botão faz; `nil` para o cartão que só mostra o estado (lembrete e contato).
     static func hint(for card: EmbeddedCard) -> String? {
         switch card {

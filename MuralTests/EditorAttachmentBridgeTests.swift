@@ -280,6 +280,6 @@ struct EditorAttachmentBridgeTests {
                 for: rig.textView, location: rig.textView.textLayoutManager!.documentRange.location,
                 textContainer: rig.textView.textContainer))
         provider.loadView()
-        #expect(provider.view is NSHostingView<EmbeddedCardScaledContent>)
+        #expect(provider.view is NSHostingView<EmbeddedCardStrip>)
     }
 }

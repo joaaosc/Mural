@@ -106,16 +106,32 @@ struct EmbeddedCardViewTests {
         }
     }
 
-    @Test("Na página de leitura cada tipo é desenhado opaco no canto, à esquerda e sem passar de 320 pt")
-    func readingPageDrawsWithinTheMaximumWidth() throws {
+    @Test("Na página de leitura cada tipo é uma tira mais larga que alta, à esquerda, sem passar de 320 × 60 pt")
+    func readingPageDrawsAStrip() throws {
+        #expect(EmbeddedCardStrip.maximumWidth > 4 * EmbeddedCardStrip.height)
         for (id, card) in zip(Self.ids, Self.cards) {
             let view = embedded(card, id: id, maxPixelSize: 1600)
-            let size = CGSize(width: 480, height: 480)
+            let size = CGSize(width: 480, height: 240)
             let bitmap = try bitmap(view, size: size)
-            let inside = bitmap.bytes[(40 * bitmap.width + 40) * 4 + 3]
-            #expect(inside > 250, "\(card.title): \(inside)")
-            #expect(!bitmap.hasInk(in: CGRect(x: 340, y: 0, width: 140, height: 480)), "\(card.title) passou de 320 pt")
+            #expect(bitmap.hasInk(in: CGRect(x: 0, y: 0, width: 320, height: 60)), "\(card.title): a tira deveria ser desenhada")
+            #expect(bitmap.hasInk(in: CGRect(x: 300, y: 20, width: 20, height: 20)), "\(card.title): a tira deveria chegar a 320 pt")
+            #expect(!bitmap.hasInk(in: CGRect(x: 324, y: 0, width: 156, height: 240)), "\(card.title) passou de 320 pt")
+            #expect(!bitmap.hasInk(in: CGRect(x: 0, y: 64, width: 480, height: 176)), "\(card.title) passou de 60 pt")
         }
+    }
+
+    @Test("A tira diz o artista, a lista, o site e a organização; sem nada a dizer, fica só o título")
+    func stripDetail() {
+        #expect(EmbeddedCardWording.detail(for: Self.cards[0]) == "The Beatles")
+        #expect(EmbeddedCardWording.detail(for: Self.cards[1]) == "Casa")
+        #expect(EmbeddedCardWording.detail(for: Self.cards[2]) == "Apple")
+        #expect(EmbeddedCardWording.detail(for: Self.cards[3]) == "Empresa")
+        let phone = EmbeddedCard.contact(
+            ContactSnapshot(givenName: "Ana", phones: [LabeledValue(label: "celular", value: "+55 21 99999-0000")]))
+        #expect(EmbeddedCardWording.detail(for: phone) == "+55 21 99999-0000")
+        #expect(EmbeddedCardWording.detail(for: .contact(ContactSnapshot(givenName: "Ana"))) == nil)
+        let missing = EmbeddedCard.reminder(ReminderSnapshot(identifier: "", title: "Sumiu", listTitle: "Casa", isMissing: true))
+        #expect(EmbeddedCardWording.detail(for: missing) == "Apagado no Lembretes")
     }
 
     @Test("Só música com sessão e link da web têm ação; na miniatura nenhum cartão é interativo")
@@ -137,7 +153,7 @@ struct EmbeddedCardViewTests {
         let size = CGSize(width: 480, height: 480)
         let found = MarkdownImage(alt: "Abbey Road", source: "mural-card:\(Self.ids[0].uuidString)")
         let card = try bitmap(NoteImageView(image: found, item: item, model: nil, maxPixelSize: 1600), size: size)
-        #expect(card.hasInk(in: CGRect(x: 20, y: 200, width: 280, height: 40)), "o cartão da música deveria ser desenhado")
+        #expect(card.hasInk(in: CGRect(x: 60, y: 10, width: 240, height: 40)), "a tira da música deveria ser desenhada")
 
         let missing = MarkdownImage(alt: "Sumiu", source: "mural-card:\(UUID().uuidString)")
         let warning = try bitmap(NoteImageView(image: missing, item: item, model: nil, maxPixelSize: 1600), size: size)
@@ -173,13 +189,6 @@ struct EmbeddedCardViewTests {
         for bitmap in [music, link] {
             #expect(bitmap.hasInk(in: CGRect(x: 8, y: 8, width: 100, height: 14)))
         }
-    }
-
-    @Test("A resolução das imagens cresce com a ampliação, até o teto")
-    func imagePixelSizeScalesWithTheCard() {
-        #expect(EmbeddedCardScaledContent.imagePixelSize(scale: 1) == 960)
-        #expect(EmbeddedCardScaledContent.imagePixelSize(scale: 0.5) == 480)
-        #expect(EmbeddedCardScaledContent.imagePixelSize(scale: 3) == 1_600)
     }
 
     @Test("Os textos de acessibilidade dizem o tipo, o título e o estado, e só música e link têm dica")
