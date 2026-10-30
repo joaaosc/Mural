@@ -1,8 +1,8 @@
 import MuralKit
 import SwiftUI
 
-/// O conteúdo da janela do editor de texto: o campo de texto, a contagem de palavras no canto, a barra de ferramentas e a escolha de
-/// lembretes.
+/// O conteúdo da janela do editor de texto: o campo de texto, a contagem de palavras no canto, a barra de ferramentas e o que se abre
+/// para inserir conteúdo (`TextEditorInsertionPresenter`).
 ///
 /// Fechar a janela com texto pergunta antes (`dismissalConfirmationDialog`, que vale para o botão de fechar, ⌘W e o fechamento
 /// por código): "Descartar" limpa o documento e fecha, e o texto não fica guardado entre aberturas. Com o documento vazio,
@@ -10,7 +10,8 @@ import SwiftUI
 struct TextEditorView: View {
     let session: TextEditorSession
 
-    @State private var isPickingReminders = false
+    /// O item do botão Inserir que está aberto.
+    @State private var insertion: TextEditorInsertion?
 
     var body: some View {
         let document = session.document
@@ -24,16 +25,12 @@ struct TextEditorView: View {
             }
             .navigationTitle("Editor de texto")
             .toolbar(removing: .title)
-            .sheet(isPresented: $isPickingReminders) {
-                ReminderPickerSheet(provider: RemindersCenter.shared) { snapshots in
-                    document.insertCards(snapshots.map { .reminder($0) })
-                }
-            }
+            .modifier(TextEditorInsertionPresenter(document: document, request: $insertion))
             .dismissalConfirmationDialog("Descartar o texto?", shouldPresent: !document.isEmpty) {
                 Button("Descartar", role: .destructive) { document.clear() }
             }
-            // Com a folha de lembretes aberta os comandos de menu do editor ficam desligados.
-            .focusedSceneValue(\.textEditorActions, isPickingReminders ? nil : actions)
+            // Com um item de inserir aberto os comandos de menu do editor ficam desligados.
+            .focusedSceneValue(\.textEditorActions, insertion == nil ? actions : nil)
             .focusedSceneValue(\.markdownFormatting, MarkdownFormattingAction(apply: document.applyEmphasis))
             .onAppear { session.isOpen = true }
             .onDisappear { session.isOpen = false }
@@ -46,7 +43,7 @@ struct TextEditorView: View {
         return TextEditorActions(
             applyFormat: { document.applyFormat($0) },
             applyEmphasis: { document.applyEmphasis($0) },
-            insertReminder: { isPickingReminders = true },
+            insert: { insertion = $0 },
             requestPaste: { session.onPasteRequested?() },
             canPaste: session.canRequestPaste)
     }

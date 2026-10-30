@@ -130,6 +130,16 @@ final class TextEditorDocument {
         insertBlocks(lines)
     }
 
+    /// Insere, na ordem, o que veio dos arquivos escolhidos no Finder. O contato embutido não leva a foto, como no colar.
+    func insert(_ pieces: [TextEditorFileInsertion.Piece]) {
+        for piece in pieces {
+            switch piece {
+            case .image(let source): insertImages([source])
+            case .contacts(let drafts): insertCards(drafts.map { .contact($0.snapshot) })
+            }
+        }
+    }
+
     /// Insere o texto no cursor, no lugar da seleção.
     func insertText(_ string: String) {
         if let bridge {

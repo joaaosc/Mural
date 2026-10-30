@@ -93,4 +93,6 @@ protocol MusicProviding: AnyObject {
     func seek(to time: TimeInterval)
     func tracks(for snapshot: MusicSnapshot) async throws -> [MusicTrackRow]
     func catalogArtwork(for snapshot: MusicSnapshot) async -> MusicCatalogArtwork?
+    /// Procura músicas, álbuns e playlists no catálogo do Apple Music.
+    func search(term: String) async throws -> [MusicSnapshot]
 }

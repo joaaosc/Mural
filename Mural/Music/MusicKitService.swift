@@ -369,6 +369,45 @@ final class MusicKitService: MusicProviding {
             secondaryTextHex: Self.hex(artwork.secondaryTextColor))
     }
 
+    // MARK: Busca
+
+    /// Quantos itens de cada tipo a busca pede.
+    private static let searchLimit = 10
+
+    func search(term: String) async throws -> [MusicSnapshot] {
+        var request = MusicCatalogSearchRequest(term: term, types: [Song.self, Album.self, Playlist.self])
+        request.limit = Self.searchLimit
+        do {
+            let response = try await request.response()
+            return response.songs.map(Self.snapshot(of:)) + response.albums.map(Self.snapshot(of:))
+                + response.playlists.map(Self.snapshot(of:))
+        } catch {
+            throw MusicPlaybackError.failed
+        }
+    }
+
+    private static func snapshot(of song: Song) -> MusicSnapshot {
+        MusicSnapshot(
+            kind: .song, catalogID: song.id.rawValue, url: song.url, title: song.title, subtitle: song.artistName,
+            albumTitle: song.albumTitle, backgroundHex: hex(song.artwork?.backgroundColor),
+            primaryTextHex: hex(song.artwork?.primaryTextColor), secondaryTextHex: hex(song.artwork?.secondaryTextColor),
+            duration: song.duration)
+    }
+
+    private static func snapshot(of album: Album) -> MusicSnapshot {
+        MusicSnapshot(
+            kind: .album, catalogID: album.id.rawValue, url: album.url, title: album.title, subtitle: album.artistName,
+            backgroundHex: hex(album.artwork?.backgroundColor), primaryTextHex: hex(album.artwork?.primaryTextColor),
+            secondaryTextHex: hex(album.artwork?.secondaryTextColor), trackCount: album.trackCount)
+    }
+
+    private static func snapshot(of playlist: Playlist) -> MusicSnapshot {
+        MusicSnapshot(
+            kind: .playlist, catalogID: playlist.id.rawValue, url: playlist.url, title: playlist.name, subtitle: playlist.curatorName,
+            backgroundHex: hex(playlist.artwork?.backgroundColor), primaryTextHex: hex(playlist.artwork?.primaryTextColor),
+            secondaryTextHex: hex(playlist.artwork?.secondaryTextColor))
+    }
+
     /// `#rrggbb` em sRGB; `nil` sem cor ou sem como converter.
     private static func hex(_ color: CGColor?) -> String? {
         guard let color, let space = CGColorSpace(name: CGColorSpace.sRGB),

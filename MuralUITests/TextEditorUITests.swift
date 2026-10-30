@@ -95,6 +95,80 @@ final class TextEditorUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Descartar"].exists)
     }
 
+    // MARK: Inserir
+
+    /// Abre o botão Inserir e escolhe o item.
+    @MainActor
+    private func chooseInsertion(_ id: String, in app: XCUIApplication, window: XCUIElement) {
+        window.descendants(matching: .any)["text-editor-insert"].firstMatch.click()
+        let item = app.menuItems["text-editor-insert-\(id)"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "o menu Inserir deveria ter \(id)")
+        item.click()
+    }
+
+    @MainActor
+    func testInsertButtonOffersEachKindAndInsertsLinkAndMusic() throws {
+        let app = launch()
+        openEditorFromMenu(in: app)
+        let window = editorWindow(in: app)
+        XCTAssertTrue(window.waitForExistence(timeout: 10), "a janela do editor deveria abrir")
+        let field = window.textViews.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.click()
+
+        // Todos os itens, com o Finder no fim.
+        let button = window.descendants(matching: .any)["text-editor-insert"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "a barra deveria ter o botão Inserir")
+        button.click()
+        for id in ["photos", "music", "reminder", "link", "contact", "finder"] {
+            XCTAssertTrue(app.menuItems["text-editor-insert-\(id)"].firstMatch.waitForExistence(timeout: 5), "falta \(id)")
+        }
+        let screenshot = XCTAttachment(screenshot: window.screenshot())
+        screenshot.name = "menu-inserir"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.typeKey(.escape, modifierFlags: [])
+
+        // Link: o endereço vira um cartão no texto.
+        chooseInsertion("link", in: app, window: window)
+        let address = app.descendants(matching: .any)["link-insert-field"].firstMatch
+        XCTAssertTrue(address.waitForExistence(timeout: 5), "a folha do link deveria abrir")
+        let confirm = app.descendants(matching: .any)["link-insert-confirm"].firstMatch
+        XCTAssertFalse(confirm.isEnabled, "sem endereço, Inserir fica desligado")
+        address.typeText("https://www.apple.com/br/mac\n")
+        XCTAssertTrue(address.waitForNonExistence(timeout: 5), "inserir fecha a folha")
+        XCTAssertEqual(fieldText(in: app).filter { $0 == "\u{FFFC}" }.count, 1, "o link deveria virar um cartão")
+
+        // Música: a busca acha o item do catálogo falso, e Return o põe no texto.
+        chooseInsertion("music", in: app, window: window)
+        let search = app.descendants(matching: .any)["music-search-field"].firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "a folha de música deveria abrir")
+        search.typeText("Invent")
+        let insertMusic = app.descendants(matching: .any)["music-search-insert"].firstMatch
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: insertMusic)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed, "o primeiro resultado já vem escolhido")
+        let sheet = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        sheet.name = "busca-musica"
+        sheet.lifetime = .keepAlways
+        add(sheet)
+        insertMusic.click()
+        XCTAssertTrue(search.waitForNonExistence(timeout: 5), "inserir fecha a folha")
+        XCTAssertEqual(fieldText(in: app).filter { $0 == "\u{FFFC}" }.count, 2, "a música deveria virar outro cartão")
+
+        // Fechada a folha, o editor continua na frente, e os dois cartões aparecem como tiras.
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(field.isHittable, "o editor deveria continuar na frente da janela do mural")
+        let cards = XCTAttachment(screenshot: field.screenshot())
+        cards.name = "tiras-no-editor"
+        cards.lifetime = .keepAlways
+        add(cards)
+
+        window.buttons[XCUIIdentifierCloseWindow].click()
+        let discard = app.buttons["Descartar"].firstMatch
+        if discard.waitForExistence(timeout: 5) { discard.click() }
+        XCTAssertTrue(window.waitForNonExistence(timeout: 5))
+    }
+
     // MARK: Anexos
 
     /// Põe na área de transferência uma imagem azul, que não se confunde com nada do editor.
@@ -111,6 +185,7 @@ final class TextEditorUITests: XCTestCase {
     }
 
     /// Quantos pontos azuis, numa grade de 6 pixels, há na captura do campo.
+    @MainActor
     private func bluePoints(in field: XCUIElement) throws -> Int {
         let tiff = try XCTUnwrap(field.screenshot().image.tiffRepresentation)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
@@ -165,10 +240,10 @@ final class TextEditorUITests: XCTestCase {
 
         // ⌫ até o começo da linha e mais um apaga a imagem; ⌘Z a devolve.
         for _ in 0..<4 { app.typeKey(.delete, modifierFlags: []) }
-        let isGone = NSPredicate { _, _ in ((try? self.bluePoints(in: field)) ?? 1) == 0 }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: isGone, object: nil)], timeout: 5), .completed)
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(try bluePoints(in: field), 0, "⌫ apaga a imagem")
         app.typeKey("z", modifierFlags: .command)
-        let isBack = NSPredicate { _, _ in ((try? self.bluePoints(in: field)) ?? 0) == wholeImage }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: isBack, object: nil)], timeout: 5), .completed)
+        Thread.sleep(forTimeInterval: 0.3)
+        XCTAssertEqual(try bluePoints(in: field), wholeImage, "⌘Z devolve a imagem")
     }
 }

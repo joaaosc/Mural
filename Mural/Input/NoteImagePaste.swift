@@ -41,6 +41,14 @@ enum NoteImagePaste {
         return nil
     }
 
+    /// A fonte de uma imagem que chegou como dados: nos formatos que o anexo guarda, como veio; nos outros, convertida para PNG ao
+    /// gravar.
+    static func source(data: Data, fileExtension: String) -> Source {
+        let name = fileExtension.lowercased()
+        guard attachmentExtensions.contains(name) else { return .needsPNGConversion(data) }
+        return .data(data, fileExtension: name == "jpeg" ? "jpg" : name)
+    }
+
     /// Grava a imagem em `Items/` (ainda sem citar) fora do Main Actor.
     static func store(_ source: Source, with model: BoardModel) async -> NoteAttachment? {
         switch source {

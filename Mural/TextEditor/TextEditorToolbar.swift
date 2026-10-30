@@ -1,9 +1,9 @@
 import MuralKit
 import SwiftUI
 
-/// A barra de ferramentas do editor de texto: negrito e itálico à esquerda; no centro as quatro formatações com atalho, o lembrete
-/// e, num menu, as outras formatações; à direita "Colar no mural…". Todo item também é um comando de menu (`MuralCommands`), e é o
-/// menu que guarda o ⌘↩.
+/// A barra de ferramentas do editor de texto: negrito e itálico à esquerda; no centro as quatro formatações com atalho e, em menus, o
+/// que se pode inserir e as outras formatações; à direita "Colar no mural…". Todo item também é um comando de menu (`MuralCommands`),
+/// e é o menu que guarda o ⌘↩.
 struct TextEditorToolbar: ToolbarContent {
     let actions: TextEditorActions
 
@@ -22,9 +22,16 @@ struct TextEditorToolbar: ToolbarContent {
                     .help(format.title)
                     .accessibilityIdentifier("text-editor-format-\(format.rawValue)")
             }
-            Button("Lembrete", systemImage: "checklist.checked", action: actions.insertReminder)
-                .help("Inserir um lembrete do app Lembretes")
-                .accessibilityIdentifier("text-editor-reminder")
+            Menu("Inserir", systemImage: "plus") {
+                ForEach(TextEditorInsertion.allCases) { insertion in
+                    if insertion == .finder { Divider() }
+                    Button(insertion.title, systemImage: insertion.symbolName) { actions.insert(insertion) }
+                        .labelStyle(.titleAndIcon)
+                        .accessibilityIdentifier("text-editor-insert-\(insertion.rawValue)")
+                }
+            }
+            .help("Inserir fotos, músicas, lembretes, links e contatos")
+            .accessibilityIdentifier("text-editor-insert")
             Menu("Mais formatações", systemImage: "ellipsis.circle") {
                 ForEach(TextEditorWording.menuFormats) { format in
                     Button(format.title, systemImage: format.symbolName) { actions.applyFormat(format) }

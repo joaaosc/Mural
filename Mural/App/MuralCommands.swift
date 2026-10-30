@@ -152,7 +152,7 @@ struct MuralCommands: Commands {
                 .disabled(actions == nil)
         }
         CommandGroup(after: .textEditing) {
-            // As formatações e o lembrete do editor de texto, os mesmos botões da barra dele; valem com a janela dele em foco.
+            // As formatações e o Inserir do editor de texto, os mesmos botões da barra dele; valem com a janela dele em foco.
             Section {
                 ForEach(TextEditorWording.formats) { format in
                     Button(format.title, systemImage: format.symbolName) { textEditor?.applyFormat(format) }
@@ -161,7 +161,13 @@ struct MuralCommands: Commands {
                                 KeyboardShortcut($0, modifiers: [.command, .shift])
                             })
                 }
-                Button("Inserir Lembrete…", systemImage: "checklist.checked") { textEditor?.insertReminder() }
+                Menu("Inserir", systemImage: "plus") {
+                    ForEach(TextEditorInsertion.allCases) { insertion in
+                        if insertion == .finder { Divider() }
+                        Button(insertion.title, systemImage: insertion.symbolName) { textEditor?.insert(insertion) }
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
             }
             .disabled(textEditor == nil)
             Button("Colar no Mural…", systemImage: "arrow.down.doc") { textEditor?.requestPaste() }

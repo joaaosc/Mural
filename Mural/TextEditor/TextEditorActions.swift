@@ -5,7 +5,7 @@ import SwiftUI
 struct TextEditorActions {
     let applyFormat: (PasteTextFormat) -> Void
     let applyEmphasis: (MarkdownEmphasis) -> Void
-    let insertReminder: () -> Void
+    let insert: (TextEditorInsertion) -> Void
     let requestPaste: () -> Void
     /// Há texto para colar no mural.
     let canPaste: Bool

@@ -186,4 +186,17 @@ final class FakeMusic: MusicProviding {
     }
 
     func catalogArtwork(for snapshot: MusicSnapshot) async -> MusicCatalogArtwork? { artwork }
+
+    /// O catálogo simulado da busca.
+    var catalog: [MusicSnapshot] = [
+        MusicSnapshot(kind: .album, catalogID: "1", title: "Disco Inventado", subtitle: "Artista", trackCount: 12),
+        MusicSnapshot(kind: .song, catalogID: "2", title: "Faixa Inventada", subtitle: "Artista", duration: 180),
+    ]
+    /// Faz `search(term:)` falhar.
+    var searchError: MusicPlaybackError?
+
+    func search(term: String) async throws -> [MusicSnapshot] {
+        if let searchError { throw searchError }
+        return catalog.filter { $0.title.localizedStandardContains(term) }
+    }
 }
