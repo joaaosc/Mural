@@ -5,12 +5,17 @@ import Foundation
 /// outra pessoa nunca. A cópia só é regravada quando este Mac mudou o mural (`pendingWrites`) ou quando ela falta: o que chegou de
 /// outro Mac pelo iCloud já foi copiado por ele. Só sai da pasta a cópia de um mural que a pessoa excluiu neste Mac (`pendingTrash`).
 ///
-/// As ações saem em ordem: todos os `trash`, depois os `move`, depois os `write`; dentro de cada grupo, pelo nome do arquivo (o de
-/// origem, nos `move`).
+/// Quando a pessoa renomeia a cópia no Finder, o nome vale: o mural é renomeado no app (`renameBoard`) em vez de a cópia voltar ao
+/// nome antigo. Isso só vale se o mural não mudou de nome no app desde a última cópia; senão, o nome do app prevalece.
+///
+/// As ações saem em ordem: todos os `trash`, depois os `renameBoard`, depois os `move`, depois os `write`; dentro de cada grupo,
+/// pelo nome do arquivo (o de origem, nos `move`), exceto os `renameBoard`, que seguem a ordem dos murais.
 public struct DriveMirrorPlan: Equatable, Sendable {
     public enum Action: Equatable, Sendable {
         /// Leva ao Lixo a cópia de um mural que a pessoa excluiu.
         case trash(BoardID, fileName: String)
+        /// Renomeia o mural no app para o nome que a pessoa deu à cópia no Finder.
+        case renameBoard(BoardID, to: String)
         /// Renomeia a cópia para o nome que o mural tem agora.
         case move(BoardID, from: String, to: String)
         /// Grava a cópia no pacote com esse nome (ver `BoardPackageMirror.sync`).
@@ -26,12 +31,14 @@ public struct DriveMirrorPlan: Equatable, Sendable {
     /// - Parameters:
     ///   - boards: os manifestos dos murais salvos deste Mac.
     ///   - copies: o que há na pasta: nome do pacote (`*.mural`) → id do manifesto dele; `nil` quando ilegível ou não é mural.
+    ///   - copyNames: nome do pacote → nome gravado no manifesto da cópia (o que o mural se chamava na última cópia).
+    ///   - strays: pasta de primeiro nível sem `.mural` mas com manifesto legível → id do mural (pacote que perdeu a extensão).
     ///   - pendingWrites: murais gravados neste Mac desde a última cópia.
     ///   - pendingTrash: murais excluídos pela pessoa neste Mac.
     ///   - awaitingFirstFetch: murais adotados do iCloud que ainda esperam o conteúdo (pacote provisório).
     public static func make(
-        boards: [BoardManifest], copies: [String: BoardID?], pendingWrites: Set<BoardID>, pendingTrash: Set<BoardID>,
-        awaitingFirstFetch: Set<BoardID>
+        boards: [BoardManifest], copies: [String: BoardID?], copyNames: [String: String] = [:], strays: [String: BoardID] = [:],
+        pendingWrites: Set<BoardID>, pendingTrash: Set<BoardID>, awaitingFirstFetch: Set<BoardID>
     ) -> DriveMirrorPlan {
         // O que há na pasta, em ordem de nome (o dicionário não tem ordem).
         let folder = copies.map { FolderEntry(name: $0.key, boardID: $0.value) }.sorted { precedes($0.name, $1.name) }
@@ -45,9 +52,29 @@ public struct DriveMirrorPlan: Equatable, Sendable {
         // Os murais com cópia recebem nomes em ordem, para o mesmo nome sobrar sempre para o mesmo mural.
         var handedOut = Set<String>()
         var renames: [Rename] = []
+        var boardRenames: [Action] = []
         var writes: [(boardID: BoardID, fileName: String)] = []
         let mirrored = boards.filter { hasCopy($0, awaitingFirstFetch: awaitingFirstFetch) }.sorted(by: boardOrder)
-        for board in mirrored {
+
+        // Pasta que perdeu a extensão: volta a ser pacote e o nome dela vira o do mural. O mural que já tem cópia `.mural` ignora a
+        // pasta. Enquanto isso o mural não ganha cópia nova: a seguinte já encontra o pacote.
+        var recovered = Set<BoardID>()
+        for (folderName, boardID) in strays.sorted(by: { precedes($0.key, $1.key) }) {
+            guard let board = mirrored.first(where: { $0.id == boardID }), namesByBoard[boardID] == nil,
+                !recovered.contains(boardID)
+            else { continue }
+            recovered.insert(boardID)
+            renames.append(Rename(boardID: boardID, from: folderName, to: folderName + packageExtension, writesAfterwards: false))
+            let name = BoardName.sanitized(folderName)
+            if name != board.name { boardRenames.append(.renameBoard(boardID, to: name)) }
+        }
+
+        for board in mirrored where !recovered.contains(board.id) {
+            // Cópia renomeada no Finder: o mural ganha o nome novo, e a gravação dele traz a cópia de volta ao nome certo.
+            if let name = finderRename(for: board, copies: namesByBoard[board.id] ?? [], copyNames: copyNames) {
+                boardRenames.append(.renameBoard(board.id, to: name))
+                continue
+            }
             let wanted = desiredName(for: board, handedOut: handedOut, occupants: occupants)
             handedOut.insert(nameKey(wanted))
             let isPending = pendingWrites.contains(board.id)
@@ -89,7 +116,7 @@ public struct DriveMirrorPlan: Equatable, Sendable {
         }
 
         let writeActions = writes.sorted { precedes($0.fileName, $1.fileName) }.map { Action.write($0.boardID, fileName: $0.fileName) }
-        return DriveMirrorPlan(actions: trashes + moves + writeActions)
+        return DriveMirrorPlan(actions: trashes + boardRenames + moves + writeActions)
     }
 
     /// O nome do pacote para um mural: seguro para qualquer volume, com ".mural".
@@ -126,6 +153,27 @@ public struct DriveMirrorPlan: Equatable, Sendable {
         var from: String
         var to: String
         var writesAfterwards: Bool
+    }
+
+    /// O nome novo do mural quando a pessoa renomeou a única cópia dele no Finder; `nil` se não foi isso. Compara a base do arquivo
+    /// (sem ".mural" e sem o sufixo do próprio id) com a base do nome que a cópia tinha ao ser gravada, e só aceita se o mural não
+    /// mudou de nome no app desde então.
+    private static func finderRename(for board: BoardManifest, copies: [String], copyNames: [String: String]) -> String? {
+        guard copies.count == 1, let file = copies.first, let copyName = copyNames[file], board.name == copyName else { return nil }
+        let uuid = board.id.rawValue.uuidString
+        var fileBase = stripped(file, suffix: packageExtension)
+        for suffix in [" (\(uuid.prefix(8)))", " (\(uuid))"] where fileBase.lowercased().hasSuffix(suffix.lowercased()) {
+            fileBase = String(fileBase.dropLast(suffix.count))
+            break
+        }
+        let expectedBase = stripped(fileName(for: copyName), suffix: packageExtension)
+        guard !fileBase.trimmingCharacters(in: .whitespaces).isEmpty, fileBase != expectedBase else { return nil }
+        let name = BoardName.sanitized(fileBase)
+        return name == board.name ? nil : name
+    }
+
+    private static func stripped(_ name: String, suffix: String) -> String {
+        name.lowercased().hasSuffix(suffix) ? String(name.dropLast(suffix.count)) : name
     }
 
     /// Só os murais da própria pessoa (só deste Mac, ou no iCloud dela) e com conteúdo neste Mac têm cópia.

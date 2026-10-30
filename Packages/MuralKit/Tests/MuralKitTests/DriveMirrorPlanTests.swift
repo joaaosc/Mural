@@ -23,11 +23,12 @@ struct DriveMirrorPlanTests {
     }
 
     private func plan(
-        _ boards: [BoardManifest], copies: [String: BoardID?] = [:], writes: Set<BoardID> = [], trash: Set<BoardID> = [],
-        awaiting: Set<BoardID> = []
+        _ boards: [BoardManifest], copies: [String: BoardID?] = [:], names: [String: String] = [:], strays: [String: BoardID] = [:],
+        writes: Set<BoardID> = [], trash: Set<BoardID> = [], awaiting: Set<BoardID> = []
     ) -> [Action] {
         DriveMirrorPlan.make(
-            boards: boards, copies: copies, pendingWrites: writes, pendingTrash: trash, awaitingFirstFetch: awaiting
+            boards: boards, copies: copies, copyNames: names, strays: strays, pendingWrites: writes, pendingTrash: trash,
+            awaitingFirstFetch: awaiting
         ).actions
     }
 
@@ -38,6 +39,8 @@ struct DriveMirrorPlanTests {
             switch action {
             case .trash(_, let fileName):
                 result.removeValue(forKey: fileName)
+            case .renameBoard:
+                break
             case .move(_, let from, let to):
                 if let moved = result.removeValue(forKey: from) { result[to] = moved }
             case .write(let id, let fileName):
@@ -154,6 +157,67 @@ struct DriveMirrorPlanTests {
         #expect(plan(boards, copies: ["Alpha.mural": a, "Beta.mural": a], writes: [a]) == [.write(a, fileName: "Beta.mural")])
         // Nenhuma no nome desejado: a primeira, em ordem de nome, é a que muda de nome.
         #expect(plan(boards, copies: ["Alpha.mural": a, "Alfa.mural": a]) == [.move(a, from: "Alfa.mural", to: "Beta.mural")])
+    }
+
+    // MARK: Renomeação pelo Finder
+
+    @Test("Cópia renomeada no Finder: o mural ganha o nome novo, sem mover nem regravar")
+    func finderRenameRenamesTheBoard() {
+        let boards = [board(a, "Ideias")]
+        let result = plan(boards, copies: ["Viagens.mural": a], names: ["Viagens.mural": "Ideias"], writes: [a])
+        #expect(result == [.renameBoard(a, to: "Viagens")])
+        // Sem diferença de maiúsculas na extensão.
+        #expect(plan(boards, copies: ["Viagens.MURAL": a], names: ["Viagens.MURAL": "Ideias"]) == [.renameBoard(a, to: "Viagens")])
+    }
+
+    @Test("Mural renomeado no app e arquivo renomeado: vale o nome do app")
+    func appRenameWinsOverFinderRename() {
+        let boards = [board(a, "Ideias novas")]
+        let result = plan(boards, copies: ["Viagens.mural": a], names: ["Viagens.mural": "Ideias"])
+        #expect(result == [.move(a, from: "Viagens.mural", to: "Ideias novas.mural")])
+    }
+
+    @Test("Sufixo do próprio id no arquivo não conta como renomeação")
+    func ownIDSuffixIsNotARename() {
+        let boards = [board(a, "Ideias")]
+        let result = plan(boards, copies: ["Ideias (AAAAAAAA).mural": a], names: ["Ideias (AAAAAAAA).mural": "Ideias"])
+        #expect(result == [.move(a, from: "Ideias (AAAAAAAA).mural", to: "Ideias.mural")])
+        let full = "Ideias (AAAAAAAA-0000-0000-0000-000000000001).mural"
+        #expect(plan(boards, copies: [full: a], names: [full: "Ideias"]) == [.move(a, from: full, to: "Ideias.mural")])
+    }
+
+    @Test("Duplicata do Finder (duas cópias do mesmo id): nenhuma renomeação do mural")
+    func finderDuplicateDoesNotRename() {
+        let boards = [board(a, "Ideias")]
+        let copies: [String: BoardID?] = ["Ideias.mural": a, "Ideias cópia.mural": a]
+        let names = ["Ideias.mural": "Ideias", "Ideias cópia.mural": "Ideias"]
+        #expect(plan(boards, copies: copies, names: names).isEmpty)
+    }
+
+    @Test("Dois-pontos no nome do arquivo (a barra do Finder) vira hífen no nome do mural")
+    func colonBecomesHyphen() {
+        let boards = [board(a, "Ideias")]
+        #expect(plan(boards, copies: ["Viagem 1:2.mural": a], names: ["Viagem 1:2.mural": "Ideias"]) == [.renameBoard(a, to: "Viagem 1-2")])
+    }
+
+    @Test("Pasta sem extensão: volta a ser .mural e o mural ganha o nome da pasta")
+    func strayFolderIsRecovered() {
+        let boards = [board(a, "Ideias")]
+        #expect(
+            plan(boards, strays: ["Viagens": a], writes: [a]) == [
+                .renameBoard(a, to: "Viagens"), .move(a, from: "Viagens", to: "Viagens.mural"),
+            ])
+        // Mesmo nome do mural: só ganha a extensão.
+        #expect(plan(boards, strays: ["Ideias": a]) == [.move(a, from: "Ideias", to: "Ideias.mural")])
+        // O mural que já tem cópia .mural ignora a pasta.
+        #expect(plan(boards, copies: ["Ideias.mural": a], strays: ["Viagens": a]).isEmpty)
+    }
+
+    @Test("Mural recebido de outra pessoa nunca recebe renomeação pela cópia")
+    func sharedBoardIsNeverRenamed() {
+        let shared = board(b, "Compartilhado", cloud: received)
+        #expect(plan([shared], copies: ["Outro.mural": b], names: ["Outro.mural": "Compartilhado"]).isEmpty)
+        #expect(plan([shared], strays: ["Outro": b]).isEmpty)
     }
 
     // MARK: Ordem das ações
