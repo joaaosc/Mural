@@ -57,17 +57,60 @@ enum PasteDescription {
     }
 
     /// O título da linha de uma opção: "Colar como Sticker" para texto; para o resto, "Colar" e o tipo ("Colar link",
-    /// "Colar 3 links", "Colar imagem", "Colar PDF", "Colar 2 arquivos", "Colar música", "Colar texto" antes de ler).
+    /// "Colar 3 links", "Colar imagem", "Colar PDF", "Colar 2 arquivos", "Colar música", "Colar texto" antes de ler). A opção
+    /// de editar se chama "Editar antes de colar".
     static func title(of option: PasteOption, clipboard kind: ClipboardKind) -> String {
         switch option.action {
         case .text(let cardKind): "Colar como \(cardKind.creationTitle)"
         case .asRead, .read: "Colar \(noun(for: kind))"
+        case .edit: "Editar antes de colar"
         }
     }
 
-    /// O símbolo da linha de uma opção: o do tipo de cartão que sai, ou `clipboard` quando não se sabe.
+    /// O título do botão de colar do editor de texto: o da opção que o classificador sugere para esse texto ("Colar como
+    /// Sticker", "Colar como Lista"…), que muda enquanto se digita; "Colar" com o texto em branco.
+    static func editorPasteTitle(for text: String) -> String {
+        let kind = ClipboardKind.text(text)
+        guard let suggested = PasteOptions.options(for: kind).first(where: \.isSuggested) else { return "Colar" }
+        return title(of: suggested, clipboard: kind)
+    }
+
+    /// O rótulo da linha de cima: "Copiado:" ou, com o texto mudado no editor do painel, "Editado:".
+    static func copiedLabel(isEdited: Bool = false) -> String {
+        isEdited ? "Editado:" : "Copiado:"
+    }
+
+    /// O nome curto da tecla Return na linha escolhida: "Colar" ou, na de editar, "Editar".
+    static func returnHintLabel(of option: PasteOption) -> String {
+        switch option.action {
+        case .asRead, .read, .text: "Colar"
+        case .edit: "Editar"
+        }
+    }
+
+    /// O que o Return faz na linha escolhida, para a dica de ferramenta e a de acessibilidade da tecla.
+    static func returnHintDescription(of option: PasteOption) -> String {
+        switch option.action {
+        case .asRead, .read, .text: "Return cola o que foi copiado"
+        case .edit: "Return abre o editor"
+        }
+    }
+
+    /// A dica de acessibilidade da linha de uma opção: o que acontece ao pressioná-la.
+    static func accessibilityHint(of option: PasteOption) -> String {
+        switch option.action {
+        case .asRead, .read, .text: "Cola o que foi copiado no mural do centro da vitrine."
+        case .edit: "Abre um editor aqui no painel para mudar o texto antes de colar."
+        }
+    }
+
+    /// O símbolo da linha de uma opção: o lápis da edição (`square.and.pencil`) na de editar; nas demais, o do tipo de cartão
+    /// que sai, ou `clipboard` quando não se sabe.
     static func symbol(of option: PasteOption) -> String {
-        option.kind?.creationSymbol ?? "clipboard"
+        switch option.action {
+        case .edit: "square.and.pencil"
+        case .asRead, .read, .text: option.kind?.creationSymbol ?? "clipboard"
+        }
     }
 
     /// A frase de quando não há opções de colar, conforme o que se sabe da área de transferência.

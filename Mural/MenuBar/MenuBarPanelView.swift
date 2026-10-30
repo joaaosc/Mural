@@ -42,6 +42,7 @@ struct MenuBarPanelView: View {
         let stage: PanelStage
         let clipboard: ClipboardState
         let pasteStatus: PasteStatus
+        let isEditingText: Bool
         let showsNowPlaying: Bool
         /// A barra de tempo muda a altura da seção "Tocando agora" (estações não a têm).
         let showsNowPlayingScrubber: Bool
@@ -51,6 +52,7 @@ struct MenuBarPanelView: View {
         Layout(
             isLoaded: model.isLoaded, optionCount: model.options.count, formatCount: model.formats.count,
             stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus,
+            isEditingText: model.isEditingText,
             showsNowPlaying: playback.source != nil,
             showsNowPlayingScrubber: playback.summary(in: tabs).map(NowPlayingSection.showsScrubber(for:)) ?? false)
     }
@@ -96,7 +98,9 @@ struct MenuBarPanelView: View {
                     choose: { choose($0) },
                     chooseFormat: { chooseFormat($0) },
                     advance: { model.advanceStage() },
-                    retreat: { model.retreatStage() })
+                    retreat: { model.retreatStage() },
+                    pasteEdited: { pasteEdited() },
+                    leaveEditor: { leaveEditor() })
             }
         }
         .focusable()
@@ -104,16 +108,26 @@ struct MenuBarPanelView: View {
         .focusEffectDisabled()
         .onAppear { contentHasFocus = true }
         .onDisappear { pasteTask?.cancel() }
-        .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in step(by: -1) }
-        .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in step(by: 1) }
-        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in stepWithinStage(by: -1) }
-        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in stepWithinStage(by: 1) }
-        .onKeyPress(.return, phases: .down) { press in confirm(press) }
-        .onKeyPress(keys: [.tab, Self.backTab], phases: .down) { press in tab(press) }
-        .onKeyPress(characters: .alphanumerics, phases: .down) { press in type(press) }
+        .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in whileNotEditing { step(by: -1) } }
+        .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in whileNotEditing { step(by: 1) } }
+        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in whileNotEditing { stepWithinStage(by: -1) } }
+        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in whileNotEditing { stepWithinStage(by: 1) } }
+        .onKeyPress(.return, phases: .down) { press in whileNotEditing { confirm(press) } }
+        .onKeyPress(keys: [.tab, Self.backTab], phases: .down) { press in whileNotEditing { tab(press) } }
+        .onKeyPress(characters: .alphanumerics, phases: .down) { press in whileNotEditing { type(press) } }
         // O painel transforma o ⌘V em `paste:`, que chega aqui como um colar pedido pela pessoa.
-        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in pasteNow() }
-        .onExitCommand { escape() }
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in
+            // Com o editor aberto, o campo de texto cola em si mesmo.
+            guard !model.isEditingText else { return }
+            pasteNow()
+        }
+        .onExitCommand {
+            if model.isEditingText {
+                leaveEditor()
+            } else {
+                escape()
+            }
+        }
         .onChange(of: layout) { resize() }
     }
 
@@ -223,6 +237,24 @@ struct MenuBarPanelView: View {
 
     // MARK: Colar
 
+    /// Com o editor de texto aberto, as teclas do painel (setas, Return, Tab, letras) são do campo de texto.
+    private func whileNotEditing(_ handle: () -> KeyPress.Result) -> KeyPress.Result {
+        model.isEditingText ? .ignored : handle()
+    }
+
+    /// ⌘↩ no editor: o texto passa a ser o que se cola e, se não está em branco, é colado como depois de qualquer colar.
+    private func pasteEdited() {
+        guard model.finishTextEditing() else { return }
+        contentHasFocus = true
+        pasteNow()
+    }
+
+    /// Esc no editor: volta às maneiras de colar, com o texto editado, e o teclado volta ao painel.
+    private func leaveEditor() {
+        model.leaveTextEditing()
+        contentHasFocus = true
+    }
+
     /// Escolhe a maneira de colar da linha clicada e cola.
     private func choose(_ index: Int) {
         model.selectOption(index)
@@ -278,7 +310,8 @@ struct MenuBarPanelView: View {
             Button("Abrir mural", systemImage: "arrow.up.forward.app") {
                 open(model.selection)
             }
-            .keyboardShortcut(.return, modifiers: .command)
+            // Com o editor aberto, o ⌘↩ é do botão de colar dele.
+            .keyboardShortcut(model.isEditingText ? nil : KeyboardShortcut(.return, modifiers: .command))
             .disabled(model.selectedEntry == nil)
             .focusable(false)
             .help("Abrir o mural no app (⌘↩)")

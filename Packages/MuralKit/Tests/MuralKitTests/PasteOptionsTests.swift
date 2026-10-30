@@ -165,6 +165,64 @@ struct PasteOptionsTests {
         #expect(PasteOptions.options(for: .text(shortText)).map(\.id) == PasteOptions.options(for: .text(longText)).map(\.id))
     }
 
+    // MARK: edição
+
+    @Test("Com a edição permitida, o texto (lido ou não) ganha a opção de editar no fim, nunca sugerida")
+    func editIsAppendedForText() {
+        let edit = option(.edit, nil, 0, suggested: false)
+
+        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(longText), .text(listText)] {
+            let base = PasteOptions.options(for: kind)
+            let options = PasteOptions.options(for: kind, allowsEditing: true)
+
+            #expect(options == base + [edit], "\(kind)")
+            #expect(options.last?.isSuggested == false)
+        }
+    }
+
+    @Test("Imagem, PDF, links, arquivos, música e área vazia nunca ganham a opção de editar")
+    func editIsNeverOfferedForOtherKinds() {
+        let others: [ClipboardKind] = [
+            .nothing, .image, .pdf, .links(count: 0), .links(count: 2), .files(count: 0), .files(count: 3), .music(count: 0),
+            .music(count: 2),
+        ]
+
+        for kind in others {
+            #expect(PasteOptions.options(for: kind, allowsEditing: true) == PasteOptions.options(for: kind), "\(kind)")
+        }
+    }
+
+    @Test("Texto em branco continua sem opção, mesmo com a edição permitida", arguments: ["", "  ", "\n\t"])
+    func blankTextHasNoOptionsEvenWhenEditingIsAllowed(text: String) {
+        #expect(PasteOptions.options(for: .text(text), allowsEditing: true).isEmpty)
+    }
+
+    @Test("Sem pedir a edição, a lista é a de sempre")
+    func editingIsOffByDefault() {
+        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(listText)] {
+            #expect(PasteOptions.options(for: kind) == PasteOptions.options(for: kind, allowsEditing: false), "\(kind)")
+            #expect(!PasteOptions.options(for: kind).contains { $0.action == .edit })
+        }
+    }
+
+    @Test("O id da opção de editar é estável")
+    func editIdentifier() {
+        #expect(option(.edit, nil, 0, suggested: false).id == "edit")
+        #expect(
+            PasteOptions.options(for: .text(listText), allowsEditing: true).map(\.id) == [
+                "text-sticky", "text-text", "text-checklist", "edit",
+            ])
+    }
+
+    @Test("A posição sugerida nunca é a da opção de editar")
+    func suggestedIndexSkipsEdit() throws {
+        for kind: ClipboardKind in [.text(nil), .text(shortText), .text(longText), .text(listText)] {
+            let options = PasteOptions.options(for: kind, allowsEditing: true)
+            let index = try #require(PasteOptions.suggestedIndex(in: options))
+            #expect(options[index].action != .edit, "\(kind)")
+        }
+    }
+
     // MARK: suggestedIndex
 
     @Test("Sem opções, não há posição sugerida")

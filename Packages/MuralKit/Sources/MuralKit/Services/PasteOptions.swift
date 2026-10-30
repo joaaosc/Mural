@@ -9,6 +9,8 @@ public struct PasteOption: Hashable, Sendable, Identifiable {
         case text(ItemKind)
         /// Ainda não se sabe o que é: lê a área de transferência na hora de colar.
         case read
+        /// Abre o texto copiado num editor dentro do painel, para mudá-lo antes de colar.
+        case edit
     }
 
     public let action: Action
@@ -26,11 +28,12 @@ public struct PasteOption: Hashable, Sendable, Identifiable {
         self.isSuggested = isSuggested
     }
 
-    /// Estável por ação: `asRead`, `read` e `text-<tipo>` (por exemplo `text-sticky`).
+    /// Estável por ação: `asRead`, `read`, `edit` e `text-<tipo>` (por exemplo `text-sticky`).
     public var id: String {
         switch action {
         case .asRead: "asRead"
         case .read: "read"
+        case .edit: "edit"
         case .text(let kind): "text-\(kind.rawValue)"
         }
     }
@@ -42,7 +45,18 @@ public enum PasteOptions {
     ///
     /// Texto usa `ContentClassifier.pasteChoice(forText:)`: uma opção por tipo de cartão possível, com a sugestão
     /// do classificador marcada. Texto só com espaços não conta.
-    public static func options(for kind: ClipboardKind) -> [PasteOption] {
+    ///
+    /// Com `allowsEditing`, o texto (lido ou não) que tem opções de colar ganha no fim a opção de editar antes de colar,
+    /// nunca sugerida. Os outros tipos nunca a têm.
+    public static func options(for kind: ClipboardKind, allowsEditing: Bool = false) -> [PasteOption] {
+        var options = pasteOptions(for: kind)
+        if allowsEditing, case .text = kind, !options.isEmpty {
+            options.append(PasteOption(action: .edit, kind: nil, count: 0, isSuggested: false))
+        }
+        return options
+    }
+
+    private static func pasteOptions(for kind: ClipboardKind) -> [PasteOption] {
         switch kind {
         case .nothing:
             return []

@@ -392,14 +392,14 @@ struct MenuBarPanelModelTests {
 
         #expect(model.clipboard == .available(.text(nil)))
         #expect(model.clipboardContent == nil, "com .ask abrir só olha os tipos")
-        #expect(model.options.map(\.action) == [.read])
+        #expect(model.options.map(\.action) == [.read, .edit])
         #expect(model.canPaste)
 
         // O primeiro colar só lê: com mais de um tipo de cartão possível, a pessoa escolhe e confirma com outro Return.
         #expect(!model.readForPaste())
         #expect(model.clipboard == .available(.text("Comprar pão")))
         #expect(model.clipboardContent != nil)
-        #expect(model.options.map(\.id) == ["text-sticky", "text-text"])
+        #expect(model.options.map(\.id) == ["text-sticky", "text-text", "edit"])
         #expect(model.options[model.selectedOption].action == .text(.sticky), "o post-it é o sugerido para um texto curto")
         #expect(model.pasteStatus == .idle)
 
@@ -527,17 +527,19 @@ struct MenuBarPanelModelTests {
         #expect(model.selectedOption == 0)
 
         await model.load()
-        #expect(model.options.map(\.id) == ["text-sticky", "text-text", "text-checklist"])
+        #expect(model.options.map(\.id) == ["text-sticky", "text-text", "text-checklist", "edit"])
         #expect(model.selectedOption == 2, "um texto com marcadores sugere a lista")
 
         model.moveOption(by: 1)
-        #expect(model.selectedOption == 2, "depois da última não há nada, e não dá a volta")
+        #expect(model.selectedOption == 3, "a última opção é a de editar")
+        model.moveOption(by: 1)
+        #expect(model.selectedOption == 3, "depois da última não há nada, e não dá a volta")
         model.moveOption(by: -1)
-        #expect(model.selectedOption == 1)
+        #expect(model.selectedOption == 2)
         model.moveOption(by: -9)
         #expect(model.selectedOption == 0, "antes da primeira também não")
         model.selectOption(99)
-        #expect(model.selectedOption == 2)
+        #expect(model.selectedOption == 3)
         model.selectOption(-5)
         #expect(model.selectedOption == 0)
 
@@ -711,4 +713,196 @@ struct MenuBarPanelModelTests {
 
         await workspace.finish()
     }
+    // MARK: Editar antes de colar
+
+    /// Abre o painel sobre um texto ainda não lido (`.ask`) e abre o editor de texto pela opção "Editar antes de colar".
+    private func openEditor(
+        _ workspace: PanelWorkspace, text: String = "Comprar pão"
+    ) async throws -> MenuBarPanelModel {
+        let compras = try workspace.boardID("Compras")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString(text, forType: .string)
+        let model = workspace.makeModel(activeBoard: compras, reader: workspace.makeReader(pasteboard, .ask))
+        await model.load()
+        model.selectOption(try #require(model.options.firstIndex { $0.id == "edit" }))
+        #expect(model.readForPaste())
+        #expect(await model.paste() == false, "abrir o editor não fecha o painel")
+        return model
+    }
+
+    @Test("Texto ainda não lido oferece Editar; escolhê-la lê sem parar na escolha do cartão e abre o editor com o texto")
+    func unreadTextOffersEditAndOpensTheEditor() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let compras = try workspace.boardID("Compras")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("Comprar pão", forType: .string)
+        let model = workspace.makeModel(activeBoard: compras, reader: workspace.makeReader(pasteboard, .ask))
+        await model.load()
+        #expect(model.options.map(\.id) == ["read", "edit"])
+        model.selectOption(1)
+
+        #expect(model.readForPaste(), "com Editar escolhida, ler não para na escolha do tipo de cartão")
+        #expect(model.options.map(\.id) == ["text-sticky", "text-text", "edit"])
+        #expect(model.options[model.selectedOption].action == .edit)
+        #expect(await model.paste() == false)
+
+        #expect(model.isEditingText)
+        #expect(model.editorText == "Comprar pão")
+        #expect(model.pasteStatus == .idle)
+        #expect(!model.hasEditedText)
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        #expect(board.items.isEmpty, "nada é colado ao abrir o editor")
+
+        await workspace.finish()
+    }
+
+    @Test("Terminar a edição troca o texto, escolhe o cartão sugerido para ele e cola o texto editado")
+    func finishingTheEditPastesTheEditedText() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let model = try await openEditor(workspace)
+        model.editorText = "Comprar pão (editado)"
+
+        #expect(model.finishTextEditing())
+
+        #expect(!model.isEditingText)
+        #expect(model.hasEditedText)
+        #expect(model.stage == .paste)
+        #expect(model.clipboard == .available(.text("Comprar pão (editado)")))
+        #expect(model.options.map(\.id) == ["text-sticky", "text-text", "edit"])
+        #expect(model.options[model.selectedOption].action == .text(.sticky))
+        #expect(model.readForPaste())
+        #expect(await model.paste())
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        #expect(board.items.first { $0.kind == .sticky }?.text == "Comprar pão (editado)")
+
+        await workspace.finish()
+    }
+
+    @Test("Texto em branco: terminar fica no editor com o aviso; Esc sai e mantém o texto de antes")
+    func blankEditStaysOrKeepsThePreviousText() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let model = try await openEditor(workspace)
+        model.editorText = "  \n"
+
+        #expect(!model.finishTextEditing())
+        #expect(model.isEditingText)
+        #expect(model.pasteStatus == .failed("O texto ficou vazio."))
+
+        model.leaveTextEditing()
+
+        #expect(!model.isEditingText)
+        #expect(model.pasteStatus == .idle)
+        #expect(!model.hasEditedText)
+        #expect(model.clipboard == .available(.text("Comprar pão")))
+        #expect(model.stage == .paste)
+
+        await workspace.finish()
+    }
+
+    @Test("Esc no editor mantém a edição, e Editar abre o editor de novo com o texto editado")
+    func leavingTheEditorKeepsTheEditAndCanReopenIt() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let model = try await openEditor(workspace)
+        model.editorText = "Comprar pão e leite"
+
+        model.leaveTextEditing()
+
+        #expect(!model.isEditingText)
+        #expect(model.hasEditedText)
+        #expect(model.clipboard == .available(.text("Comprar pão e leite")))
+
+        model.selectOption(try #require(model.options.firstIndex { $0.action == .edit }))
+        #expect(model.readForPaste())
+        #expect(await model.paste() == false)
+        #expect(model.isEditingText)
+        #expect(model.editorText == "Comprar pão e leite")
+
+        await workspace.finish()
+    }
+
+    @Test("Texto que vira links ao ser lido não abre o editor nem cola nada")
+    func textThatBecomesLinksNeverOpensTheEditor() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let compras = try workspace.boardID("Compras")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("Comprar pão", forType: .string)
+        let model = workspace.makeModel(activeBoard: compras, reader: workspace.makeReader(pasteboard, .ask))
+        await model.load()
+        model.selectOption(try #require(model.options.firstIndex { $0.id == "edit" }))
+        pasteboard.clearContents()
+        pasteboard.setString("https://example.com/artigo", forType: .string)
+
+        #expect(!model.readForPaste())
+
+        #expect(model.stage == .paste)
+        #expect(!model.isEditingText)
+        #expect(!model.options.contains { $0.action == .edit })
+        let entry = try #require(model.selectedEntry)
+        let board = try #require(try await workspace.library.readBoard(entry.route))
+        #expect(board.items.isEmpty)
+
+        await workspace.finish()
+    }
+
+    @Test("Imagem não tem a opção de editar")
+    func imagesHaveNoEditRow() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Fotos"])
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setData(try TestImage.png(width: 64, height: 48), forType: .png)
+        let model = workspace.makeModel(reader: workspace.makeReader(pasteboard, .alwaysAllow))
+
+        await model.load()
+
+        #expect(model.options.map(\.id) == ["asRead"])
+
+        await workspace.finish()
+    }
+
+    @Test("A formatação some enquanto a opção de editar está escolhida e volta com as outras")
+    func formatStageFollowsTheSelectedOption() async throws {
+        let workspace = try await PanelWorkspace.make(boards: ["Compras"])
+        let compras = try workspace.boardID("Compras")
+        let pasteboard = workspace.makePasteboard()
+        pasteboard.setString("Comprar pão", forType: .string)
+        let model = workspace.makeModel(activeBoard: compras, reader: workspace.makeReader(pasteboard, .ask))
+        await model.load()
+        #expect(model.stages == [.boards, .paste, .format])
+        model.advanceStage()
+        model.advanceStage()
+        #expect(model.stage == .format)
+
+        model.selectOption(1)
+
+        #expect(model.stages == [.boards, .paste])
+        #expect(model.stage == .paste, "a etapa que sumiu dá lugar à anterior")
+        model.selectOption(0)
+        #expect(model.stages == [.boards, .paste, .format])
+
+        await workspace.finish()
+    }
+
+    @Test("Os textos do editor: título do botão, rótulo da linha e dicas por ação")
+    func editorTexts() {
+        let paste = PasteOption(action: .text(.sticky), kind: .sticky, count: 1, isSuggested: true)
+        let edit = PasteOption(action: .edit, kind: nil, count: 0, isSuggested: false)
+
+        #expect(PasteDescription.editorPasteTitle(for: "Comprar pão") == "Colar como Sticker")
+        #expect(PasteDescription.editorPasteTitle(for: "Compras\n- pão\n- leite") == "Colar como Lista")
+        #expect(PasteDescription.editorPasteTitle(for: String(repeating: "palavra ", count: 40)) == "Colar como Card de texto")
+        #expect(PasteDescription.editorPasteTitle(for: "  \n") == "Colar")
+        #expect(PasteDescription.title(of: edit, clipboard: .text(nil)) == "Editar antes de colar")
+        #expect(PasteDescription.symbol(of: edit) == "square.and.pencil")
+        #expect(PasteDescription.copiedLabel() == "Copiado:")
+        #expect(PasteDescription.copiedLabel(isEdited: true) == "Editado:")
+        #expect(PasteDescription.returnHintLabel(of: paste) == "Colar")
+        #expect(PasteDescription.returnHintLabel(of: edit) == "Editar")
+        #expect(PasteDescription.returnHintDescription(of: paste) == "Return cola o que foi copiado")
+        #expect(PasteDescription.returnHintDescription(of: edit) == "Return abre o editor")
+        #expect(PasteDescription.accessibilityHint(of: paste) == "Cola o que foi copiado no mural do centro da vitrine.")
+        #expect(
+            PasteDescription.accessibilityHint(of: edit) == "Abre um editor aqui no painel para mudar o texto antes de colar.")
+    }
+
 }

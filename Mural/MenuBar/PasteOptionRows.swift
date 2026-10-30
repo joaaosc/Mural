@@ -23,6 +23,7 @@ struct PasteOptionRows: View {
             ForEach(options.enumerated(), id: \.element.id) { index, option in
                 let isSelected = index == selectedOption
                 let title = PasteDescription.title(of: option, clipboard: clipboard)
+                let hint = PasteDescription.accessibilityHint(of: option)
                 HStack(spacing: 6) {
                     PanelActionRow(
                         symbolName: PasteDescription.symbol(of: option),
@@ -32,18 +33,30 @@ struct PasteOptionRows: View {
                         namespace: selectionPill,
                         help: "\(title) \(destination)",
                         accessibilityLabel: "\(title) \(destination)",
-                        accessibilityHint: "Cola o que foi copiado no mural do centro da vitrine.",
+                        accessibilityHint: hint,
                         action: { choose(index) }
                     )
                     .focusable(false)
                     .accessibilityIdentifier("menu-bar-paste-option-\(option.id)")
 
-                    KeyHint(symbol: "return", label: "Colar", description: "Return cola o que foi copiado", isCompact: true)
-                        .opacity(isSelected ? 1 : 0)
-                        .accessibilityHidden(!isSelected)
+                    KeyHint(
+                        symbol: "return", label: PasteDescription.returnHintLabel(of: option),
+                        description: PasteDescription.returnHintDescription(of: option), isCompact: true
+                    )
+                    .opacity(isSelected ? 1 : 0)
+                    .accessibilityHidden(!isSelected)
                 }
             }
         }
         .animation(PanelMotion.animation(PanelMotion.selection, reduceMotion: reduceMotion), value: selectedOption)
     }
+}
+
+#Preview("Texto com a opção de editar", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 150)) {
+    let options = PasteOptions.options(for: .text("Comprar pão\n- leite\n- ovos"), allowsEditing: true)
+    PasteOptionRows(
+        options: options, selectedOption: options.count - 1, clipboard: .text("Comprar pão\n- leite\n- ovos"),
+        boardName: "Compras", choose: { _ in }
+    )
+    .padding()
 }

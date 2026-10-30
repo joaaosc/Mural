@@ -12,6 +12,8 @@ struct CopiedLine: View {
     let nextStage: String?
     /// Vai à etapa seguinte.
     let advance: @MainActor () -> Void
+    /// O texto foi mudado no editor do painel: o rótulo diz "Editado:" em vez de "Copiado:".
+    var isEdited = false
 
     var body: some View {
         if let nextStage {
@@ -34,7 +36,7 @@ struct CopiedLine: View {
             Image(systemName: PasteDescription.symbol(for: kind))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text("Copiado:")
+            Text(PasteDescription.copiedLabel(isEdited: isEdited))
                 .foregroundStyle(.secondary)
             Text(PasteDescription.name(for: kind))
                 .fontWeight(.medium)
@@ -58,4 +60,14 @@ struct CopiedLine: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
     }
+}
+
+#Preview("Copiado e editado", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 90)) {
+    VStack(alignment: .leading) {
+        CopiedLine(kind: .text("Comprar pão"), content: .pasted(.text("Comprar pão")), nextStage: "Colar", advance: {})
+        CopiedLine(
+            kind: .text("Comprar pão (editado)"), content: .pasted(.text("Comprar pão (editado)")), nextStage: "Colar",
+            advance: {}, isEdited: true)
+    }
+    .padding()
 }
