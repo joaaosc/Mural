@@ -1042,4 +1042,67 @@ struct MenuBarPanelModelTests {
         await workspace.finish()
     }
 
+    // MARK: Textos da edição
+
+    @Test("Os títulos das opções de edição levam o nome do app, sem artigo, e mudam com uma edição pendente")
+    func editOptionTitles() throws {
+        let edit = PasteOption(action: .edit, kind: nil, count: 0, isSuggested: false)
+        let discard = PasteOption(action: .discardEdit, kind: nil, count: 0, isSuggested: false)
+
+        #expect(PasteDescription.title(of: edit, clipboard: .image) == "Editar antes de colar")
+        #expect(
+            PasteDescription.title(of: edit, clipboard: .image, editorName: "Pré-Visualização")
+                == "Editar com Pré-Visualização antes de colar")
+        #expect(PasteDescription.title(of: edit, clipboard: .image, isEditing: true) == "Continuar editando")
+        #expect(
+            PasteDescription.title(of: edit, clipboard: .image, editorName: "TextEdit", isEditing: true)
+                == "Continuar editando com TextEdit")
+        #expect(PasteDescription.title(of: discard, clipboard: .image, editorName: "TextEdit", isEditing: true) == "Descartar a edição")
+        let paste = try #require(PasteOptions.options(for: .image).first)
+        #expect(PasteDescription.title(of: paste, clipboard: .image, editorName: "TextEdit", isEditing: true) == "Colar imagem")
+        #expect(
+            PasteDescription.chosenOption(paste, clipboard: .image, board: "Fotos", editorName: "TextEdit", isEditing: true)
+                == "Colar imagem em Fotos")
+    }
+
+    @Test("O alto do painel diz Copiado ou Editado com o app, e o símbolo vira o lápis da edição")
+    func copiedLineTexts() {
+        #expect(PasteDescription.copiedLabel() == "Copiado:")
+        #expect(PasteDescription.copiedLabel(editorName: "TextEdit", isEditing: false) == "Copiado:")
+        #expect(PasteDescription.copiedLabel(editorName: "TextEdit", isEditing: true) == "Editado com TextEdit:")
+        #expect(PasteDescription.copiedLabel(isEditing: true) == "Editado:")
+        #expect(PasteDescription.copiedSymbol(for: .image) == PasteDescription.symbol(for: .image))
+        #expect(PasteDescription.copiedSymbol(for: .image, isEditing: true) == "square.and.pencil")
+    }
+
+    @Test("A dica do Return, a dica de acessibilidade e o resumo seguem a ação da opção")
+    func editHints() {
+        let paste = PasteOption(action: .asRead, kind: .image, count: 1, isSuggested: true)
+        let edit = PasteOption(action: .edit, kind: nil, count: 0, isSuggested: false)
+        let discard = PasteOption(action: .discardEdit, kind: nil, count: 0, isSuggested: false)
+
+        #expect([paste, edit, discard].map(PasteDescription.returnHintLabel(of:)) == ["Colar", "Editar", "Descartar"])
+        #expect(PasteDescription.returnHintDescription(of: paste) == "Return cola o que foi copiado")
+        #expect(PasteDescription.returnHintDescription(of: paste, isEditing: true) == "Return cola o conteúdo editado")
+        #expect(PasteDescription.returnHintDescription(of: edit, editorName: "TextEdit") == "Return abre a cópia em TextEdit")
+        #expect(PasteDescription.returnHintDescription(of: edit) == "Return abre a cópia no app de edição")
+        #expect(PasteDescription.returnHintDescription(of: discard) == "Return descarta a edição")
+
+        #expect(PasteDescription.accessibilityHint(of: paste) == "Cola o que foi copiado no mural do centro da vitrine.")
+        #expect(
+            PasteDescription.accessibilityHint(of: paste, isEditing: true)
+                == "Cola o conteúdo editado no mural do centro da vitrine.")
+        #expect(
+            PasteDescription.accessibilityHint(of: edit, editorName: "TextEdit")
+                == "Abre uma cópia em TextEdit. Depois de editar, volte ao painel para colar.")
+        #expect(
+            PasteDescription.accessibilityHint(of: edit, editorName: "TextEdit", isEditing: true)
+                == "Abre de novo a cópia em TextEdit.")
+        #expect(PasteDescription.accessibilityHint(of: discard) == "Apaga a edição e volta ao que está copiado.")
+
+        #expect(PasteDescription.summary(of: paste, board: "Casa") == "em Casa")
+        #expect(PasteDescription.summary(of: edit, board: "Casa") == "em Casa")
+        #expect(PasteDescription.summary(of: discard, board: "Casa") == "volta ao que está copiado")
+    }
+
 }

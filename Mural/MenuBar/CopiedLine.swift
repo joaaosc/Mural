@@ -12,6 +12,10 @@ struct CopiedLine: View {
     let nextStage: String?
     /// Vai à etapa seguinte.
     let advance: @MainActor () -> Void
+    /// O nome do app que editou o conteúdo, para "Editado com <app>:"; `nil` quando não se sabe.
+    var editorName: String? = nil
+    /// O conteúdo é o de uma edição pendente: o rótulo e o símbolo mudam.
+    var isEditing = false
 
     var body: some View {
         if let nextStage {
@@ -31,10 +35,10 @@ struct CopiedLine: View {
 
     private func line(nextStage: String?) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: PasteDescription.symbol(for: kind))
+            Image(systemName: PasteDescription.copiedSymbol(for: kind, isEditing: isEditing))
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text("Copiado:")
+            Text(PasteDescription.copiedLabel(editorName: editorName, isEditing: isEditing))
                 .foregroundStyle(.secondary)
             Text(PasteDescription.name(for: kind))
                 .fontWeight(.medium)
@@ -58,4 +62,14 @@ struct CopiedLine: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
     }
+}
+
+#Preview("Copiado e editado", traits: .fixedLayout(width: PanelMetrics.panelWidth, height: 90)) {
+    VStack(alignment: .leading) {
+        CopiedLine(kind: .text("Comprar pão"), content: .pasted(.text("Comprar pão")), nextStage: "Colar", advance: {})
+        CopiedLine(
+            kind: .text("Comprar pão (editado)"), content: .pasted(.text("Comprar pão (editado)")), nextStage: "Colar",
+            advance: {}, editorName: "TextEdit", isEditing: true)
+    }
+    .padding()
 }

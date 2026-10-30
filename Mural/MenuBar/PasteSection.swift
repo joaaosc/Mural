@@ -37,19 +37,24 @@ struct PasteSection: View {
             } else {
                 switch model.stage {
                 case .boards:
-                    CopiedLine(kind: model.clipboardKind, content: model.clipboardContent, nextStage: "Colar", advance: advance)
+                    CopiedLine(
+                        kind: model.clipboardKind, content: model.clipboardContent, nextStage: "Colar", advance: advance,
+                        editorName: model.editorName, isEditing: model.source == .edit)
                 case .paste:
                     CopiedLine(
                         kind: model.clipboardKind, content: model.clipboardContent,
-                        nextStage: model.stages.contains(.format) ? "Formatar" : nil, advance: advance)
+                        nextStage: model.stages.contains(.format) ? "Formatar" : nil, advance: advance,
+                        editorName: model.editorName, isEditing: model.source == .edit)
                     PasteOptionRows(
                         options: model.options, selectedOption: model.selectedOption, clipboard: model.clipboardKind,
-                        boardName: boardName, choose: choose)
+                        boardName: boardName, editorName: model.editorName, isEditing: model.source == .edit, choose: choose)
                 case .format:
                     ChosenOptionLine(
                         symbolName: chosenOption.map(PasteDescription.symbol(of:)) ?? "clipboard",
                         text: chosenOption.map {
-                            PasteDescription.chosenOption($0, clipboard: model.clipboardKind, board: boardName)
+                            PasteDescription.chosenOption(
+                                $0, clipboard: model.clipboardKind, board: boardName, editorName: model.editorName,
+                                isEditing: model.source == .edit)
                         } ?? "",
                         goBack: retreat)
                     FormatOptionRows(
