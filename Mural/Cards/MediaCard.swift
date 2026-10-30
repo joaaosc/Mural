@@ -46,6 +46,18 @@ struct MediaCard: View {
             // acessibilidade fica do tamanho da foto inteira.
             .contentShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
             .cardShadow()
+            // A folha de trás da foto, como a da pasta. Fica no fundo, depois da forma de toque: não aumenta a área
+            // clicável nem o quadro da acessibilidade.
+            .background {
+                if kind == .image {
+                    RoundedRectangle(cornerRadius: Theme.mediaCorner)
+                        .fill(Theme.paperBack)
+                        .offset(x: 6)
+                        .cardShadow()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .onHover { inside in
                 if inside, previewEnabled, let previewVideoURL {
                     preview.pointerEntered(previewVideoURL)
@@ -66,3 +78,20 @@ struct MediaCard: View {
         isPreviewReady = false
     }
 }
+
+#if DEBUG
+#Preview("Foto com folha atrás", traits: .fixedLayout(width: 320, height: 260)) {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("MuralMediaCard-preview.png")
+    let colors = [Color(red: 0.93, green: 0.42, blue: 0.33), Color(red: 0.45, green: 0.22, blue: 0.16)]
+    if let data = PreviewImages.png(colors: colors, size: CGSize(width: 600, height: 450)) {
+        try? data.write(to: url)
+    }
+    return HStack(spacing: 30) {
+        MediaCard(url: url, kind: .image)
+            .frame(width: 140, height: 105)
+        MediaCard(url: url, kind: .image)
+            .frame(width: 100, height: 130)
+    }
+    .padding(30)
+}
+#endif
