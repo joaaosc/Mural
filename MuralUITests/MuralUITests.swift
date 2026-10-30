@@ -8,8 +8,8 @@ final class MuralUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// Quanto segurar o ponteiro sobre uma pasta antes de soltar o cartão: um pouco mais que o 1 s de espera dela.
-    private static let folderHold: TimeInterval = 1.3
+    /// Quanto segurar o ponteiro sobre uma pasta antes de soltar o cartão: um pouco mais que o 1,5 s de espera dela.
+    private static let folderHold: TimeInterval = 1.9
 
     @MainActor
     private func launch(_ argument: String = "-uiTesting") -> XCUIApplication {

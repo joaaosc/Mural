@@ -11,7 +11,7 @@ import Foundation
 /// para a regra ser testável sem esperar.
 struct FolderDropTracker: Equatable {
     /// Quanto o ponteiro precisa ficar sobre a pasta para ela aceitar o cartão, em segundos.
-    static let armingDelay: TimeInterval = 1.0
+    static let armingDelay: TimeInterval = 1.5
 
     /// Pasta sob o ponteiro no começo do arrasto, enquanto o ponteiro ainda não saiu dela.
     private(set) var startFolder: UUID?

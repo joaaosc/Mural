@@ -69,22 +69,22 @@ struct FolderDropTrackerTests {
         #expect(tracker.candidate == nil)
     }
 
-    @Test("A pasta só aceita o cartão depois de 1 s sob o ponteiro")
+    @Test("A pasta só aceita o cartão depois de 1,5 s sob o ponteiro")
     func armsOnlyAfterTheDelay() {
         var tracker = FolderDropTracker(startFolder: nil)
         tracker.update(folderUnderPointer: first, now: t0)
         #expect(tracker.candidate == first)
         #expect(tracker.target == nil)
 
-        let didArm1 = tracker.arm(now: t0.addingTimeInterval(0.99))
+        let didArm1 = tracker.arm(now: t0.addingTimeInterval(1.49))
         #expect(!didArm1)
         #expect(tracker.target == nil)
 
-        let didArm2 = tracker.arm(now: t0.addingTimeInterval(1))
+        let didArm2 = tracker.arm(now: t0.addingTimeInterval(1.5))
         #expect(didArm2)
         #expect(tracker.isArmed)
         #expect(tracker.target == first)
-        let didArm3 = tracker.arm(now: t0.addingTimeInterval(1.5))
+        let didArm3 = tracker.arm(now: t0.addingTimeInterval(2))
         #expect(!didArm3, "só avisa uma vez")
     }
 
@@ -92,8 +92,8 @@ struct FolderDropTrackerTests {
     func stayingOverTheSameFolderKeepsTheClock() {
         var tracker = FolderDropTracker(startFolder: nil)
         tracker.update(folderUnderPointer: first, now: t0)
-        tracker.update(folderUnderPointer: first, now: t0.addingTimeInterval(0.8))
-        let didArm1 = tracker.arm(now: t0.addingTimeInterval(1))
+        tracker.update(folderUnderPointer: first, now: t0.addingTimeInterval(1.2))
+        let didArm1 = tracker.arm(now: t0.addingTimeInterval(1.5))
         #expect(didArm1)
     }
 
@@ -104,9 +104,9 @@ struct FolderDropTrackerTests {
         tracker.update(folderUnderPointer: nil, now: t0.addingTimeInterval(0.9))
         tracker.update(folderUnderPointer: first, now: t0.addingTimeInterval(1.0))
 
-        let didArm1 = tracker.arm(now: t0.addingTimeInterval(1.5))
+        let didArm1 = tracker.arm(now: t0.addingTimeInterval(2.0))
         #expect(!didArm1)
-        let didArm2 = tracker.arm(now: t0.addingTimeInterval(2.0))
+        let didArm2 = tracker.arm(now: t0.addingTimeInterval(2.5))
         #expect(didArm2)
     }
 
@@ -120,9 +120,9 @@ struct FolderDropTrackerTests {
         tracker.update(folderUnderPointer: second, now: t0.addingTimeInterval(1.1))
         #expect(tracker.candidate == second)
         #expect(tracker.target == nil)
-        let didArm1 = tracker.arm(now: t0.addingTimeInterval(1.9))
+        let didArm1 = tracker.arm(now: t0.addingTimeInterval(2.5))
         #expect(!didArm1)
-        let didArm2 = tracker.arm(now: t0.addingTimeInterval(2.1))
+        let didArm2 = tracker.arm(now: t0.addingTimeInterval(2.6))
         #expect(didArm2)
         #expect(tracker.target == second)
     }
