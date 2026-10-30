@@ -571,6 +571,35 @@ struct ShareExportTests {
             _ = try await fixture.library.exportPackage(fixture.route, profile: .share(includeLocation: false))
         }
     }
+
+    @Test("Uma regravação que deixa a localização no vídeo também para a exportação")
+    func videoThatKeepsLocationIsAFailure() async throws {
+        let fixture = try await makeFixture(image: false, video: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // Como um contêiner em que o filtro de compartilhamento não alcança a caixa de localização.
+        await fixture.library.useVideoSanitizer { source, destination, _ in
+            try FileManager.default.copyItem(at: source, to: destination)
+        }
+        await #expect(throws: BoardLibraryError.videoLocationNotRemoved("Filme")) {
+            _ = try await fixture.library.exportPackage(fixture.route, profile: .share(includeLocation: false))
+        }
+    }
+
+    // MARK: Identidade
+
+    @Test("A cópia para outras pessoas ganha um id novo; a do iCloud Drive mantém o do mural")
+    func shareCopyGetsANewIdentity() async throws {
+        let fixture = try await makeFixture(image: false, video: false)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let original = fixture.id
+
+        let shared = try await fixture.library.exportPackage(fixture.route, profile: .share(includeLocation: false))
+        let sharedID = try decodeJSON(BoardManifest.self, at: shared.appendingPathComponent("manifest.json")).id
+        #expect(sharedID != original)
+
+        let mirror = try await fixture.library.exportPackage(fixture.route)
+        #expect(try decodeJSON(BoardManifest.self, at: mirror.appendingPathComponent("manifest.json")).id == original)
+    }
 }
 
 // MARK: Manifesto e endereços

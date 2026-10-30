@@ -40,6 +40,8 @@ struct BoardShareExporter {
         board.items = board.items.map { Self.sharedItem($0, embedded: embedded, sizes: sizes, now: now) }
         board.formatVersion = board.requiredFormatVersion
         manifest.previewsIncluded = embedded.isEmpty ? nil : true
+        // A cópia para outras pessoas é um mural novo: com o id do original, abri-la neste Mac abriria o original no lugar dela.
+        manifest.id = BoardID()
         // Só o enquadramento e a revisão: caminho aberto, filtro, posição de leitura e trechos abertos são de quem usava o mural.
         let reducedWorkspace = BoardWorkspaceState(
             schemaVersion: workspace.schemaVersion, contentRevision: workspace.contentRevision, canvas: workspace.canvas)
@@ -119,6 +121,8 @@ struct BoardShareExporter {
         do {
             try await sanitizeVideo(url, temporary, AVFileType(rawValue: type.identifier))
             guard Self.hasContent(temporary) else { throw BoardLibraryError.videoLocationNotRemoved(title) }
+            // O filtro de compartilhamento pode deixar passar caixas de localização de alguns contêineres (MP4, M4V): confere relendo.
+            guard try await !Self.hasLocationMetadata(temporary) else { throw BoardLibraryError.videoLocationNotRemoved(title) }
             try FileManager.default.removeItem(at: url)
             try FileManager.default.moveItem(at: temporary, to: url)
         } catch {
@@ -134,6 +138,18 @@ struct BoardShareExporter {
         else { throw CocoaError(.fileWriteUnsupportedScheme) }
         session.metadataItemFilter = .forSharing()
         try await session.export(to: destination, as: fileType)
+    }
+
+    /// Se o vídeo ainda tem algum metadado de localização, em qualquer formato (QuickTime, dados do usuário, ISO): identificador com
+    /// "location", `©xyz` ou `loci`. Arquivo que não pode ser lido lança, e quem chama trata como localização não removida.
+    static func hasLocationMetadata(_ url: URL) async throws -> Bool {
+        let asset = AVURLAsset(url: url, options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
+        var items = try await asset.load(.metadata)
+        for format in try await asset.load(.availableMetadataFormats) { items += try await asset.loadMetadata(for: format) }
+        return items.contains { item in
+            guard let identifier = item.identifier?.rawValue.lowercased() else { return false }
+            return identifier.contains("location") || identifier.contains("xyz") || identifier.contains("loci")
+        }
     }
 
     private static func hasContent(_ url: URL) -> Bool {
