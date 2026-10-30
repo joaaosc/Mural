@@ -157,6 +157,9 @@ struct NowPlayingPositioned: View {
     let dock: NowPlayingDock
     let setDock: (NowPlayingDock) -> Void
 
+    /// O vão entre o cartão expandido e a cápsula, em pontos.
+    private static let cardGap: CGFloat = 10
+
     @Namespace private var glassNamespace
     @State private var isExpanded = false
     @State private var dragX: CGFloat = 0
@@ -168,8 +171,10 @@ struct NowPlayingPositioned: View {
     var body: some View {
         let placement = NowPlayingPlacement(
             container: container, obstacles: obstacles, dock: dock, barWidth: NowPlayingPlacement.pillWidth)
-        GlassEffectContainer(spacing: 16) {
-            VStack(alignment: dock.horizontalAlignment, spacing: 8) {
+        // `spacing: 0`: o vidro só se funde com formas que se tocam; com o vão de `cardGap`, o cartão e a cápsula ficam
+        // duas formas separadas, sem "cola" entre elas.
+        GlassEffectContainer(spacing: 0) {
+            VStack(alignment: dock.horizontalAlignment, spacing: Self.cardGap) {
                 if isExpanded {
                     NowPlayingExpanded(
                         summary: summary, elapsed: elapsed, actions: expandedActions, glassNamespace: glassNamespace,

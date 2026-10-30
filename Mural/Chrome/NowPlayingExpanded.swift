@@ -2,8 +2,8 @@ import SwiftUI
 
 /// O cartão expandido do miniplayer: capa grande, título, artista, origem com "Abrir", barra de tempo e controles.
 ///
-/// Surge de cima da cápsula compacta (mesmo `GlassEffectContainer`). Vidro estático, nunca `.interactive()`: ver o aviso
-/// em `FloatingToolbar`.
+/// Surge de cima da cápsula compacta (mesmo `GlassEffectContainer`, com espaçamento 0 e um vão: as duas formas de vidro
+/// não se fundem). Vidro estático, nunca `.interactive()`: ver o aviso em `FloatingToolbar`.
 struct NowPlayingExpanded: View {
     static let width: CGFloat = 320
 
