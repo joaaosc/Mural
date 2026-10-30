@@ -2,6 +2,8 @@
 
 Revisão de 29–30/10/2026 sobre a versão 1.7.5 (`9b370c8`). A leitura do código e os testes abaixo se concentram no canvas, pastas, imagens, miniplayer, barras e painel. Não constituem homologação de todas as telas ou garantia de ausência de glitches.
 
+O diagnóstico posterior, as correções do recorte visual e as comparações de desempenho em Release estão em [PerformanceDiagnosis.md](PerformanceDiagnosis.md). Os números e limites abaixo permanecem como registro da rodada anterior.
+
 ## Resultado
 
 A fundação visual revisada usa Liquid Glass nativo: `.glassEffect`, estilos de botão SwiftUI, `GlassEffectContainer` e `NSGlassEffectView` no painel que hospeda a árvore SwiftUI. AppKit é uma integração nativa apropriada para esse painel macOS. Cartões de conteúdo e fundos de leitura não precisam receber Liquid Glass para que o aplicativo seja nativo.
