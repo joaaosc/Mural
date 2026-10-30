@@ -26,11 +26,14 @@ struct PasteSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.options.isEmpty {
-                Text(PasteDescription.emptyMessage(for: model.clipboard))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 10)
+                // Abrindo o editor ou lendo a edição: a linha de estado, embaixo, já diz o que acontece.
+                if !model.pasteStatus.isWorking {
+                    Text(PasteDescription.emptyMessage(for: model.clipboard))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10)
+                }
             } else {
                 switch model.stage {
                 case .boards:
@@ -38,7 +41,7 @@ struct PasteSection: View {
                 case .paste:
                     CopiedLine(
                         kind: model.clipboardKind, content: model.clipboardContent,
-                        nextStage: model.formats.isEmpty ? nil : "Formatar", advance: advance)
+                        nextStage: model.stages.contains(.format) ? "Formatar" : nil, advance: advance)
                     PasteOptionRows(
                         options: model.options, selectedOption: model.selectedOption, clipboard: model.clipboardKind,
                         boardName: boardName, choose: choose)
