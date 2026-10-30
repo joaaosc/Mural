@@ -252,23 +252,22 @@ struct BoardCanvasView: View {
                 visibleRect: zoom.visibleRect,
                 zoom: newZoom)
         }
-        // Gesto cancelado sem `onEnded`: desfaz o arrasto. Fica para a volta seguinte do laço
-        // principal, para não atropelar o `onEnded` quando ele vier.
-        .onChange(of: isDragging) { _, active in
-            guard !active else { return }
+        // Limpeza adiada do gesto inativo. Um novo gesto ou a saída da view cancela esta tarefa,
+        // para uma limpeza antiga não apagar o deslocamento ou tamanho do gesto seguinte.
+        .task(id: isDragging) {
+            guard !isDragging else { return }
             // Um gesto de texto livre também pode ser cancelado sem `onEnded`.
             // Limpar o deslocamento transitório evita deixar a anotação desenhada
             // numa posição que nunca foi persistida.
+            await Task.yield()
+            guard !Task.isCancelled, !isDragging else { return }
             freeTextDrag = nil
-            Task { @MainActor in
-                // O mesmo vale para o redimensionar: o tamanho ao vivo não pode ficar desenhado sem ter sido gravado. Fica para
-                // a volta seguinte, como o arrasto abaixo, para não apagar o tamanho na frente do `onEnded` que o grava.
-                resizing = nil
-                // Um cartão sendo guardado ainda precisa do arrasto até o fim da animação.
-                guard drag != nil, storing == nil else { return }
-                drag = nil
-                hoveredFolder = pointerFolder
-            }
+            // O tamanho ao vivo também não pode permanecer desenhado sem ter sido gravado.
+            resizing = nil
+            // Um cartão sendo guardado ainda precisa do arrasto até o fim da animação.
+            guard drag != nil, storing == nil else { return }
+            drag = nil
+            hoveredFolder = pointerFolder
         }
         .gesture(
             MagnifyGesture()

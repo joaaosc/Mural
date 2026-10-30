@@ -114,11 +114,12 @@ struct CollectionView: View {
             itemFrames = itemFrames.filter { liveIDs.contains($0.key) }
             confirmRestoreIfPossible()
         }
-        // Gesto cancelado sem `onEnded`: desfaz o arrasto. Fica para a volta seguinte do laço
-        // principal, para não atropelar o `onEnded` quando ele vier.
-        .onChange(of: isDraggingSticky) { _, active in
-            guard !active else { return }
-            Task { @MainActor in stickyDrag = nil }
+        // Limpeza adiada do gesto inativo, cancelada se outro gesto começar ou a pasta sair da tela.
+        .task(id: isDraggingSticky) {
+            guard !isDraggingSticky else { return }
+            await Task.yield()
+            guard !Task.isCancelled, !isDraggingSticky else { return }
+            stickyDrag = nil
         }
         .allowsHitTesting(!restoring)
         .readingRestoreTimeout(isRestoring: restoring) {

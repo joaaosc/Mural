@@ -162,8 +162,8 @@ struct NowPlayingPositioned: View {
 
     @Namespace private var glassNamespace
     @State private var isExpanded = false
-    @State private var dragX: CGFloat = 0
-    @State private var isDragging = false
+    @GestureState private var dragX: CGFloat = 0
+    @GestureState private var isDragging = false
     @State private var lastDragEnd = Date.distantPast
     @FocusState private var cardHasFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -218,16 +218,18 @@ struct NowPlayingPositioned: View {
 
     private func drag(_ placement: NowPlayingPlacement) -> some Gesture {
         DragGesture(minimumDistance: 4, coordinateSpace: .global)
-            .onChanged { value in
-                isDragging = true
+            .updating($isDragging) { _, active, _ in active = true }
+            .updating($dragX) { value, offset, _ in
                 let lower = NowPlayingPlacement.margin - placement.originX
                 let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
-                dragX = min(max(value.translation.width, lower), max(upper, lower))
+                offset = min(max(value.translation.width, lower), max(upper, lower))
             }
-            .onEnded { _ in
-                let midX = placement.originX + placement.maxWidth / 2 + dragX
+            .onEnded { value in
+                let lower = NowPlayingPlacement.margin - placement.originX
+                let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
+                let offset = min(max(value.translation.width, lower), max(upper, lower))
+                let midX = placement.originX + placement.maxWidth / 2 + offset
                 lastDragEnd = Date()
-                isDragging = false
                 snap(to: NowPlayingDock.nearest(toMidX: midX, container: container, barWidth: placement.maxWidth))
             }
     }
@@ -235,7 +237,6 @@ struct NowPlayingPositioned: View {
     private func snap(to target: NowPlayingDock) {
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.45, bounce: 0.25)) {
             setDock(target)
-            dragX = 0
         }
     }
 
