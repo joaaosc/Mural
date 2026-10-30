@@ -17,6 +17,8 @@ public actor BoardLibrary {
     /// Para onde vai o pacote de um mural excluído: o Lixo do Mac, para a pessoa poder recuperar.
     /// Os testes trocam por uma remoção simples, para não encher o Lixo de quem roda os testes.
     private let discardPackage: @Sendable (URL) throws -> Void
+    /// A recuperação de trabalho interrompido roda uma vez por instância, na primeira listagem.
+    private var didRecoverInterruptedWork = false
 
     public init(
         rootDirectory: URL = BoardStore.defaultDirectory(),
@@ -146,6 +148,18 @@ public actor BoardLibrary {
         try loadState()
     }
 
+    /// Recupera trocas de pacote interrompidas e limpa restos antigos de Boards/, Drafts/, Transfers/ e ImportStaging/.
+    /// Roda uma única vez por instância; falhas são registradas e nunca impedem a listagem.
+    func recoverInterruptedWork(now: Date = .now) {
+        guard !didRecoverInterruptedWork else { return }
+        didRecoverInterruptedWork = true
+        let recovery = InterruptedWorkRecovery(now: now, discard: discardPackage)
+        recovery.recoverPackages(in: boardsDirectory)
+        recovery.recoverPackages(in: draftsDirectory, packageName: "Welcome.mural")
+        recovery.removeOldEntries(in: transfersDirectory)
+        recovery.removeOldEntries(in: importStagingDirectory)
+    }
+
     public func listSaved() async throws -> [BoardLibraryEntry] {
         try await listSavedReport().entries
     }
@@ -155,6 +169,7 @@ public actor BoardLibrary {
     /// pode esconder os outros murais. Só falhas da própria pasta `Boards/` lançam.
     public func listSavedReport() async throws -> BoardLibraryListing {
         try makeDirectories()
+        recoverInterruptedWork()
         let entries: [URL]
         do {
             entries = try FileManager.default.contentsOfDirectory(
