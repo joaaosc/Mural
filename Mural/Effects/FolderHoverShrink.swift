@@ -27,28 +27,28 @@ struct FolderHoverShrink: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
-            .visualEffect { [progress, anchor, minScale, reduceMotion, pinch = Self.pinch] content, proxy in
-                let size = proxy.size
-                let unit = UnitPoint(
-                    x: size.width > 0 ? anchor.x / size.width : 0.5,
-                    y: size.height > 0 ? anchor.y / size.height : 0.5)
-                // Distância da âncora ao canto mais longe: limita o quanto a amostra se desloca.
-                let reachX = max(abs(anchor.x), abs(size.width - anchor.x)) * pinch
-                let reachY = max(abs(anchor.y), abs(size.height - anchor.y)) * pinch
-                return
-                    content
-                    .distortionEffect(
-                        ShaderLibrary.default.muralFolderHoverPinch(
-                            .float2(size),
-                            .float2(anchor),
-                            .float(progress)
-                        ),
-                        maxSampleOffset: CGSize(width: reachX, height: reachY),
-                        isEnabled: !reduceMotion && minScale < 1 && progress > 0 && progress < 1
-                    )
-                    .scaleEffect(1 - progress * (1 - minScale), anchor: unit)
+        Group {
+            if !reduceMotion && minScale < 1 && progress > 0 && progress < 1 {
+                content.visualEffect { [progress, anchor, pinch = Self.pinch] content, proxy in
+                    let size = proxy.size
+                    let reachX = max(abs(anchor.x), abs(size.width - anchor.x)) * pinch
+                    let reachY = max(abs(anchor.y), abs(size.height - anchor.y)) * pinch
+                    return content.distortionEffect(
+                        ShaderLibrary.default.muralFolderHoverPinch(.float2(size), .float2(anchor), .float(progress)),
+                        maxSampleOffset: CGSize(width: reachX, height: reachY))
+                }
+            } else {
+                // Fora da distorção, não envolve as camadas nativas de vídeo em um filtro Metal.
+                content
             }
+        }
+        .visualEffect { [progress, anchor, minScale] content, proxy in
+            let size = proxy.size
+            let unit = UnitPoint(
+                x: size.width > 0 ? anchor.x / size.width : 0.5,
+                y: size.height > 0 ? anchor.y / size.height : 0.5)
+            return content.scaleEffect(1 - progress * (1 - minScale), anchor: unit)
+        }
     }
 }
 
