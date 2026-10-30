@@ -33,6 +33,9 @@ struct NowPlayingOverlay: View {
             playPause: { Task { await playback.pauseOrResume() } },
             previous: { Task { await playback.skipToPrevious() } },
             next: { Task { await playback.skipToNext() } },
-            stop: { playback.stopCurrent() })
+            stop: { playback.stopCurrent() },
+            toggleShuffle: { playback.toggleShuffle() },
+            cycleRepeat: { playback.cycleRepeat() },
+            seek: { playback.seek(to: $0) })
     }
 }

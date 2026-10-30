@@ -6,6 +6,7 @@ import SwiftUI
 struct NowPlayingArtwork: View {
     let summary: NowPlayingSummary
     let size: CGFloat
+    var cornerRadius: CGFloat = 6
 
     var body: some View {
         Group {
@@ -19,7 +20,7 @@ struct NowPlayingArtwork: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(.rect(cornerRadius: 6))
+        .clipShape(.rect(cornerRadius: cornerRadius))
         .accessibilityHidden(true)
     }
 }
@@ -144,7 +145,8 @@ struct NowPlayingBar: View {
     }
 }
 
-/// O miniplayer no canto inferior esquerdo, acima dos controles do rodapé quando não cabe ao lado deles.
+/// O miniplayer no canto inferior esquerdo, acima dos controles do rodapé quando não cabe ao lado deles. Clicar na
+/// cápsula abre o cartão expandido acima dela.
 struct NowPlayingPositioned: View {
     let summary: NowPlayingSummary
     let elapsed: () -> TimeInterval
@@ -154,19 +156,60 @@ struct NowPlayingPositioned: View {
 
     @Namespace private var glassNamespace
     @State private var isExpanded = false
+    @FocusState private var cardHasFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let placement = NowPlayingPlacement(container: container, obstacles: obstacles)
-        GlassEffectContainer(spacing: 12) {
-            NowPlayingBar(
-                summary: summary, elapsed: elapsed, actions: actions, expand: { isExpanded.toggle() },
-                glassNamespace: glassNamespace)
+        GlassEffectContainer(spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                if isExpanded {
+                    NowPlayingExpanded(
+                        summary: summary, elapsed: elapsed, actions: expandedActions, glassNamespace: glassNamespace,
+                        reducesMotion: reduceMotion
+                    )
+                    .focusable()
+                    .focused($cardHasFocus)
+                    .focusEffectDisabled()
+                    .onAppear { cardHasFocus = true }
+                    .onExitCommand { setExpanded(false) }
+                    .transition(reduceMotion ? .opacity : .identity)
+                }
+                NowPlayingBar(
+                    summary: summary, elapsed: elapsed, actions: actions, expand: { setExpanded(!isExpanded) },
+                    glassNamespace: glassNamespace
+                )
+                .frame(width: min(NowPlayingPlacement.pillWidth, placement.maxWidth))
+            }
         }
-        .frame(width: min(NowPlayingPlacement.pillWidth, placement.maxWidth))
         .padding(.leading, NowPlayingPlacement.margin)
         .padding(.bottom, placement.bottomPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .background {
+            // Um clique fora do cartão o recolhe.
+            if isExpanded {
+                Color.clear
+                    .contentShape(.rect)
+                    .onTapGesture { setExpanded(false) }
+            }
+        }
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement)
+    }
+
+    /// O cartão com "Abrir" recolhendo-o depois de abrir o mural.
+    private var expandedActions: NowPlayingActions {
+        var expanded = actions
+        expanded.openSource = {
+            actions.openSource()
+            setExpanded(false)
+        }
+        return expanded
+    }
+
+    private func setExpanded(_ value: Bool) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.4, bounce: 0.15)) {
+            isExpanded = value
+        }
     }
 }
 
