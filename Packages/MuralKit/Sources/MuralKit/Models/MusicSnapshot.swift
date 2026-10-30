@@ -108,7 +108,8 @@ public struct MusicSnapshot: Codable, Hashable, Sendable {
     }
 
     /// Endereço da capa no tamanho pedido (lado em pontos de imagem), em `jpg`.
-    /// `nil` sem molde, com molde sem `{w}`, com `side <= 0` ou se o resultado não for `http`/`https` com host.
+    /// `nil` sem molde, com molde sem `{w}`, com `side <= 0` ou se o resultado não for `https` num host da Apple
+    /// (`mzstatic.com`, `apple.com` e subdomínios): o molde vem de dentro do mural e não pode apontar para qualquer lugar.
     public func artworkURL(side: Int = 600) -> URL? {
         guard side > 0, let artworkTemplate, artworkTemplate.contains("{w}") else { return nil }
         let text =
@@ -116,8 +117,8 @@ public struct MusicSnapshot: Codable, Hashable, Sendable {
             .replacingOccurrences(of: "{w}", with: String(side))
             .replacingOccurrences(of: "{h}", with: String(side))
             .replacingOccurrences(of: "{f}", with: "jpg")
-        guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
-            scheme == "http" || scheme == "https", let host = url.host, !host.isEmpty
+        guard let url = URL(string: text), url.scheme?.lowercased() == "https", let host = url.host?.lowercased(),
+            ["mzstatic.com", "apple.com"].contains(where: { host == $0 || host.hasSuffix("." + $0) })
         else { return nil }
         return url
     }

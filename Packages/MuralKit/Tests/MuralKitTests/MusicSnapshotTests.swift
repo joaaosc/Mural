@@ -64,9 +64,9 @@ struct MusicSnapshotTests {
     @Test("artworkURL troca os marcadores")
     func artworkSubstitution() {
         var snapshot = MusicSnapshot(kind: .album, title: "A")
-        snapshot.artworkTemplate = "https://exemplo.test/img/{w}x{h}bb.{f}"
-        #expect(snapshot.artworkURL()?.absoluteString == "https://exemplo.test/img/600x600bb.jpg")
-        #expect(snapshot.artworkURL(side: 120)?.absoluteString == "https://exemplo.test/img/120x120bb.jpg")
+        snapshot.artworkTemplate = "https://is1-ssl.mzstatic.com/img/{w}x{h}bb.{f}"
+        #expect(snapshot.artworkURL()?.absoluteString == "https://is1-ssl.mzstatic.com/img/600x600bb.jpg")
+        #expect(snapshot.artworkURL(side: 120)?.absoluteString == "https://is1-ssl.mzstatic.com/img/120x120bb.jpg")
         #expect(snapshot.artworkURL(side: 0) == nil)
         #expect(snapshot.artworkURL(side: -5) == nil)
     }
@@ -80,6 +80,24 @@ struct MusicSnapshotTests {
         snapshot.artworkTemplate = "file:///tmp/{w}x{h}.{f}"
         #expect(snapshot.artworkURL() == nil)
         snapshot.artworkTemplate = "ftp://exemplo.test/{w}.{f}"
+        #expect(snapshot.artworkURL() == nil)
+    }
+
+    @Test("artworkURL só aceita https em hosts da Apple")
+    func artworkHostRestriction() {
+        var snapshot = MusicSnapshot(kind: .album, title: "A")
+        for allowed in ["mzstatic.com", "is1-ssl.mzstatic.com", "apple.com", "music.apple.com", "IS1-SSL.MZSTATIC.COM"] {
+            snapshot.artworkTemplate = "https://\(allowed)/{w}x{h}.{f}"
+            #expect(snapshot.artworkURL() != nil, "\(allowed)")
+        }
+        for denied in [
+            "exemplo.test", "evilmzstatic.com", "mzstatic.com.evil.test", "apple.com.evil.test", "notapple.com", "192.168.0.1",
+            "localhost", "mzstatic.com@evil.test",
+        ] {
+            snapshot.artworkTemplate = "https://\(denied)/{w}x{h}.{f}"
+            #expect(snapshot.artworkURL() == nil, "\(denied)")
+        }
+        snapshot.artworkTemplate = "http://is1-ssl.mzstatic.com/{w}x{h}.{f}"
         #expect(snapshot.artworkURL() == nil)
     }
 
