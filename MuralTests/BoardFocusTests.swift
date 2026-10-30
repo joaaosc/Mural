@@ -19,6 +19,30 @@ struct BoardFocusTests {
         }
     }
 
+    @Test("Foto fica abaixo de qualquer outro cartão, esmaecido ou não")
+    func imageStaysBelowEveryOtherCard() {
+        let photo = card(.image)
+        let note = card(.text)
+        let plain = BoardFocus()
+        #expect(plain.layer(for: photo) < plain.layer(for: note))
+
+        let filtered = BoardFocus(filter: .folders)
+        #expect(filtered.emphasis(for: note) < 1, "controle: o cartão esmaece sob o filtro")
+        #expect(filtered.layer(for: photo) < filtered.layer(for: note))
+        #expect(filtered.layer(for: photo) == -2)
+
+        let focused = BoardFocus(hoveredFolder: card(.folder).id)
+        #expect(focused.layer(for: photo) < focused.layer(for: note))
+    }
+
+    @Test("Foto arrastada fica por cima de tudo")
+    func draggedImageStaysOnTop() {
+        let photo = card(.image)
+        let focus = BoardFocus(dragged: photo.id)
+        #expect(focus.layer(for: photo) == 4)
+        #expect(focus.layer(for: card(.folder)) > 0)
+    }
+
     @Test("Pasta em foco fica por cima e o resto do mural esmaece")
     func hoveredFolderDimsTheRest() {
         let folder = card(.folder)
