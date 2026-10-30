@@ -25,7 +25,7 @@ struct NowPlayingPlacement: Equatable {
     static let preferredWidth: CGFloat = 320
     static let maximumWidth: CGFloat = 420
     /// Largura da cápsula compacta.
-    static let pillWidth: CGFloat = 250
+    static let pillWidth: CGFloat = 280
     /// Só os controles que chegam a esta distância do fundo contam como obstáculo.
     static let bottomZone: CGFloat = 140
 

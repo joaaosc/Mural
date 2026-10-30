@@ -25,8 +25,8 @@ struct NowPlayingArtwork: View {
     }
 }
 
-/// Miniplayer compacto: uma cápsula discreta de vidro com a capa, o título, tocar/pausar e próxima. Clicar na capa ou no
-/// título expande o cartão (ver `NowPlayingExpanded`).
+/// Miniplayer compacto: uma cápsula discreta de vidro com a capa, o título, anterior (fora das estações), tocar/pausar e
+/// próxima. Clicar na capa ou no título expande o cartão (ver `NowPlayingExpanded`).
 ///
 /// Vidro estático por trás de botões sem borda, como o `ActionPill`. Nunca `.interactive()`: ver o aviso em
 /// `FloatingToolbar`.
@@ -45,6 +45,9 @@ struct NowPlayingBar: View {
     var body: some View {
         HStack(spacing: 0) {
             sourceButton
+            if summary.canSkipBackward {
+                transport("Faixa anterior", symbol: "backward.fill", id: "now-playing-bar-previous", action: actions.previous)
+            }
             playPauseButton
             transport("Próxima faixa", symbol: "forward.fill", id: "now-playing-next", action: actions.next)
         }
@@ -245,6 +248,7 @@ struct NowPlayingPositioned: View {
 
     private var barActions: NowPlayingActions {
         var guarded = actions
+        guarded.previous = { if !justDragged { actions.previous() } }
         guarded.playPause = { if !justDragged { actions.playPause() } }
         guarded.next = { if !justDragged { actions.next() } }
         return guarded
@@ -276,7 +280,7 @@ private let previewActions = NowPlayingActions(
 
 private struct PreviewBar: View {
     let summary: NowPlayingSummary
-    var width: CGFloat? = 260
+    var width: CGFloat? = 280
     @Namespace private var namespace
 
     var body: some View {

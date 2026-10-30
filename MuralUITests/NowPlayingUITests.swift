@@ -152,6 +152,15 @@ final class NowPlayingUITests: XCTestCase {
             XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: next, object: source)], timeout: 5), .completed,
             "Próxima faixa deveria mostrar a Faixa 2 (é “\(source.label)”)")
 
+        // Faixa anterior fica na cápsula, antes de tocar/pausar; o id do cartão expandido é outro.
+        let previous = element("now-playing-bar-previous", in: app)
+        XCTAssertTrue(previous.waitForExistence(timeout: 5), "um álbum tem faixa anterior na cápsula")
+        previous.click()
+        let first = NSPredicate(format: "label CONTAINS %@", "Faixa 1")
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: first, object: source)], timeout: 5), .completed,
+            "Faixa anterior deveria voltar à Faixa 1 (é “\(source.label)”)")
+
         attachScreenshot("Miniplayer compacto")
         // Parar fica no cartão expandido.
         source.click()
@@ -214,7 +223,7 @@ final class NowPlayingUITests: XCTestCase {
         attachScreenshot("Miniplayer no centro")
 
         drag(bar, toMidX: window.maxX - 60, in: app)
-        waitForMidX(of: bar, near: window.maxX - 18 - 125)
+        waitForMidX(of: bar, near: window.maxX - 18 - 140)
         attachScreenshot("Miniplayer à direita")
 
         // O miniplayer à direita ainda expande, e o cartão fica junto da margem direita.
