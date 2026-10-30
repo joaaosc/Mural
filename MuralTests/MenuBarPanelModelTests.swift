@@ -574,6 +574,14 @@ struct MenuBarPanelModelTests {
         #expect(PasteDescription.symbol(of: try #require(PasteOptions.options(for: .files(count: 2)).first)) == "clipboard")
         #expect(PasteDescription.symbol(of: try #require(PasteOptions.options(for: .image).first)) == "photo")
 
+        let editOptions = PasteOptions.options(forEdited: .image)
+        let edit = try #require(editOptions.first { $0.action == .edit })
+        let discard = try #require(editOptions.first { $0.action == .discardEdit })
+        #expect(PasteDescription.title(of: edit, clipboard: .image) == "Editar antes de colar")
+        #expect(PasteDescription.title(of: discard, clipboard: .image) == "Descartar a edição")
+        #expect(PasteDescription.symbol(of: edit) == "square.and.pencil")
+        #expect(PasteDescription.symbol(of: discard) == "xmark.circle")
+
         let long = String(repeating: "a", count: 80)
         #expect(PasteDescription.preview(of: .pasted(.text("\n  Primeira linha \nSegunda"))) == "Primeira linha")
         #expect(PasteDescription.preview(of: .pasted(.text(long))) == String(repeating: "a", count: 60) + "…")

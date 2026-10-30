@@ -58,16 +58,24 @@ enum PasteDescription {
 
     /// O título da linha de uma opção: "Colar como Sticker" para texto; para o resto, "Colar" e o tipo ("Colar link",
     /// "Colar 3 links", "Colar imagem", "Colar PDF", "Colar 2 arquivos", "Colar música", "Colar texto" antes de ler).
+    /// As opções de edição se chamam "Editar antes de colar" e "Descartar a edição".
     static func title(of option: PasteOption, clipboard kind: ClipboardKind) -> String {
         switch option.action {
         case .text(let cardKind): "Colar como \(cardKind.creationTitle)"
         case .asRead, .read: "Colar \(noun(for: kind))"
+        case .edit: "Editar antes de colar"
+        case .discardEdit: "Descartar a edição"
         }
     }
 
-    /// O símbolo da linha de uma opção: o do tipo de cartão que sai, ou `clipboard` quando não se sabe.
+    /// O símbolo da linha de uma opção: o da edição (`square.and.pencil`) ou o do descarte (`xmark.circle`); nas demais,
+    /// o do tipo de cartão que sai, ou `clipboard` quando não se sabe.
     static func symbol(of option: PasteOption) -> String {
-        option.kind?.creationSymbol ?? "clipboard"
+        switch option.action {
+        case .edit: "square.and.pencil"
+        case .discardEdit: "xmark.circle"
+        case .asRead, .read, .text: option.kind?.creationSymbol ?? "clipboard"
+        }
     }
 
     /// A frase de quando não há opções de colar, conforme o que se sabe da área de transferência.
