@@ -35,7 +35,7 @@ struct MusicArtwork: View {
 
 /// Cartão de música em miniatura: a capa quadrada no topo e, abaixo, o tipo, o título e o artista.
 ///
-/// Desenhado só pelo estado guardado no cartão. As fontes são fixas de propósito, como nas notas e nos links.
+/// Desenhado só pelo estado guardado no cartão (`MusicCardContent`); aqui ficam o pedido da capa e a janela de cada cartão.
 struct MusicCard: View {
     let item: BoardItem
 
@@ -43,50 +43,16 @@ struct MusicCard: View {
     @Environment(\.remoteContentAllowed) private var remoteContentAllowed
     @Environment(\.linkPreviewFiles) private var files
 
-    private var music: MusicSnapshot? { item.music }
-    private var primary: Color {
-        Color(muralHex: music?.primaryTextHex) ?? Color.readable(onHex: music?.backgroundHex) ?? .primary
-    }
-    private var secondary: Color {
-        Color(muralHex: music?.secondaryTextHex) ?? Color.readable(onHex: music?.backgroundHex)?.opacity(0.7) ?? .secondary
-    }
-    private var paper: Color { Color(muralHex: music?.backgroundHex) ?? Theme.paper }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // A capa ocupa a largura toda e o que sobra acima do texto: no mural, quase um quadrado.
-            if let music { MusicArtwork(music: music).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            VStack(alignment: .leading, spacing: 4) {
-                kindRow
-                Text(item.title)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(primary)
-                    .lineLimit(2)
-                if let subtitle = music?.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 7.5))
-                        .foregroundStyle(secondary)
-                        .lineLimit(1)
+        if let music = item.music {
+            MusicCardContent(music: music, title: item.title)
+                // Sem a capa na pasta (cartão novo, pasta apagada), pede ao coordenador da janela.
+                .task(id: ArtworkTrigger(file: music.artworkFile, isAllowed: remoteContentAllowed)) {
+                    guard music.artworkFile.flatMap({ files?.existingURL(for: $0) }) == nil else { return }
+                    artwork?.request([item.id])
                 }
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .clipShape(.rect(cornerRadius: Theme.cardCorner))
-        // A sombra é só do papel, como no cartão de link.
-        .background {
-            RoundedRectangle(cornerRadius: Theme.cardCorner)
-                .fill(paper)
-                .cardShadow()
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
-        // Sem a capa na pasta (cartão novo, pasta apagada), pede ao coordenador da janela.
-        .task(id: ArtworkTrigger(file: music?.artworkFile, isAllowed: remoteContentAllowed)) {
-            guard let music, music.artworkFile.flatMap({ files?.existingURL(for: $0) }) == nil else { return }
-            artwork?.request([item.id])
+        } else {
+            CardTitleFallback(title: item.title)
         }
     }
 
@@ -94,28 +60,6 @@ struct MusicCard: View {
     private struct ArtworkTrigger: Equatable {
         let file: String?
         let isAllowed: Bool
-    }
-
-    @ViewBuilder
-    private var kindRow: some View {
-        if let music {
-            HStack(spacing: 3) {
-                Image(systemName: music.kind.symbol)
-                    .font(.system(size: 6.5))
-                Text(music.detailLine)
-                    .font(.system(size: 6.5, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(secondary)
-        }
-    }
-
-    private var accessibilityText: String {
-        var parts: [String] = []
-        if let music { parts.append(music.kind.displayName) }
-        parts.append(item.title)
-        if let subtitle = music?.subtitle, !subtitle.isEmpty { parts.append(subtitle) }
-        return parts.joined(separator: ", ")
     }
 }
 
