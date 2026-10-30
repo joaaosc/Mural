@@ -13,6 +13,8 @@ Foram corrigidos três riscos em quatro arquivos, com dois commits:
 
 As correções funcionais passaram nos testes listados abaixo. **O desempenho não está aprovado:** a medição revelou atrasos relevantes, e a captura adicional com Instruments apresentou consumo excessivo de memória, seguido de kernel panic do sistema. As evidências e os limites estão separados nas próximas seções.
 
+A rodada foi concluída após a retomada, com **46 testes aprovados**, sem falhas nem alertas de runtime nos resumos. As correções estão na `main` local, em commits separados; não foi feito push nem instalada uma nova versão de distribuição. As alterações anteriores foram preservadas. O diagnóstico dos atrasos permanece pendente e impede considerar o desempenho global homologado.
+
 ## Achados corrigidos
 
 | Arquivo | Risco anterior | Alteração |
@@ -103,13 +105,38 @@ O registro local `panic-full-2026-10-29-231558.0002.panic` contém:
 
 Essa evidência sustenta que o perfilamento contribuiu fortemente para a pressão de recursos. Não prova, sozinho, a causa única do kernel panic, nem permite atribuir a falha ao código do Mural. Não existe traço legível para identificar a view responsável pelos atrasos. Não repetir a mesma captura sem um procedimento com limites de recursos e preservação do diagnóstico.
 
-Após o reinício, os dois commits continuavam intactos; não havia processos de teste/perfilamento ativos. A sessão normal do Mural foi preservada. O sistema ainda apresentava carga muito alta, por isso não foram reiniciados os testes.
+Na primeira conferência após o reinício, os dois commits continuavam intactos; não havia processos de teste/perfilamento ativos. A sessão normal do Mural foi preservada. O sistema ainda apresentava carga muito alta, por isso os testes foram adiados até a retomada descrita abaixo.
 
 ### Disponibilidade das evidências
 
 Os resultados e capturas da rodada estavam em `/tmp/mural-ui-audit-*`. Esse diretório temporário foi limpo no reinício, inclusive o relatório preliminar e a captura SwiftUI. Os números e resultados acima foram obtidos e conferidos antes da interrupção, mas os bundles e imagens não estão mais disponíveis para nova inspeção. Este documento é o registro persistente; não apresentar os caminhos temporários antigos como evidência ainda acessível.
 
 Há registros locais anteriores de CPU do Mural em execução de testes, inclusive um relatório de 22:19 com aproximadamente 97% de CPU por 93 s. Ele precede esta auditoria e não demonstra regressão causada por estes commits.
+
+## Verificação final após a retomada
+
+Com o sistema recuperado, a instância normal do Mural foi encerrada pelo comando normal do aplicativo, sem encerramento forçado. O verificador de exclusividade de testes liberou a execução. Não foi iniciada outra captura com Instruments nem repetida a carga de 2.000 cartões.
+
+Foram realizadas duas execuções sequenciais em Debug, com destino explícito `platform=macOS` e `-parallel-testing-enabled NO`:
+
+| Resultado persistente | Casos | Resultado |
+| --- | --- | --- |
+| `Verification.xcresult` | 38 testes nas quatro suítes de estado/geometria e os cinco testes de UI descritos acima | 43 aprovados; zero falhas, casos ignorados ou alertas de runtime |
+| `GroupAndResize.xcresult` | Três testes adicionais de UI descritos abaixo | 3 aprovados; zero falhas, casos ignorados ou alertas de runtime |
+
+O resumo de build da primeira execução também informou zero erros, avisos de compilação e avisos do analisador. A segunda execução usou `test-without-building`, com o mesmo produto recém-compilado. Os três casos adicionais foram:
+
+- `testDroppingSelectionOnFolderStoresBothCards`: seleciona dois cartões, guarda ambos na pasta e confirma sua presença ao reabrir o aplicativo de teste.
+- `testImageResizeSnapsToPhotoProportionAndRepeats`: confere o encaixe em 4:3 e o segundo arrasto a partir do tamanho novo.
+- `testImageResizeWithZoomSnapsPortraitPhoto`: confere o encaixe em 3:4 com zoom de 1,25×, mantendo a origem.
+
+Os bundles, logs e nove capturas exportadas estão preservados em `~/Library/Logs/Mural/UIStabilityAudit-20261029/`. As capturas estão nas pastas `Attachments/` e `GroupAndResizeAttachments/`, acompanhadas dos respectivos manifestos. Esses arquivos são evidências locais e não fazem parte do repositório.
+
+Foram inspecionadas novamente as imagens da foto após arrasto pelo canto superior, do player expandido à direita, da foto depois do segundo arrasto e da foto em pé com zoom. Nas duas últimas, a alça permanece junto do canto inferior direito e o recorte arredondado acompanha o tamanho novo. O player apresenta cantos arredondados e vão visível entre as superfícies. Isso confirma os quadros capturados em aparência escura; não comprova todos os quadros de animação ou variantes de acessibilidade.
+
+`swift format lint --strict` nos quatro arquivos alterados, `scripts/check-xcproj.sh` e `git diff --check` passaram novamente. Nenhum arquivo de projeto, entitlement, workflow local ou configuração de distribuição foi alterado.
+
+O escopo desta entrega é a auditoria e as correções locais descritas, com suas verificações. Não existe nova medição pareada de desempenho após o reinício e não se afirma ganho de CPU, memória ou fluidez. O resultado anterior com atrasos exige uma investigação separada e controlada antes de qualquer aprovação de desempenho.
 
 ## Riscos, confiança e próximos passos
 
