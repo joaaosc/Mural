@@ -216,6 +216,10 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     /// Pergunta o que fazer quando algo não foi salvo. `true` sai mesmo assim.
     var confirmQuitWithUnsavedBoards: @MainActor ([String]) -> Bool = MuralAppDelegate.askToQuitAnyway
     var confirmQuitWithDrafts: @MainActor (String?) -> Bool = MuralAppDelegate.askAboutDrafts
+    /// O editor de texto: com texto nele, sair pergunta antes, porque o texto só está na memória.
+    var textEditor = TextEditorSession.shared
+    /// Pergunta se descarta o texto do editor para sair. `true` sai.
+    var confirmQuitWithEditorText: @MainActor () -> Bool = MuralAppDelegate.askToDiscardEditorText
     /// Há alguma janela do app aberta (inclusive minimizada)?
     var hasOpenWindow: @MainActor () -> Bool = {
         NSApp.windows.contains { ($0.isVisible || $0.isMiniaturized) && $0.canBecomeMain }
@@ -285,6 +289,7 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if textEditor.shouldAskBeforeQuit, !confirmQuitWithEditorText() { return .terminateCancel }
         guard !openSessions.live.isEmpty || !openSessions.retainedDrafts.isEmpty else { return .terminateNow }
         guard !isTerminating else { return .terminateLater }
         isTerminating = true
@@ -333,6 +338,16 @@ final class MuralAppDelegate: NSObject, NSApplicationDelegate {
         case .alertThirdButtonReturn: return true
         default: return false
         }
+    }
+
+    private static func askToDiscardEditorText() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Descartar o texto?"
+        alert.informativeText = "O texto do editor só está na memória e será perdido se o Mural for encerrado."
+        alert.addButton(withTitle: "Cancelar")
+        alert.addButton(withTitle: "Descartar")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     private static func askToQuitAnyway(_ titles: [String]) -> Bool {

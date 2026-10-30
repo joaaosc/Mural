@@ -10,6 +10,7 @@ struct MuralCommands: Commands {
     @FocusedValue(CanvasZoomController.self) private var zoom
     @FocusedValue(FocusedBoardActions.self) private var actions
     @FocusedValue(\.markdownFormatting) private var formatting
+    @FocusedValue(\.textEditorActions) private var textEditor
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -46,6 +47,8 @@ struct MuralCommands: Commands {
         let _ = MainWindowOpener.shared.register { [tabs] in tabs.showWindow() }
         // A engrenagem do painel da barra de menus é do AppKit e abre os Ajustes por aqui.
         let _ = SettingsOpener.shared.register { [openSettings] in openSettings() }
+        // O painel da barra de menus também abre o editor de texto por aqui.
+        let _ = TextEditorOpener.shared.register { [openWindow] in openWindow(id: TextEditorWindow.sceneID) }
         CommandGroup(after: .appInfo) {
             // Começa desligada; o mesmo estado da aba Geral dos Ajustes. O estado é lido aqui, e
             // não dentro do `Binding`, para o menu acompanhar a mudança.
@@ -126,6 +129,7 @@ struct MuralCommands: Commands {
                 .keyboardShortcut("\\", modifiers: [.command, .shift])
             // O mesmo painel do ícone na barra de menus, aberto no meio da tela.
             Button("Abrir Painel de Murais") { MenuBarController.shared.presentCentered() }
+            Button("Abrir Editor de Texto") { TextEditorOpener.shared.open() }
             Section {
                 Button("Aproximar") { zoom?.zoomIn() }
                     .keyboardShortcut("=", modifiers: .command)
@@ -145,6 +149,23 @@ struct MuralCommands: Commands {
             }
             Button("Tentar novamente", action: { actions?.retryFlush() })
                 .disabled(actions == nil)
+        }
+        CommandGroup(after: .textEditing) {
+            // As formatações e o lembrete do editor de texto, os mesmos botões da barra dele; valem com a janela dele em foco.
+            Section {
+                ForEach(TextEditorWording.formats) { format in
+                    Button(format.title, systemImage: format.symbolName) { textEditor?.applyFormat(format) }
+                        .keyboardShortcut(
+                            TextEditorWording.shortcut(for: format).map { KeyEquivalent($0) }.map {
+                                KeyboardShortcut($0, modifiers: [.command, .shift])
+                            })
+                }
+                Button("Inserir Lembrete…", systemImage: "checklist.checked") { textEditor?.insertReminder() }
+            }
+            .disabled(textEditor == nil)
+            Button("Colar no Mural…", systemImage: "arrow.down.doc") { textEditor?.requestPaste() }
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!(textEditor?.canPaste ?? false))
         }
         CommandGroup(before: .windowArrangement) {
             Button("Mostrar Aba Seguinte") { tabs.selectNext() }

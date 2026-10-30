@@ -13,6 +13,8 @@ struct MuralApp: App {
     @State private var driveMirror: DriveMirrorController?
     /// Murais importados de arquivo que ainda não podem buscar prévias e capas na internet.
     @State private var remoteContent: RemoteContentConsent
+    /// O editor de texto: o documento e a janela dele valem para o app inteiro.
+    @State private var textEditor = TextEditorSession.shared
 
     private static let log = Logger(subsystem: "com.joaocosta.Mural", category: "Sincronização")
 
@@ -225,6 +227,17 @@ struct MuralApp: App {
         .commands {
             MuralCommands(tabs: tabs)
         }
+
+        // O editor de texto: uma janela auxiliar, uma só. Abre pelo menu Visualizar e pelo painel da barra de menus
+        // (`TextEditorOpener`), e fecha com os controles padrão (com texto, pergunta antes).
+        Window("Editor de texto", id: TextEditorWindow.sceneID) {
+            TextEditorView(session: textEditor)
+        }
+        .defaultSize(width: 720, height: 520)
+        .windowResizability(.contentSize)
+        // O editor nunca volta sozinho (depois de uma queda, por exemplo): um editor vazio restaurado contaria como janela aberta
+        // e impediria a abertura da janela dos murais no lançamento.
+        .restorationBehavior(.disabled)
 
         // Mural › Ajustes… (⌘,) e a engrenagem do painel da barra de menus abrem esta janela.
         Settings {

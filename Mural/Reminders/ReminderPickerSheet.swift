@@ -27,7 +27,10 @@ enum ReminderPickerFilter {
 
 /// Folha para escolher lembretes do app Lembretes e pôr um cartão de cada no mural.
 struct ReminderPickerSheet: View {
-    let session: BoardWindowSession
+    /// De onde vêm as listas e os lembretes.
+    let provider: any RemindersProviding
+    /// Recebe os lembretes escolhidos, na ordem da marcação.
+    let onPick: ([ReminderSnapshot]) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var access: RemindersAccess
@@ -39,9 +42,16 @@ struct ReminderPickerSheet: View {
     /// Escolhidos, na ordem da marcação; vale entre listas.
     @State private var chosen: [ReminderSnapshot] = []
 
+    /// A folha de um mural aberto: os escolhidos viram cartões de lembrete nele.
     init(session: BoardWindowSession) {
-        self.session = session
-        _access = State(initialValue: session.reminders.access)
+        self.init(provider: session.reminders) { _ = session.addReminders($0) }
+    }
+
+    /// A folha com quem recebe a escolha (o editor de texto embute cada lembrete numa nota).
+    init(provider: any RemindersProviding, onPick: @escaping ([ReminderSnapshot]) -> Void) {
+        self.provider = provider
+        self.onPick = onPick
+        _access = State(initialValue: provider.access)
     }
 
     private var visible: [ReminderSnapshot] {
@@ -61,7 +71,7 @@ struct ReminderPickerSheet: View {
         .frame(width: 560, height: 420)
         .task(id: access) {
             guard access == .granted else { return }
-            lists = session.reminders.lists()
+            lists = provider.lists()
             if selectedListID == nil { selectedListID = lists.first?.id }
         }
         .task(id: selectedListID) { await loadSelectedList() }
@@ -73,7 +83,7 @@ struct ReminderPickerSheet: View {
         message(
             "Para escolher lembretes, o Mural precisa de acesso ao app Lembretes.", button: "Permitir acesso"
         ) {
-            Task { access = await session.reminders.requestAccess() }
+            Task { access = await provider.requestAccess() }
         }
     }
 
@@ -148,7 +158,7 @@ struct ReminderPickerSheet: View {
             Button("Cancelar", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
             Button("Adicionar (\(chosen.count))") {
-                session.addReminders(chosen)
+                onPick(chosen)
                 dismiss()
             }
             .keyboardShortcut(.defaultAction)
@@ -163,7 +173,7 @@ struct ReminderPickerSheet: View {
             loaded = []
             return
         }
-        let result = await session.reminders.reminders(inList: id, includingCompleted: true)
+        let result = await provider.reminders(inList: id, includingCompleted: true)
         guard !Task.isCancelled else { return }
         loaded = result
     }

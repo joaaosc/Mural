@@ -10,6 +10,11 @@ struct TextEditorDocumentTests {
     private let music = EmbeddedCard.music(MusicSnapshot(kind: .album, title: "Abbey Road"))
     private let contact = EmbeddedCard.contact(ContactSnapshot(givenName: "Fulana", familyName: "de Tal"))
 
+    /// Espera a sugestão (recalculada depois da pausa) chegar, sem depender de quanto o Mac está ocupado.
+    private func settle(until condition: () -> Bool) async throws {
+        for _ in 0..<150 where !condition() { try await Task.sleep(for: .milliseconds(20)) }
+    }
+
     private func cardLines(in document: TextEditorDocument) -> [String] {
         document.text.split(separator: "\n").filter { NoteImageMarkup.isCardSource(String($0)) || $0.contains("](mural-card:") }.map(
             String.init)
@@ -77,11 +82,11 @@ struct TextEditorDocumentTests {
         let document = TextEditorDocument(suggestionDelay: .milliseconds(40))
         document.text = "- a\n- b"
         #expect(document.suggestion.options.isEmpty, "a sugestão ainda não foi recalculada")
-        try await Task.sleep(for: .milliseconds(200))
+        try await settle { document.suggestion.suggested == .checklist }
         #expect(document.suggestion.suggested == .checklist)
 
         document.insertCards([music])
-        try await Task.sleep(for: .milliseconds(200))
+        try await settle { document.suggestion.unavailable[.checklist] != nil }
         #expect(document.suggestion.suggested == .text)
         #expect(document.suggestion.unavailable[.checklist] != nil && document.suggestion.unavailable[.sticky] != nil)
     }
@@ -90,7 +95,7 @@ struct TextEditorDocumentTests {
     func suggestionKeepsOnlyTheLastChange() async throws {
         let document = TextEditorDocument(suggestionDelay: .milliseconds(40))
         for text in ["a", "- a\n- b", "Ligar para o marceneiro"] { document.text = text }
-        try await Task.sleep(for: .milliseconds(200))
+        try await settle { document.suggestion.suggested == .sticky }
         #expect(document.suggestion.suggested == .sticky)
     }
 
@@ -144,6 +149,21 @@ struct TextEditorDocumentTests {
         document.text = ""
         #expect(document.paste(.text(line)))
         #expect(document.text == line)
+    }
+
+    @Test("Negrito e itálico envolvem a seleção; uma seleção que toca a linha de um cartão não muda nada")
+    func emphasis() {
+        let document = TextEditorDocument()
+        document.text = "ola mundo"
+        document.selection = document.text.range(of: "mundo")
+        document.applyEmphasis(.bold)
+        #expect(document.text == "ola **mundo**")
+        #expect(document.text[document.selection!] == "mundo")
+
+        let (withCard, line) = documentWithCard { line, _ in "ola\n\(line)" }
+        withCard.selection = withCard.text.startIndex..<withCard.text.endIndex
+        withCard.applyEmphasis(.italic)
+        #expect(withCard.text == "ola\n\(line)")
     }
 
     @Test("A contagem de palavras ignora as linhas de cartões e de imagens")

@@ -211,6 +211,30 @@ final class TextEditorDocument {
         return output.joined(separator: "\n")
     }
 
+    /// Negrito ou itálico na seleção (`MarkdownEmphasis`), desfazível quando há campo. Uma seleção que toca a linha de um cartão
+    /// ou de uma imagem não muda nada: os asteriscos quebrariam a linha de bloco.
+    func applyEmphasis(_ emphasis: MarkdownEmphasis) {
+        let range = selection ?? text.endIndex..<text.endIndex
+        let touched = text[text.lineRange(for: range)]
+        guard !touched.split(separator: "\n").contains(where: EditorAttachmentBridge.isBlockLine) else { return }
+        let lower = text.distance(from: text.startIndex, to: range.lowerBound)
+        let upper = text.distance(from: text.startIndex, to: range.upperBound)
+        let result = emphasis.toggle(in: text, selection: lower..<upper)
+        guard result.text != text else { return }
+        let newLower = result.text.index(result.text.startIndex, offsetBy: result.selection.lowerBound)
+        let newUpper = result.text.index(result.text.startIndex, offsetBy: result.selection.upperBound)
+        let utf16Range =
+            result.text.utf16.distance(
+                from: result.text.startIndex, to: newLower)..<result.text.utf16.distance(from: result.text.startIndex, to: newUpper)
+        if let bridge {
+            bridge.replaceMarkdown(with: result.text)
+            bridge.select(markdownRange: utf16Range)
+        } else {
+            text = result.text
+            selection = newLower..<newUpper
+        }
+    }
+
     /// Esvazia o documento: texto, seleção, cartões e imagens, inclusive os que o ⌘Z poderia trazer de volta.
     func clear() {
         text = ""
