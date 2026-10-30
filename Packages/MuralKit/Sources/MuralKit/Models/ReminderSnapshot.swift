@@ -22,6 +22,10 @@ public struct ReminderSnapshot: Codable, Hashable, Sendable {
     /// `true` quando o lembrete foi apagado no app Lembretes.
     public var isMissing: Bool
 
+    /// Lembrete que veio num pacote de fora: sem identificador, não está ligado a nenhum lembrete do app Lembretes e só guarda
+    /// o último estado. O app nunca o procura, marca ou abre.
+    public var isDetached: Bool { identifier.isEmpty && externalIdentifier == nil }
+
     public init(
         identifier: String,
         externalIdentifier: String? = nil,

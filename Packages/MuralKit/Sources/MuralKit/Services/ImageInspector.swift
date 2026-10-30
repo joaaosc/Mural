@@ -4,7 +4,10 @@ import ImageIO
 
 /// Lê resolução, tamanho, perfil de cor e uma paleta simples de uma imagem.
 public enum ImageInspector {
-    public static func inspect(_ url: URL, paletteSize: Int = 5) -> ImageMetadata? {
+    /// Quantas cores a paleta de uma imagem tem.
+    public static let defaultPaletteSize = 5
+
+    public static func inspect(_ url: URL, paletteSize: Int = defaultPaletteSize) -> ImageMetadata? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         else { return nil }

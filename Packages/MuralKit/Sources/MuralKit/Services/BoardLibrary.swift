@@ -500,10 +500,13 @@ public actor BoardLibrary {
             if BoardName.issue(in: manifest.name) != nil { manifest.name = BoardName.sanitized(manifest.name) }
             var workspace = loaded.snapshot.workspace
             workspace.contentRevision = manifest.contentRevision
-            let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: workspace)
+            let itemsDirectory = staging.appendingPathComponent("Items", isDirectory: true)
+            // Só o que vem de fora é normalizado; o mural interno é carregado como está.
+            let board = try BoardImportNormalizer.normalize(loaded.snapshot.board, itemsURL: itemsDirectory)
+            let snapshot = BoardRepositorySnapshot(manifest: manifest, board: board, workspace: workspace)
             try await savedRepository.save(
                 snapshot,
-                copyingItemsFrom: staging.appendingPathComponent("Items", isDirectory: true),
+                copyingItemsFrom: itemsDirectory,
                 preservingWorkspaceDiagnostic: loaded.workspaceDiagnostic
             )
             return BoardImportResult(boardID: newID, workspaceStatus: Self.portableWorkspaceStatus(loaded.workspaceStatus))

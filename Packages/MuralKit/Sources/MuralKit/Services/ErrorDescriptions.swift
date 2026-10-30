@@ -99,6 +99,10 @@ extension BoardPortablePackageError: LocalizedError {
             "O conteúdo do pacote está ilegível."
         case .tooManyItems(let limit):
             "O pacote tem cartões demais (limite de \(limit))."
+        case .tooManyFreeTexts(let limit):
+            "O pacote tem textos soltos demais (limite de \(limit))."
+        case .textTooLarge:
+            "O pacote tem um cartão com texto grande demais."
         case .duplicateItemID:
             "O pacote tem cartões repetidos."
         case .invalidItemParent:

@@ -47,6 +47,8 @@ public enum BoardPortablePackageError: Error, Equatable, Sendable {
     case futureBoardSchema(Int)
     case futureWorkspaceSchema(Int)
     case tooManyItems(limit: Int)
+    case tooManyFreeTexts(limit: Int)
+    case textTooLarge(UUID)
     case duplicateItemID(UUID)
     case invalidItemParent(UUID)
     case invalidItemPosition(UUID)
@@ -164,18 +166,34 @@ public actor BoardPortablePackageService {
 
     /// Copies a package into `staging`, validates it, and returns its decoded payload.
     /// The caller owns cleanup of the returned staging directory.
+    /// A leitura é coordenada: o sistema baixa o que está só no iCloud e espera o pacote ficar inteiro antes de entregá-lo.
     func copyAndRead(from source: URL, to staging: URL) throws -> BoardPortablePackageReadResult {
         let source = source.standardizedFileURL
         let staging = staging.standardizedFileURL
         let packageLimit = effectivePackageLimit(for: staging.deletingLastPathComponent())
         try ensureNotSymlink(source)
+        var coordinationError: NSError?
+        var outcome: Result<BoardPortablePackageReadResult, any Error>?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            readingItemAt: source, options: [.withoutChanges], error: &coordinationError
+        ) { coordinated in
+            outcome = Result { try copyPreflightedPackage(from: coordinated, to: staging, packageLimit: packageLimit) }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let outcome else { throw BoardPortablePackageError.io("coordinated read did not run") }
+        return try outcome.get()
+    }
+
+    private func copyPreflightedPackage(
+        from source: URL, to staging: URL, packageLimit: UInt64
+    ) throws -> BoardPortablePackageReadResult {
         try preflight(source, packageLimit: packageLimit)
         guard !fileManager.fileExists(atPath: staging.path) else {
             throw BoardPortablePackageError.destinationExists(staging)
         }
         do {
-            try copyTree(source, to: staging)
-            return try read(staging, allowFutureWorkspace: true, packageLimit: packageLimit)
+            try copyTree(source, to: staging, isPackageRoot: true)
+            return try read(staging, allowFutureWorkspace: true, packageLimit: packageLimit, forImport: true)
         } catch {
             try? fileManager.removeItem(at: staging)
             throw error
@@ -197,12 +215,16 @@ public actor BoardPortablePackageService {
         try fileManager.removeItem(at: package)
     }
 
-    private func read(_ package: URL, allowFutureWorkspace: Bool, packageLimit: UInt64) throws -> BoardPortablePackageReadResult {
+    /// `forImport` liga as recusas e normalizações que valem só para pacotes vindos de fora; exportação, cópia do iCloud Drive e
+    /// backup usam o modo normal, que nunca é mais rígido do que era.
+    private func read(
+        _ package: URL, allowFutureWorkspace: Bool, packageLimit: UInt64, forImport: Bool = false
+    ) throws -> BoardPortablePackageReadResult {
         let structure = try validateStructure(package)
         let manifestURL = structure.manifestURL
         let boardURL = structure.boardURL
         let itemsURL = structure.itemsURL
-        try ensureNoSymlinksRecursively(package)
+        try ensureNoSymlinksRecursively(package, isPackageRoot: true)
         try enforcePackageSize(package, limit: packageLimit)
         try ensureRegularFile(manifestURL)
         try ensureRegularFile(boardURL)
@@ -222,7 +244,7 @@ public actor BoardPortablePackageService {
         guard board.formatVersion <= Board.currentFormatVersion else {
             throw BoardPortablePackageError.futureBoardSchema(board.formatVersion)
         }
-        try validateBoard(board, itemsURL: itemsURL)
+        try validateBoard(board, itemsURL: itemsURL, forImport: forImport)
 
         let workspaceURL = package.appendingPathComponent("view-state.json")
         guard fileManager.fileExists(atPath: workspaceURL.path) else {
@@ -265,34 +287,32 @@ public actor BoardPortablePackageService {
     }
 
     private func validateStructure(_ package: URL) throws -> (manifestURL: URL, boardURL: URL, itemsURL: URL) {
-        try ensureNotSymlink(package)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: package.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard try entryKind(package) == .directory else {
+            try ensureNotSymlink(package)
             throw BoardPortablePackageError.packageNotDirectory(package)
         }
-        let entries = try safeChildren(of: package)
         let allowed = Set(["manifest.json", "board.json", "view-state.json", "Items"])
-        for entry in entries where !allowed.contains(entry.lastPathComponent) {
+        for entry in try safeChildren(of: package, isPackageRoot: true) where !allowed.contains(entry.lastPathComponent) {
             throw BoardPortablePackageError.unexpectedEntry(entry.lastPathComponent)
         }
         let manifestURL = package.appendingPathComponent("manifest.json")
         let boardURL = package.appendingPathComponent("board.json")
         let itemsURL = package.appendingPathComponent("Items", isDirectory: true)
-        guard fileManager.fileExists(atPath: manifestURL.path), fileManager.fileExists(atPath: boardURL.path),
-            fileManager.fileExists(atPath: itemsURL.path)
-        else {
+        guard try entryKind(manifestURL) != .missing, try entryKind(boardURL) != .missing, try entryKind(itemsURL) != .missing else {
             throw BoardPortablePackageError.unexpectedEntry("required entry missing")
         }
-        var itemsDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: itemsURL.path, isDirectory: &itemsDirectory), itemsDirectory.boolValue else {
+        guard try entryKind(itemsURL) == .directory else {
+            try ensureNotSymlink(itemsURL)
             throw BoardPortablePackageError.unexpectedEntry("Items")
         }
         return (manifestURL, boardURL, itemsURL)
     }
 
+    /// Triagem barata antes de copiar: estrutura, atalhos, tamanho, decodificação, versões e contagens. A conferência completa
+    /// (mídia, anexos e imagens) roda uma vez só, sobre a cópia.
     private func preflight(_ package: URL, packageLimit: UInt64) throws {
         let structure = try validateStructure(package)
-        try ensureNoSymlinksRecursively(package)
+        try ensureNoSymlinksRecursively(package, isPackageRoot: true)
         try enforcePackageSize(package, limit: packageLimit)
         let manifestData = try boundedData(at: structure.manifestURL, limit: limits.manifestBytes)
         let boardData = try boundedData(at: structure.boardURL, limit: limits.boardBytes)
@@ -310,15 +330,20 @@ public actor BoardPortablePackageService {
         guard board.formatVersion <= Board.currentFormatVersion else {
             throw BoardPortablePackageError.futureBoardSchema(board.formatVersion)
         }
-        try validateBoard(board, itemsURL: structure.itemsURL)
+        guard board.items.count <= limits.maximumItems else { throw BoardPortablePackageError.tooManyItems(limit: limits.maximumItems) }
+        guard board.freeTexts.count <= BoardImportNormalizer.maximumFreeTexts else {
+            throw BoardPortablePackageError.tooManyFreeTexts(limit: BoardImportNormalizer.maximumFreeTexts)
+        }
         let workspaceURL = package.appendingPathComponent("view-state.json")
-        if fileManager.fileExists(atPath: workspaceURL.path) {
+        if try entryKind(workspaceURL) != .missing {
             try ensureRegularFile(workspaceURL)
             _ = try boundedData(at: workspaceURL, limit: limits.boardBytes)
         }
     }
 
-    func validateBoard(_ board: Board, itemsURL: URL) throws {
+    /// Em `forImport`, nomes citados pelo mural que começam com "." são inválidos (como já são para o mural interno) e as
+    /// dimensões dos anexos não são conferidas aqui, porque a normalização as relê do arquivo.
+    func validateBoard(_ board: Board, itemsURL: URL, forImport: Bool = false) throws {
         guard board.items.count <= limits.maximumItems else { throw BoardPortablePackageError.tooManyItems(limit: limits.maximumItems) }
         var itemsByID: [UUID: BoardItem] = [:]
         for item in board.items {
@@ -341,18 +366,16 @@ public actor BoardPortablePackageService {
                 throw BoardPortablePackageError.invalidFileName(item.id)
             }
             try validateReminder(of: item)
-            try validateMusic(of: item)
+            try validateMusic(of: item, forImport: forImport)
             if item.kind.storesFile {
                 guard let fileName = item.fileName else {
                     throw BoardPortablePackageError.missingAsset("\(item.id.uuidString):fileName")
                 }
-                guard isSafeFileName(fileName) else { throw BoardPortablePackageError.invalidFileName(item.id) }
+                guard isSafeFileName(fileName, forImport: forImport) else { throw BoardPortablePackageError.invalidFileName(item.id) }
                 guard referenced.insert(fileName).inserted else { throw BoardPortablePackageError.duplicateAsset(fileName) }
                 let asset = itemsURL.appendingPathComponent(fileName)
                 try ensureDescendant(asset, of: itemsURL)
-                guard fileManager.fileExists(atPath: asset.path) else {
-                    throw BoardPortablePackageError.missingAsset(fileName)
-                }
+                try ensureAssetExists(asset, named: fileName)
                 try ensureRegularFile(asset)
                 let actualKind = ContentClassifier.kind(forFileAt: asset)
                 guard actualKind == item.kind else {
@@ -369,19 +392,18 @@ public actor BoardPortablePackageService {
         let mediaNames = referenced
         for item in board.items {
             for attachment in item.attachments ?? [] {
-                try validateAttachment(attachment, of: item, mediaNames: mediaNames, itemsURL: itemsURL)
+                try validateAttachment(attachment, of: item, mediaNames: mediaNames, itemsURL: itemsURL, forImport: forImport)
                 referenced.insert(attachment.fileName)
             }
         }
         // Nomes que o texto da nota cita e existem em `Items/` também são referenciados.
         for item in board.items where item.kind == .text {
-            for name in item.assetFileNames where isSafeFileName(name) {
-                if fileManager.fileExists(atPath: itemsURL.appendingPathComponent(name).path) { referenced.insert(name) }
+            for name in item.assetFileNames where isSafeFileName(name, forImport: forImport) {
+                if try entryKind(itemsURL.appendingPathComponent(name)) != .missing { referenced.insert(name) }
             }
         }
         for asset in try safeChildren(of: itemsURL) {
-            var directory: ObjCBool = false
-            guard fileManager.fileExists(atPath: asset.path, isDirectory: &directory), !directory.boolValue else {
+            guard try entryKind(asset) != .directory else {
                 throw BoardPortablePackageError.nestedDirectory(asset)
             }
             guard referenced.contains(asset.lastPathComponent) else {
@@ -402,7 +424,7 @@ public actor BoardPortablePackageService {
     }
 
     /// Um cartão de música guarda só o estado, sem arquivo de mídia; a capa não viaja no pacote.
-    private func validateMusic(of item: BoardItem) throws {
+    private func validateMusic(of item: BoardItem, forImport: Bool) throws {
         guard item.kind == .music else {
             if item.music != nil { throw BoardPortablePackageError.invalidMusic(item.id) }
             return
@@ -411,7 +433,7 @@ public actor BoardPortablePackageService {
             item.title.count <= 1_000, music.title.count <= 1_000,
             (music.subtitle?.count ?? 0) <= 1_000, (music.albumTitle?.count ?? 0) <= 1_000,
             (music.libraryPlaylistName?.count ?? 0) <= 1_000,
-            music.artworkFile.map(isSafeFileName) ?? true,
+            music.artworkFile.map({ isSafeFileName($0, forImport: forImport) }) ?? true,
             // Valores absurdos viriam de um pacote adulterado e travariam a exibição.
             music.duration.map({ $0.isFinite && $0 >= 0 && $0 <= 10_000_000 }) ?? true,
             music.trackCount.map({ (0...100_000).contains($0) }) ?? true
@@ -420,16 +442,18 @@ public actor BoardPortablePackageService {
 
     /// Um anexo de nota é uma imagem legível, com nome seguro, tamanho positivo e sem colidir com a mídia de um cartão.
     private func validateAttachment(
-        _ attachment: NoteAttachment, of item: BoardItem, mediaNames: Set<String>, itemsURL: URL
+        _ attachment: NoteAttachment, of item: BoardItem, mediaNames: Set<String>, itemsURL: URL, forImport: Bool
     ) throws {
         let name = attachment.fileName
-        guard NoteImageMarkup.isAttachmentName(name), attachment.pixelWidth > 0, attachment.pixelHeight > 0 else {
+        // Na importação as dimensões são relidas do arquivo depois; o que o pacote declara não conta.
+        let validSize = forImport || (attachment.pixelWidth > 0 && attachment.pixelHeight > 0)
+        guard NoteImageMarkup.isAttachmentName(name), validSize else {
             throw BoardPortablePackageError.invalidFileName(item.id)
         }
         guard !mediaNames.contains(name) else { throw BoardPortablePackageError.duplicateAsset(name) }
         let asset = itemsURL.appendingPathComponent(name)
         try ensureDescendant(asset, of: itemsURL)
-        guard fileManager.fileExists(atPath: asset.path) else { throw BoardPortablePackageError.missingAsset(name) }
+        try ensureAssetExists(asset, named: name)
         try ensureRegularFile(asset)
         guard ImageInspector.inspect(asset) != nil else {
             throw BoardPortablePackageError.assetKindMismatch(item.id, expected: .image, actual: nil)
@@ -439,49 +463,83 @@ public actor BoardPortablePackageService {
         }
     }
 
-    private func copyTree(_ source: URL, to destination: URL) throws {
-        var directory: ObjCBool = false
-        guard fileManager.fileExists(atPath: source.path, isDirectory: &directory) else {
-            throw BoardPortablePackageError.packageNotDirectory(source)
+    /// Falta de arquivo é `missingAsset`; atalho (inclusive quebrado) é recusado como atalho.
+    private func ensureAssetExists(_ asset: URL, named name: String) throws {
+        switch try entryKind(asset) {
+        case .missing: throw BoardPortablePackageError.missingAsset(name)
+        case .symlink: throw BoardPortablePackageError.symlink(asset)
+        case .directory, .regular, .other: return
         }
-        try ensureNotSymlink(source)
-        if directory.boolValue {
+    }
+
+    /// Nomes escondidos (`.DS_Store`, `._foto.png`, `Icon\r`) são criados pelo Finder e por volumes exFAT/SMB; `QuickLook` na
+    /// raiz é reservado para uma miniatura futura. Nada disso faz parte do pacote: não conta e não é copiado.
+    private func isIgnoredEntry(_ name: String, isPackageRoot: Bool) -> Bool {
+        name.hasPrefix(".") || name == "Icon\r" || (isPackageRoot && name == "QuickLook")
+    }
+
+    private func copyTree(_ source: URL, to destination: URL, isPackageRoot: Bool = false) throws {
+        switch try entryKind(source) {
+        case .missing:
+            throw BoardPortablePackageError.packageNotDirectory(source)
+        case .symlink:
+            throw BoardPortablePackageError.symlink(source)
+        case .directory:
             try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
-            for child in try safeChildren(of: source) {
+            for child in try safeChildren(of: source, isPackageRoot: isPackageRoot) {
                 try copyTree(child, to: destination.appendingPathComponent(child.lastPathComponent, isDirectory: false))
             }
-        } else {
+        case .regular, .other:
             try ensureRegularFile(source)
             try fileManager.copyItem(at: source, to: destination)
         }
     }
 
-    private func safeChildren(of directory: URL) throws -> [URL] {
+    private func safeChildren(of directory: URL, isPackageRoot: Bool = false) throws -> [URL] {
         try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [])
+            .filter { !isIgnoredEntry($0.lastPathComponent, isPackageRoot: isPackageRoot) }
     }
 
-    private func ensureNoSymlinksRecursively(_ root: URL) throws {
-        try ensureNotSymlink(root)
-        var directory: ObjCBool = false
-        guard fileManager.fileExists(atPath: root.path, isDirectory: &directory), directory.boolValue else { return }
-        for child in try safeChildren(of: root) { try ensureNoSymlinksRecursively(child) }
+    private func ensureNoSymlinksRecursively(_ root: URL, isPackageRoot: Bool = false) throws {
+        switch try entryKind(root) {
+        case .symlink: throw BoardPortablePackageError.symlink(root)
+        case .directory:
+            for child in try safeChildren(of: root, isPackageRoot: isPackageRoot) { try ensureNoSymlinksRecursively(child) }
+        case .missing, .regular, .other: return
+        }
     }
 
     private func ensureRegularFile(_ url: URL) throws {
-        try ensureNotSymlink(url)
-        guard fileManager.fileExists(atPath: url.path) else {
-            throw BoardPortablePackageError.unexpectedEntry(url.lastPathComponent)
-        }
-        let attributes = try fileManager.attributesOfItem(atPath: url.path)
-        guard (attributes[.type] as? FileAttributeType) == .typeRegular else {
-            throw BoardPortablePackageError.unexpectedEntry(url.lastPathComponent)
+        switch try entryKind(url) {
+        case .regular: return
+        case .symlink: throw BoardPortablePackageError.symlink(url)
+        case .missing, .directory, .other: throw BoardPortablePackageError.unexpectedEntry(url.lastPathComponent)
         }
     }
 
     private func ensureNotSymlink(_ url: URL) throws {
-        guard fileManager.fileExists(atPath: url.path) else { return }
-        let attributes = try fileManager.attributesOfItem(atPath: url.path)
-        if (attributes[.type] as? FileAttributeType) == .typeSymbolicLink { throw BoardPortablePackageError.symlink(url) }
+        if try entryKind(url) == .symlink { throw BoardPortablePackageError.symlink(url) }
+    }
+
+    private enum EntryKind { case missing, symlink, directory, regular, other }
+
+    /// Classifica a entrada sem seguir atalhos, o que também pega atalho quebrado (que `fileExists` daria como inexistente).
+    private func entryKind(_ url: URL) throws -> EntryKind {
+        // O `URL` guarda valores em cache; um novo evita ler o estado de antes de uma troca.
+        let fresh = URL(fileURLWithPath: url.path)
+        do {
+            let values = try fresh.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey])
+            if values.isSymbolicLink == true { return .symlink }
+            if values.isDirectory == true { return .directory }
+            if values.isRegularFile == true { return .regular }
+            return .other
+        } catch let error as NSError
+            where error.domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code)
+        {
+            return .missing
+        } catch let error as NSError where error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT) {
+            return .missing
+        }
     }
 
     private func ensureDescendant(_ url: URL, of root: URL) throws {
@@ -521,13 +579,13 @@ public actor BoardPortablePackageService {
 
     private func enforcePackageSize(_ package: URL, limit: UInt64) throws {
         var total: UInt64 = 0
-        var stack = [package]
-        while let current = stack.popLast() {
-            var directory: ObjCBool = false
-            guard fileManager.fileExists(atPath: current.path, isDirectory: &directory) else { continue }
-            if directory.boolValue {
-                stack.append(contentsOf: try safeChildren(of: current))
-            } else {
+        var stack = [(url: package, isPackageRoot: true)]
+        while let (current, isPackageRoot) = stack.popLast() {
+            switch try entryKind(current) {
+            case .missing: continue
+            case .directory:
+                stack.append(contentsOf: try safeChildren(of: current, isPackageRoot: isPackageRoot).map { ($0, false) })
+            case .symlink, .regular, .other:
                 let size = try fileSize(current)
                 guard UInt64.max - total >= size else { throw BoardPortablePackageError.packageTooLarge(limit: limit) }
                 total += size
@@ -542,9 +600,11 @@ public actor BoardPortablePackageService {
         return min(hardLimit, BoardPackageLimits.eightyPercent(of: capacity))
     }
 
-    private func isSafeFileName(_ name: String) -> Bool {
+    /// Na importação o nome citado também não pode começar com ".", igual a `BoardRepository.isSafeAssetName`: um mural que cita
+    /// `.x.png` importaria, mas nunca exportaria.
+    private func isSafeFileName(_ name: String, forImport: Bool = false) -> Bool {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\\") && !name.contains("\0")
-            && URL(fileURLWithPath: name).lastPathComponent == name
+            && !(forImport && name.hasPrefix(".")) && URL(fileURLWithPath: name).lastPathComponent == name
     }
 
     private func encode<T: Encodable>(_ value: T) throws -> Data {
