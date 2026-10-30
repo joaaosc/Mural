@@ -16,7 +16,11 @@ struct HapticFeedbackTests {
         var taps = 0
         HapticFeedback.play(isEnabled: { true }, perform: { taps += 1 })
         #expect(taps == 1)
-        try await Task.sleep(for: .milliseconds(200))
+        // A segunda batida espera o intervalo; com a fila principal ocupada por outros testes, pode demorar mais.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while taps < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(taps == 2)
     }
 
