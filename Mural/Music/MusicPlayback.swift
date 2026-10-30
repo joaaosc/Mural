@@ -1,7 +1,7 @@
 import Foundation
 import MuralKit
-import Observation
 import OSLog
+import Observation
 
 /// Pedido de mostrar a oferta de assinatura do Apple Music.
 struct MusicOfferRequest: Identifiable, Equatable {
@@ -24,6 +24,19 @@ struct MusicPlaybackSource: Equatable, Sendable {
     var boardTitle: String
     var cardTitle: String
     var music: MusicSnapshot
+    /// A nota que guarda a música, quando ela toca de um cartão embutido (`itemID` é então o id do cartão embutido, que não é
+    /// um cartão do mural); `nil` para o cartão de música solto.
+    var ownerItemID: UUID?
+}
+
+/// Uma música embutida numa nota, para tocar sem ser um cartão do mural.
+struct EmbeddedMusic: Equatable, Sendable {
+    /// O id do cartão embutido (o `UUID` de `mural-card:<UUID>`).
+    let cardID: UUID
+    /// A nota que o guarda.
+    let ownerItemID: UUID
+    let music: MusicSnapshot
+    let title: String
 }
 
 /// Coordena o que toca: um cartão por vez, para o app inteiro.
@@ -81,8 +94,11 @@ final class MusicPlayback {
     }
 
     /// Cartão atual tocando: pausa; pausado: retoma; qualquer outro: começa.
+    ///
+    /// Com `embedded`, `itemID` é o id do cartão embutido e a música vem dele, não do mural.
     func toggle(
-        _ itemID: UUID, in model: BoardModel, boardID: BoardID, route: BoardRoute? = nil, boardTitle: String? = nil
+        _ itemID: UUID, in model: BoardModel, boardID: BoardID, route: BoardRoute? = nil, boardTitle: String? = nil,
+        embedded: EmbeddedMusic? = nil
     ) async {
         // Segundo clique enquanto carrega: espera o primeiro, em vez de tocar duas vezes.
         if itemID == currentItemID, isLoading { return }
@@ -100,7 +116,8 @@ final class MusicPlayback {
                 break
             }
         }
-        await start(itemID, startingAt: nil, in: model, boardID: boardID, route: route, boardTitle: boardTitle)
+        await start(
+            itemID, startingAt: nil, in: model, boardID: boardID, route: route, boardTitle: boardTitle, embedded: embedded)
     }
 
     func play(
@@ -207,7 +224,8 @@ final class MusicPlayback {
 
     /// Para quando o cartão atual deste mural não existe mais (apagado, ou junto com uma pasta).
     func stopIfMissing(in model: BoardModel, boardID: BoardID) {
-        guard currentBoardID == boardID, let currentItemID, model.item(id: currentItemID) == nil else { return }
+        guard currentBoardID == boardID, let owner = source?.ownerItemID ?? currentItemID, model.item(id: owner) == nil
+        else { return }
         provider.stop()
         clearCurrent()
     }
@@ -243,9 +261,9 @@ final class MusicPlayback {
 
     private func start(
         _ itemID: UUID, startingAt trackID: String?, in model: BoardModel, boardID: BoardID,
-        route: BoardRoute?, boardTitle: String?
+        route: BoardRoute?, boardTitle: String?, embedded: EmbeddedMusic? = nil
     ) async {
-        guard let music = model.item(id: itemID)?.music else { return }
+        guard let music = embedded?.music ?? model.item(id: itemID)?.music else { return }
 
         var access = provider.access
         if access == .notDetermined { access = await provider.requestAccess() }
@@ -271,10 +289,10 @@ final class MusicPlayback {
         endConfirmation?.cancel()
         endConfirmation = nil
         isLoading = true
-        let cardTitle = model.item(id: itemID)?.title ?? ""
+        let cardTitle = embedded?.title ?? model.item(id: itemID)?.title ?? ""
         source = MusicPlaybackSource(
             itemID: itemID, boardID: boardID, route: route ?? .saved(boardID), boardTitle: boardTitle ?? "Mural",
-            cardTitle: cardTitle.isEmpty ? music.title : cardTitle, music: music)
+            cardTitle: cardTitle.isEmpty ? music.title : cardTitle, music: music, ownerItemID: embedded?.ownerItemID)
         defer { if generation == loadGeneration { isLoading = false } }
         do {
             let resolved = try await provider.play(music, startingAt: trackID)
@@ -284,7 +302,8 @@ final class MusicPlayback {
                 return
             }
             if resolved != music {
-                model.updateMusic(itemID, with: resolved)
+                // A música embutida não é um cartão do mural: só o tocador guarda o estado resolvido.
+                if embedded == nil { model.updateMusic(itemID, with: resolved) }
                 source?.music = resolved
             }
         } catch {

@@ -34,6 +34,13 @@ extension BoardWindowSession {
         await musicPlayback.toggle(itemID, in: model, boardID: boardID, route: route, boardTitle: manifestName)
     }
 
+    /// Toca ou pausa a música embutida numa nota, pelo mesmo tocador do cartão solto.
+    func toggleEmbeddedMusic(_ embedded: EmbeddedMusic) async {
+        guard let model, !isClosed else { return }
+        await musicPlayback.toggle(
+            embedded.cardID, in: model, boardID: boardID, route: route, boardTitle: manifestName, embedded: embedded)
+    }
+
     /// Toca o cartão a partir de uma faixa (`nil`: do começo).
     func playMusic(_ itemID: UUID, startingAt trackID: String?) async {
         guard let model, !isClosed else { return }

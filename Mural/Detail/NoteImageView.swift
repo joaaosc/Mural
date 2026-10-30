@@ -3,7 +3,7 @@ import StretchText
 import StretchTextUI
 import SwiftUI
 
-/// Imagem colada numa nota, no lugar da linha `![alt](arquivo)` do Markdown.
+/// Imagem colada numa nota, no lugar da linha `![alt](arquivo)` do Markdown; para `mural-card:`, o cartão embutido.
 ///
 /// A moldura tem a proporção do anexo desde o primeiro layout, para que a altura
 /// da página não dependa do carregamento (a restauração da rolagem depende dela).
@@ -12,10 +12,21 @@ struct NoteImageView: View {
     let item: BoardItem
     let model: BoardModel?
     let maxPixelSize: Int
+    /// A sessão da janela, quando a nota está na página de leitura: é ela que toca a música embutida.
+    var session: BoardWindowSession?
 
     var body: some View {
         if NoteImageMarkup.isPendingSource(image.source) {
             pending
+        } else if NoteImageMarkup.isCardSource(image.source) {
+            if let id = NoteImageMarkup.cardID(inSource: image.source), let card = item.embeddedCard(id: id) {
+                EmbeddedCardView(
+                    card: card, cardID: id, title: image.alt, item: item, model: model, maxPixelSize: maxPixelSize,
+                    session: session)
+            } else {
+                Label(image.alt, systemImage: "questionmark.square.dashed")
+                    .foregroundStyle(.secondary)
+            }
         } else if let url = fileURL {
             Color.clear
                 .aspectRatio(aspectRatio, contentMode: .fit)

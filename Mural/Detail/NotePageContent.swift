@@ -24,7 +24,7 @@ struct NotePageContent: View {
                     .lineSpacing(5)
                     .modifier(NoteTaskToggle(itemID: item.id, source: result.segmentation.source, session: session))
                     .stretchMarkdownImage {
-                        NoteImageView(image: $0, item: item, model: model, maxPixelSize: 1600)
+                        NoteImageView(image: $0, item: item, model: model, maxPixelSize: 1600, session: session)
                     }
                 FoldStatusLine(itemID: item.id, result: result, session: session)
                     .padding(.top, 8)

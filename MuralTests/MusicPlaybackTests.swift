@@ -266,4 +266,60 @@ struct MusicPlaybackTests {
         #expect(rig.playback.currentItemID == nil)
         #expect(rig.playback.currentBoardID == nil)
     }
+
+    // MARK: Música embutida numa nota
+
+    @Test("Música embutida toca com o id do cartão embutido, guarda a nota dona e não grava no mural")
+    func embeddedMusicPlaysWithoutWritingToTheBoard() async throws {
+        let rig = try await makeRig(
+            snapshots: [MusicSnapshot(kind: .album, catalogID: "100", title: "Álbum A")]
+        ) { $0.resolvedLibraryID = "p.XYZ" }
+        defer { cleanup(rig) }
+        let note = rig.model.createNote()
+        let cardID = UUID()
+        let music = MusicSnapshot(kind: .playlist, libraryPlaylistName: "Treino", title: "Treino")
+        let attachment = NoteAttachment(
+            fileName: NoteImageMarkup.cardAttachmentName(for: cardID), pixelWidth: 0, pixelHeight: 0, card: .music(music))
+        rig.model.addNoteAttachment(attachment, to: note.id)
+        let before = rig.model.board
+        let embedded = EmbeddedMusic(cardID: cardID, ownerItemID: note.id, music: music, title: "Treino")
+
+        await rig.playback.toggle(cardID, in: rig.model, boardID: rig.boardID, embedded: embedded)
+
+        #expect(rig.playback.currentItemID == cardID)
+        #expect(rig.playback.source?.ownerItemID == note.id)
+        #expect(rig.playback.phase(of: cardID) == .playing)
+        // O estado resolvido fica só no tocador; o mural continua como estava.
+        #expect(rig.playback.source?.music.libraryID == "p.XYZ")
+        #expect(rig.model.board == before)
+        #expect(rig.model.item(id: note.id)?.embeddedCard(id: cardID) == .music(music))
+    }
+
+    @Test("stopIfMissing olha a nota dona: mantém enquanto ela existe e para quando é apagada")
+    func stopIfMissingUsesTheOwningNote() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        let note = rig.model.createNote()
+        let cardID = UUID()
+        let music = MusicSnapshot(kind: .song, catalogID: "300", title: "Faixa C")
+        let embedded = EmbeddedMusic(cardID: cardID, ownerItemID: note.id, music: music, title: "Faixa C")
+        await rig.playback.toggle(cardID, in: rig.model, boardID: rig.boardID, embedded: embedded)
+
+        rig.playback.stopIfMissing(in: rig.model, boardID: rig.boardID)
+        #expect(rig.fake.stopCount == 0)
+        #expect(rig.playback.currentItemID == cardID)
+
+        rig.model.delete(note.id)
+        rig.playback.stopIfMissing(in: rig.model, boardID: rig.boardID)
+        #expect(rig.fake.stopCount == 1)
+        #expect(rig.playback.currentItemID == nil)
+    }
+
+    @Test("O cartão de música solto continua sem nota dona")
+    func looseCardHasNoOwner() async throws {
+        let rig = try await makeRig()
+        defer { cleanup(rig) }
+        await rig.playback.toggle(rig.ids[0], in: rig.model, boardID: rig.boardID)
+        #expect(rig.playback.source?.ownerItemID == nil)
+    }
 }
