@@ -67,6 +67,8 @@ extension BoardLibraryError: LocalizedError {
             "Falha simulada (\(point.rawValue))."
         case .portable(let error):
             error.errorDescription
+        case .invalidName(let issue):
+            issue.message
         case .io(let detail):
             "Não foi possível ler ou gravar a biblioteca de murais (\(ErrorDetail.short(detail)))."
         }

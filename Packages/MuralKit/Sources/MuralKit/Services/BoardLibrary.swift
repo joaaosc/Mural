@@ -214,7 +214,9 @@ public actor BoardLibrary {
             unreadable: saved.unreadable)
     }
 
+    /// - Throws: `BoardLibraryError.invalidName` se o nome tiver o que o macOS não aceita num nome de arquivo; nada é criado.
     public func createNamedBoard(_ name: String) async throws -> BoardRoute {
+        if let issue = BoardName.issue(in: name) { throw BoardLibraryError.invalidName(issue) }
         _ = try await bootstrap()
         let id = BoardID()
         let snapshot = BoardRepositorySnapshot(
@@ -281,7 +283,9 @@ public actor BoardLibrary {
         }
     }
 
+    /// - Throws: `BoardLibraryError.invalidName` se o nome tiver o que o macOS não aceita num nome de arquivo; o nome não muda.
     public func rename(_ route: BoardRoute, to name: String) async throws -> BoardRoute {
+        if let issue = BoardName.issue(in: name) { throw BoardLibraryError.invalidName(issue) }
         guard let snapshot = try await open(route) else { throw BoardLibraryError.unavailableRoute(route) }
         var manifest = snapshot.manifest
         manifest.name = name
@@ -474,6 +478,8 @@ public actor BoardLibrary {
             manifest.id = newID
             // O mural importado é um mural novo, só deste Mac: não herda a zona do iCloud do mural de origem.
             manifest.cloud = nil
+            // O pacote pode vir de fora (outra build, outro programa) com um nome que o macOS não aceita num arquivo.
+            if BoardName.issue(in: manifest.name) != nil { manifest.name = BoardName.sanitized(manifest.name) }
             let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: loaded.snapshot.workspace)
             try await savedRepository.save(
                 snapshot,

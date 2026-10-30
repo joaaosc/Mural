@@ -8,6 +8,8 @@ public enum BoardLibraryError: Error, Equatable, Sendable {
     case migrationRequiredButUnavailable
     case injectedFailure(BoardLibraryFaultPoint)
     case portable(BoardPortablePackageError)
+    /// O nome pedido tem o que o macOS não aceita num nome de arquivo (`BoardName.issue(in:)`).
+    case invalidName(BoardName.Issue)
     case io(String)
 }
 
