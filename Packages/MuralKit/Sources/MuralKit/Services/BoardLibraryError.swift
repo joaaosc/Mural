@@ -10,6 +10,10 @@ public enum BoardLibraryError: Error, Equatable, Sendable {
     case portable(BoardPortablePackageError)
     /// O nome pedido tem o que o macOS não aceita num nome de arquivo (`BoardName.issue(in:)`).
     case invalidName(BoardName.Issue)
+    /// A localização do vídeo (nome do cartão) não pôde ser tirada da cópia para outras pessoas.
+    case videoLocationNotRemoved(String)
+    /// O dono da câmera, o número de série ou a localização da imagem (nome do cartão) não puderam ser tirados da cópia.
+    case imageMetadataNotRemoved(String)
     case io(String)
 }
 

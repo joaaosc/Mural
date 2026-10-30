@@ -19,6 +19,7 @@ public actor BoardLibrary {
     private let discardPackage: @Sendable (URL) throws -> Void
     /// A recuperação de trabalho interrompido roda uma vez por instância, na primeira listagem.
     private var didRecoverInterruptedWork = false
+    private var videoSanitizer: BoardShareExporter.VideoSanitizer = BoardShareExporter.sanitizeVideoForSharing
 
     public init(
         rootDirectory: URL = BoardStore.defaultDirectory(),
@@ -405,10 +406,28 @@ public actor BoardLibrary {
     }
 
     /// Exports a board as an isolated package under `Transfers`.
-    public func exportPackage(_ route: BoardRoute) async throws -> URL {
+    ///
+    /// `.mirror` (padrão) é o pacote completo de sempre. `.share` prepara a cópia privada para outras pessoas (ver
+    /// `BoardShareExporter`) e, com `previewsDirectory`, leva as imagens das prévias de link e das capas de música.
+    public func exportPackage(
+        _ route: BoardRoute, profile: BoardExportProfile = .mirror, previewsDirectory: URL? = nil
+    ) async throws -> URL {
         let source = try packageSource(for: route)
         try makeDirectories()
-        return try await assemblePackage(from: source, in: transfersDirectory, named: "\(UUID().uuidString).mural")
+        let exporter: BoardShareExporter?
+        switch profile {
+        case .mirror:
+            exporter = nil
+        case .share(let includeLocation):
+            exporter = BoardShareExporter(
+                includeLocation: includeLocation, previewsDirectory: previewsDirectory, sanitizeVideo: videoSanitizer, now: .now)
+        }
+        return try await assemblePackage(from: source, in: transfersDirectory, named: "\(UUID().uuidString).mural", sharing: exporter)
+    }
+
+    /// Troca a regravação de vídeo (só para testes simularem uma falha).
+    func useVideoSanitizer(_ sanitizer: @escaping BoardShareExporter.VideoSanitizer) {
+        videoSanitizer = sanitizer
     }
 
     /// Cópia de segurança completa do mural em `directory/<uuid>-<data>.mural`, a pasta criada se faltar.
@@ -448,16 +467,22 @@ public actor BoardLibrary {
 
     /// Monta o pacote do mural numa pasta de passagem escondida dentro de `root` e só o publica como `name` depois de validado; a
     /// pasta de passagem sai de qualquer jeito.
-    private func assemblePackage(from source: PackageSource, in root: URL, named name: String) async throws -> URL {
+    private func assemblePackage(
+        from source: PackageSource, in root: URL, named name: String, sharing exporter: BoardShareExporter? = nil
+    ) async throws -> URL {
         let destination = root.appendingPathComponent(name, isDirectory: true)
         let staging = root.appendingPathComponent(".\(destination.lastPathComponent)-materializing", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: staging) }
         do {
             try await source.repository.materializePackage(for: source.id, to: staging)
+            // Só a pasta de passagem é limpa, antes da validação: o mural interno não é tocado.
+            try await exporter?.apply(to: staging)
             return try await portablePackageService.finalize(package: staging, destination: destination, root: root)
         } catch let error as BoardPortablePackageError {
             throw BoardLibraryError.portable(error)
         } catch let error as BoardRepositoryError {
+            throw error
+        } catch let error as BoardLibraryError {
             throw error
         } catch {
             throw BoardLibraryError.io(String(describing: error))
@@ -482,7 +507,13 @@ public actor BoardLibrary {
     }
 
     /// Imports a package and exposes workspace recovery status for diagnostics.
-    public func importPackageWithReport(from source: URL) async throws -> BoardImportResult {
+    ///
+    /// - Parameter previewsDirectory: onde ficam as prévias de link do mural novo (dado o id dele). Com ele, as imagens válidas
+    ///   de `Previews/` do pacote são copiadas para lá; sem ele, ou se a imagem não passa na conferência, o cartão fica sem a
+    ///   imagem e busca de novo quando a pessoa permitir.
+    public func importPackageWithReport(
+        from source: URL, previewsDirectory: (@Sendable (BoardID) -> URL)? = nil
+    ) async throws -> BoardImportResult {
         try makeDirectories()
         let staging = importStagingDirectory.appendingPathComponent("\(UUID().uuidString).mural", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: staging) }
@@ -493,6 +524,9 @@ public actor BoardLibrary {
             manifest.id = newID
             // O mural importado é um mural novo, só deste Mac: não herda a zona do iCloud do mural de origem.
             manifest.cloud = nil
+            // As prévias do pacote vão para a pasta própria deste Mac: o mural salvo é um mural comum (formato 1).
+            let declaredPreviews = manifest.previewsIncluded == true
+            manifest.previewsIncluded = nil
             // Mural novo recomeça as revisões: um valor no teto do inteiro travaria a primeira edição (`+= 1`).
             manifest.contentRevision = 0
             manifest.workspaceRevision = 0
@@ -502,13 +536,29 @@ public actor BoardLibrary {
             workspace.contentRevision = manifest.contentRevision
             let itemsDirectory = staging.appendingPathComponent("Items", isDirectory: true)
             // Só o que vem de fora é normalizado; o mural interno é carregado como está.
-            let board = try BoardImportNormalizer.normalize(loaded.snapshot.board, itemsURL: itemsDirectory)
+            var board = try BoardImportNormalizer.normalize(loaded.snapshot.board, itemsURL: itemsDirectory)
+            // As imagens são copiadas antes de o mural ser salvo, para o cartão só citar o que de fato chegou; se salvar falhar,
+            // a pasta de prévias do id novo sai junto.
+            var copiedPreviews = Set<String>()
+            var previewTarget: URL?
+            if let previewsDirectory, !loaded.previewNames.isEmpty {
+                let target = previewsDirectory(newID)
+                previewTarget = target
+                copiedPreviews = Self.copyPreviews(
+                    named: loaded.previewNames, from: staging.appendingPathComponent("Previews", isDirectory: true), to: target)
+            }
+            if declaredPreviews || !loaded.previewNames.isEmpty { board = Self.droppingMissingPreviews(board, keeping: copiedPreviews) }
             let snapshot = BoardRepositorySnapshot(manifest: manifest, board: board, workspace: workspace)
-            try await savedRepository.save(
-                snapshot,
-                copyingItemsFrom: itemsDirectory,
-                preservingWorkspaceDiagnostic: loaded.workspaceDiagnostic
-            )
+            do {
+                try await savedRepository.save(
+                    snapshot,
+                    copyingItemsFrom: itemsDirectory,
+                    preservingWorkspaceDiagnostic: loaded.workspaceDiagnostic
+                )
+            } catch {
+                if let previewTarget { try? FileManager.default.removeItem(at: previewTarget) }
+                throw error
+            }
             return BoardImportResult(boardID: newID, workspaceStatus: Self.portableWorkspaceStatus(loaded.workspaceStatus))
         } catch let error as BoardPortablePackageError {
             throw BoardLibraryError.portable(error)
@@ -517,6 +567,39 @@ public actor BoardLibrary {
         } catch {
             throw BoardLibraryError.io(String(describing: error))
         }
+    }
+
+    /// Copia as imagens para a pasta de prévias do mural novo e devolve os nomes que chegaram. Uma que falha é só deixada de fora.
+    private static func copyPreviews(named names: [String], from source: URL, to target: URL) -> Set<String> {
+        do { try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true) } catch { return [] }
+        var copied = Set<String>()
+        for name in names {
+            do {
+                try FileManager.default.copyItem(at: source.appendingPathComponent(name), to: target.appendingPathComponent(name))
+                copied.insert(name)
+            } catch { continue }
+        }
+        return copied
+    }
+
+    /// Tira dos cartões os arquivos de prévia e de capa que não chegaram. Um link que ficou sem nenhuma imagem volta a "ainda não
+    /// buscada", para a prévia ser buscada de novo quando a pessoa permitir.
+    private static func droppingMissingPreviews(_ board: Board, keeping kept: Set<String>) -> Board {
+        var result = board
+        for index in result.items.indices {
+            if var link = result.items[index].link {
+                let hadFiles = link.previewImageFile != nil || link.iconFile != nil
+                link.previewImageFile = link.previewImageFile.flatMap { kept.contains($0) ? $0 : nil }
+                link.iconFile = link.iconFile.flatMap { kept.contains($0) ? $0 : nil }
+                if hadFiles, link.previewImageFile == nil, link.iconFile == nil { link.preview = .pending }
+                result.items[index].link = link
+            }
+            if var music = result.items[index].music, let name = music.artworkFile, !kept.contains(name) {
+                music.artworkFile = nil
+                result.items[index].music = music
+            }
+        }
+        return result
     }
 
     private static func portableWorkspaceStatus(_ status: BoardWorkspaceLoadStatus) -> BoardPortableWorkspaceStatus {

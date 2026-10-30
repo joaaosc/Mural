@@ -91,13 +91,17 @@ struct BoardPortablePackageReadResult: Sendable {
     let workspaceStatus: BoardWorkspaceLoadStatus
     let workspaceIssues: [WorkspaceValidationIssue]
     let workspaceDiagnostic: Data?
+    /// Nomes dos arquivos válidos de `Previews/` (citados por algum cartão e dentro dos limites), em ordem. Vazio sem a pasta.
+    let previewNames: [String]
 
     init(
         snapshot: BoardRepositorySnapshot,
         workspaceStatus: BoardWorkspaceLoadStatus,
         workspaceIssues: [WorkspaceValidationIssue] = [],
-        workspaceDiagnostic: Data? = nil
+        workspaceDiagnostic: Data? = nil,
+        previewNames: [String] = []
     ) {
+        self.previewNames = previewNames
         self.snapshot = snapshot
         self.workspaceStatus = workspaceStatus
         self.workspaceIssues = workspaceIssues
@@ -245,13 +249,14 @@ public actor BoardPortablePackageService {
             throw BoardPortablePackageError.futureBoardSchema(board.formatVersion)
         }
         try validateBoard(board, itemsURL: itemsURL, forImport: forImport)
+        let previewNames = try validatePreviews(in: package, board: board, forImport: forImport)
 
         let workspaceURL = package.appendingPathComponent("view-state.json")
         guard fileManager.fileExists(atPath: workspaceURL.path) else {
             let state = BoardWorkspaceState(contentRevision: manifest.contentRevision).canonicalized(for: board)
             return BoardPortablePackageReadResult(
                 snapshot: BoardRepositorySnapshot(manifest: manifest, board: board, workspace: state.state), workspaceStatus: .missing,
-                workspaceIssues: state.issues)
+                workspaceIssues: state.issues, previewNames: previewNames)
         }
         try ensureRegularFile(workspaceURL)
         let rawWorkspaceData = try boundedData(at: workspaceURL, limit: limits.boardBytes)
@@ -263,7 +268,7 @@ public actor BoardPortablePackageService {
             return BoardPortablePackageReadResult(
                 snapshot: BoardRepositorySnapshot(manifest: manifest, board: board, workspace: state.state),
                 workspaceStatus: .quarantined(filename: workspaceURL.lastPathComponent), workspaceIssues: state.issues,
-                workspaceDiagnostic: rawWorkspaceData)
+                workspaceDiagnostic: rawWorkspaceData, previewNames: previewNames)
         }
         guard workspace.schemaVersion <= BoardWorkspaceState.currentSchemaVersion else {
             if !allowFutureWorkspace {
@@ -273,7 +278,7 @@ public actor BoardPortablePackageService {
             return BoardPortablePackageReadResult(
                 snapshot: BoardRepositorySnapshot(manifest: manifest, board: board, workspace: state.state),
                 workspaceStatus: .futureSchema(version: workspace.schemaVersion), workspaceIssues: state.issues,
-                workspaceDiagnostic: rawWorkspaceData)
+                workspaceDiagnostic: rawWorkspaceData, previewNames: previewNames)
         }
         var canonical = workspace.canonicalized(for: board)
         if canonical.state.contentRevision != manifest.contentRevision {
@@ -283,7 +288,52 @@ public actor BoardPortablePackageService {
         }
         return BoardPortablePackageReadResult(
             snapshot: BoardRepositorySnapshot(manifest: manifest, board: board, workspace: canonical.state), workspaceStatus: .loaded,
-            workspaceIssues: canonical.issues)
+            workspaceIssues: canonical.issues, previewNames: previewNames)
+    }
+
+    /// Confere `Previews/`, a pasta das imagens de prévia de link e de capa de música de uma cópia para outras pessoas. Cada
+    /// arquivo precisa ter nome seguro, ser comum, caber em `LinkPreviewFiles.maximumEmbeddedBytes`, ser uma imagem legível dentro
+    /// do limite de pixels e ser citado por algum cartão. Na exportação, qualquer falha recusa o pacote (a própria exportação só
+    /// grava o que passa); na importação, o arquivo que não passa é ignorado e o cartão busca de novo quando a pessoa permitir.
+    /// Devolve os nomes aceitos.
+    private func validatePreviews(in package: URL, board: Board, forImport: Bool) throws -> [String] {
+        let directory = package.appendingPathComponent("Previews", isDirectory: true)
+        switch try entryKind(directory) {
+        case .missing: return []
+        case .directory: break
+        case .symlink: throw BoardPortablePackageError.symlink(directory)
+        case .regular, .other:
+            if forImport { return [] }
+            throw BoardPortablePackageError.unexpectedEntry("Previews")
+        }
+        var cited = Set<String>()
+        for item in board.items {
+            cited.formUnion([item.link?.previewImageFile, item.link?.iconFile, item.music?.artworkFile].compactMap { $0 })
+        }
+        var accepted: [String] = []
+        for entry in try safeChildren(of: directory).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let name = entry.lastPathComponent
+            let problem: BoardPortablePackageError?
+            if try entryKind(entry) != .regular {
+                problem = .unexpectedEntry("Previews/\(name)")
+            } else if !LinkPreviewFiles.isSafeFileName(name) {
+                problem = .unexpectedEntry("Previews/\(name)")
+            } else if !cited.contains(name) {
+                problem = .unreferencedAsset("Previews/\(name)")
+            } else if try fileSize(entry) > UInt64(LinkPreviewFiles.maximumEmbeddedBytes) {
+                problem = .fileTooLarge(entry, limit: UInt64(LinkPreviewFiles.maximumEmbeddedBytes))
+            } else if !LinkPreviewFiles.isEmbeddable(at: entry) {
+                problem = .unexpectedEntry("Previews/\(name)")
+            } else {
+                problem = nil
+            }
+            if let problem {
+                if forImport { continue }
+                throw problem
+            }
+            accepted.append(name)
+        }
+        return accepted
     }
 
     private func validateStructure(_ package: URL) throws -> (manifestURL: URL, boardURL: URL, itemsURL: URL) {
@@ -291,7 +341,7 @@ public actor BoardPortablePackageService {
             try ensureNotSymlink(package)
             throw BoardPortablePackageError.packageNotDirectory(package)
         }
-        let allowed = Set(["manifest.json", "board.json", "view-state.json", "Items"])
+        let allowed = Set(["manifest.json", "board.json", "view-state.json", "Items", "Previews"])
         for entry in try safeChildren(of: package, isPackageRoot: true) where !allowed.contains(entry.lastPathComponent) {
             throw BoardPortablePackageError.unexpectedEntry(entry.lastPathComponent)
         }

@@ -69,6 +69,10 @@ extension BoardLibraryError: LocalizedError {
             error.errorDescription
         case .invalidName(let issue):
             issue.message
+        case .videoLocationNotRemoved(let name):
+            "Não foi possível tirar a localização do vídeo “\(name)”. Marque “Incluir a localização” para salvar mesmo assim."
+        case .imageMetadataNotRemoved(let name):
+            "Não foi possível tirar os dados da câmera ou a localização da imagem “\(name)”."
         case .io(let detail):
             "Não foi possível ler ou gravar a biblioteca de murais (\(ErrorDetail.short(detail)))."
         }

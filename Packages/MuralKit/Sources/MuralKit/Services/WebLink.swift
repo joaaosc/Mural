@@ -75,6 +75,17 @@ public enum WebLink {
         return key
     }
 
+    /// O mesmo endereço sem os parâmetros de rastreamento (`utm_*`, `fbclid`, `gclid`, `mc_cid`, `mc_eid`); os demais parâmetros
+    /// ficam como estão, na mesma ordem. Sem nada para tirar, ou se não for um endereço da web, devolve o próprio endereço.
+    public static func removingTrackingParameters(from url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false), isWebAddress(components),
+            let items = components.percentEncodedQueryItems, items.contains(where: { isTracking($0.name) })
+        else { return url }
+        let kept = items.filter { !isTracking($0.name) }
+        components.percentEncodedQueryItems = kept.isEmpty ? nil : kept
+        return components.url ?? url
+    }
+
     /// Host para mostrar ao usuário: em minúsculas e sem `www.`. Sem host, o texto do endereço.
     public static func displayHost(of url: URL) -> String {
         guard let host = URLComponents(url: url, resolvingAgainstBaseURL: false)?.host, !host.isEmpty else {

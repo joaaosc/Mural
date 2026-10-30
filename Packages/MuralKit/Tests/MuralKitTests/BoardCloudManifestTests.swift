@@ -97,7 +97,7 @@ struct BoardCloudManifestTests {
     func manifestWithoutCloudKeepsTheOldShape() throws {
         let manifest = BoardManifest(id: BoardID(), name: "Casa", contentRevision: 3, workspaceRevision: 2)
 
-        #expect(BoardManifest.currentSchemaVersion == 2)
+        #expect(BoardManifest.currentSchemaVersion == 3)
         #expect(manifest.cloud == nil)
         #expect(manifest.schemaVersion == 1)
         #expect(manifest.requiredSchemaVersion == 1)
@@ -142,7 +142,7 @@ struct BoardCloudManifestTests {
     @Test("Quem passa a versão ao montar o manifest continua sendo atendido")
     func explicitSchemaVersionIsKept() {
         #expect(BoardManifest(id: BoardID(), schemaVersion: 1).schemaVersion == 1)
-        #expect(BoardManifest(id: BoardID(), schemaVersion: BoardManifest.currentSchemaVersion + 1).schemaVersion == 3)
+        #expect(BoardManifest(id: BoardID(), schemaVersion: BoardManifest.currentSchemaVersion + 1).schemaVersion == 4)
         #expect(BoardManifest(id: BoardID(), cloud: Self.ownInfo, schemaVersion: 2).schemaVersion == 2)
     }
 
@@ -344,7 +344,7 @@ struct BoardCloudManifestTests {
 
     // MARK: Versão futura
 
-    @Test("Manifest de versão 3 é recusado ao abrir, ao listar e ao gravar por cima")
+    @Test("Manifest de versão 4 é recusado ao abrir, ao listar e ao gravar por cima")
     func futureSchemaIsRefused() async throws {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -365,23 +365,23 @@ struct BoardCloudManifestTests {
         var future = manifest
         future.contentRevision += 1
         future.schemaVersion = BoardManifest.currentSchemaVersion + 1
-        await #expect(throws: BoardRepositoryError.futureManifestSchema(3)) {
+        await #expect(throws: BoardRepositoryError.futureManifestSchema(4)) {
             try await repository.save(BoardRepositorySnapshot(manifest: future, board: snapshot.board, workspace: snapshot.workspace))
         }
         #expect(try await repository.load(id)?.snapshot.manifest.schemaVersion == 2)
 
-        // Um manifest já gravado na versão 3 (por uma build mais nova) não abre, não entra na lista e não é sobrescrito.
-        try await writeStoredSchemaVersion(3, of: id, in: repository)
-        await #expect(throws: BoardRepositoryError.futureManifestSchema(3)) { try await repository.load(id) }
-        await #expect(throws: BoardRepositoryError.futureManifestSchema(3)) { try await library.open(route) }
+        // Um manifest já gravado na versão 4 (por uma build mais nova) não abre, não entra na lista e não é sobrescrito.
+        try await writeStoredSchemaVersion(4, of: id, in: repository)
+        await #expect(throws: BoardRepositoryError.futureManifestSchema(4)) { try await repository.load(id) }
+        await #expect(throws: BoardRepositoryError.futureManifestSchema(4)) { try await library.open(route) }
         let report = try await library.listSavedReport()
         #expect(report.entries.isEmpty)
         #expect(report.unreadable.count == 1)
         var overwrite = manifest
         overwrite.contentRevision += 5
-        await #expect(throws: BoardRepositoryError.futureManifestSchema(3)) {
+        await #expect(throws: BoardRepositoryError.futureManifestSchema(4)) {
             try await repository.save(BoardRepositorySnapshot(manifest: overwrite, board: snapshot.board, workspace: snapshot.workspace))
         }
-        #expect(try await storedManifest(id, in: repository)["schemaVersion"] as? Int == 3)
+        #expect(try await storedManifest(id, in: repository)["schemaVersion"] as? Int == 4)
     }
 }

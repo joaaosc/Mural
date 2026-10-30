@@ -20,7 +20,7 @@ public struct LinkPreviewFiles: Sendable {
     /// Imagens com mais pixels que isto são recusadas sem decodificar, para uma imagem minúscula no arquivo
     /// mas gigante na tela não esgotar a memória. A fila grava até 4 imagens ao mesmo tempo: com 40 milhões de
     /// pixels (uns 160 MB em RGBA) o pico fica abaixo de 1 GB; com os 100 milhões de antes (uns 400 MB), passava de 1,5 GB.
-    private static let maximumSourcePixels = 40_000_000
+    static let maximumSourcePixels = 40_000_000
 
     public let directory: URL
 
@@ -117,6 +117,25 @@ public struct LinkPreviewFiles: Sendable {
         return removed.sorted()
     }
 
+    /// Maior tamanho de um arquivo de prévia dentro de uma cópia para outras pessoas (`Previews/`).
+    static let maximumEmbeddedBytes = 2 * 1024 * 1024
+
+    /// O arquivo cabe numa cópia para outras pessoas: comum (não atalho), até `maximumEmbeddedBytes`, uma imagem que o ImageIO
+    /// lê e com no máximo `maximumSourcePixels`. Só o cabeçalho da imagem é lido. A exportação e a validação do pacote usam esta
+    /// mesma regra, para a exportação nunca produzir o que a importação recusaria.
+    static func isEmbeddable(at url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+            values.isSymbolicLink != true, values.isRegularFile == true, let size = values.fileSize, size <= maximumEmbeddedBytes,
+            let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+            CGImageSourceGetCount(source) > 0,
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+            width > 0, height > 0
+        else { return false }
+        let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+        return !overflow && pixels <= maximumSourcePixels
+    }
+
     // MARK: Nomes
 
     /// Endereço de um arquivo da pasta sem conferir o nome: só para os nomes que esta própria estrutura gera.
@@ -125,7 +144,7 @@ public struct LinkPreviewFiles: Sendable {
     }
 
     /// Nome simples de arquivo: não vazio, sem `/`, `\` nem `..` e sem começar por `.`.
-    private static func isSafeFileName(_ name: String) -> Bool {
+    static func isSafeFileName(_ name: String) -> Bool {
         !name.isEmpty && !name.hasPrefix(".") && !name.contains("/") && !name.contains("\\") && !name.contains("..")
     }
 
