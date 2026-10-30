@@ -5,7 +5,7 @@ SWIFT_VERSION = 6.0
 ALWAYS_SEARCH_USER_PATHS = NO
 SWIFT_STRICT_CONCURRENCY = complete
 CLOUD_MARKETING_VERSION = 1.7.1
-CLOUD_BUILD_NUMBER = 21
+CLOUD_BUILD_NUMBER = 22
 
 // Debug sem otimização: exigido pelo RenderPreview e pelos previews do Xcode.
 SWIFT_OPTIMIZATION_LEVEL[config=Debug] = -Onone
