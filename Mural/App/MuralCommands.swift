@@ -49,6 +49,7 @@ struct MuralCommands: Commands {
         let _ = SettingsOpener.shared.register { [openSettings] in openSettings() }
         // O painel da barra de menus também abre o editor de texto por aqui.
         let _ = TextEditorOpener.shared.register { [openWindow] in openWindow(id: TextEditorWindow.sceneID) }
+        let _ = PasteDestinationOpener.shared.register { [openWindow] in openWindow(id: PasteDestinationWindow.sceneID) }
         CommandGroup(after: .appInfo) {
             // Começa desligada; o mesmo estado da aba Geral dos Ajustes. O estado é lido aqui, e
             // não dentro do `Binding`, para o menu acompanhar a mudança.

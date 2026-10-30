@@ -206,6 +206,8 @@ struct PanelActionRow: View {
     let help: String
     let accessibilityLabel: String
     let accessibilityHint: String
+    /// Mostra o resumo também fora da linha escolhida (a razão de uma linha desligada).
+    var alwaysShowsSummary = false
     let action: @MainActor () -> Void
 
     var body: some View {
@@ -220,7 +222,7 @@ struct PanelActionRow: View {
                 Spacer(minLength: 12)
 
                 // Só na linha que está sendo lida: o mesmo resumo em toda linha é ruído, não informação.
-                if isSelected {
+                if isSelected || alwaysShowsSummary {
                     Text(summary)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

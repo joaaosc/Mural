@@ -45,6 +45,8 @@ enum PasteDescription {
     /// link, o nome do primeiro arquivo ou o título do primeiro item de música. `nil` sem leitura e para imagem e PDF.
     static func preview(of content: ClipboardContent?) -> String? {
         switch content {
+        case .note(let note)?:
+            return firstLine(of: note.text)
         case .contacts(let drafts)?:
             return drafts.first.flatMap { nonBlank($0.snapshot.displayName) }
         case .music(let drafts)?:

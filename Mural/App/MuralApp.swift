@@ -15,6 +15,8 @@ struct MuralApp: App {
     @State private var remoteContent: RemoteContentConsent
     /// O editor de texto: o documento e a janela dele valem para o app inteiro.
     @State private var textEditor = TextEditorSession.shared
+    /// A galeria "Colar no mural" do editor de texto.
+    @State private var pasteDestination: PasteDestinationModel
 
     private static let log = Logger(subsystem: "com.joaocosta.Mural", category: "Sincronização")
 
@@ -60,6 +62,15 @@ struct MuralApp: App {
         // A entrega do que foi copiado a um mural escolhido no painel. As abas adotam a sessão que a entrega abriu para
         // um mural fechado: nunca existem duas sessões do mesmo mural. O painel da barra de menus cola por ela.
         let delivery = BoardDelivery(registry: registry, covers: coverService)
+        // "Colar no mural…" do editor de texto abre a galeria de murais; ela lê o documento do editor.
+        let destination = PasteDestinationModel(
+            library: library, covers: coverService, delivery: delivery, document: TextEditorSession.shared.document)
+        _pasteDestination = State(initialValue: destination)
+        TextEditorSession.shared.onPasteRequested = {
+            // Com a galeria já aberta, os jeitos de colar seguem o texto de agora; fechada, `load()` os recalcula ao abrir.
+            destination.refreshKinds()
+            PasteDestinationOpener.shared.open()
+        }
         let tabs = MuralTabs(
             registry: registry,
             makeSession: { route in
@@ -237,6 +248,13 @@ struct MuralApp: App {
         .windowResizability(.contentSize)
         // O editor nunca volta sozinho (depois de uma queda, por exemplo): um editor vazio restaurado contaria como janela aberta
         // e impediria a abertura da janela dos murais no lançamento.
+        .restorationBehavior(.disabled)
+
+        // A galeria de murais do "Colar no mural…": tamanho fixo, nunca volta sozinha e fecha sem perguntar.
+        Window("Colar no mural", id: PasteDestinationWindow.sceneID) {
+            PasteDestinationView(model: pasteDestination)
+        }
+        .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
 
         // Mural › Ajustes… (⌘,) e a engrenagem do painel da barra de menus abrem esta janela.
