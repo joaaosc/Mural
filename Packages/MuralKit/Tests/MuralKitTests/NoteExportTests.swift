@@ -43,6 +43,18 @@ struct NoteExportTests {
         #expect(blocks.last == .rule)
     }
 
+    @Test("linha de cartão embutido vira bloco .card quando a nota o guarda, e parágrafo quando não")
+    func embeddedCard() {
+        let id = UUID()
+        let card = EmbeddedCard.reminder(ReminderSnapshot(identifier: "", title: "Pão"))
+        let text = NoteImageMarkup.cardLine(id: id, title: "Pão")
+        let stored = BoardItem(
+            kind: .text, title: "", text: text,
+            attachments: [NoteAttachment(fileName: NoteImageMarkup.cardAttachmentName(for: id), pixelWidth: 0, pixelHeight: 0, card: card)])
+        #expect(NoteExport.blocks(for: stored) == [.card(card, title: "Pão")])
+        #expect(NoteExport.blocks(for: note(text)) == [.paragraph("Pão")])
+    }
+
     @Test("parágrafo dobrável sai inteiro")
     func foldableParagraphIsWhole() {
         let paragraph = "Primeira frase do texto. Segunda frase do texto. Terceira frase do texto."

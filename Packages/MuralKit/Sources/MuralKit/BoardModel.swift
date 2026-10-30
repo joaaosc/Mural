@@ -1235,13 +1235,23 @@ public final class BoardModel {
     }
 
     /// Ajusta os anexos da nota ao texto: fica quem o texto cita, e um nome citado cujo arquivo existe entra
-    /// com o tamanho lido do arquivo.
-    /// - Returns: os nomes que deixaram de ser anexos da nota.
+    /// com o tamanho lido do arquivo. Um cartão embutido fica enquanto o texto cita o id dele; não tem arquivo, então nunca é
+    /// lido do disco nem sai na lista de arquivos removidos.
+    /// - Returns: os nomes de arquivo que deixaram de ser anexos da nota.
     private func reconcileAttachments(of item: inout BoardItem) -> [String] {
-        let referenced = NoteImageMarkup.referencedFileNames(in: item.text ?? "")
+        let (referenced, cardIDs) = NoteImageMarkup.references(in: item.text ?? "")
         let referencedNames = Set(referenced)
+        let referencedCards = Set(cardIDs)
         let old = item.attachments ?? []
-        var kept = old.filter { referencedNames.contains($0.fileName) }
+        var firstNames = Set<String>()
+        var kept = old.filter { attachment in
+            // Cartões embutidos: só o primeiro de cada nome fica. As imagens mantêm o comportamento de sempre.
+            if attachment.isCard {
+                guard firstNames.insert(attachment.fileName).inserted else { return false }
+                return attachment.cardID.map(referencedCards.contains) ?? false
+            }
+            return referencedNames.contains(attachment.fileName)
+        }
         var keptNames = Set<String>()
         keptNames.reserveCapacity(kept.count + referenced.count)
         for attachment in kept { keptNames.insert(attachment.fileName) }
@@ -1254,7 +1264,7 @@ public final class BoardModel {
         item.attachments = kept.isEmpty ? nil : kept
         var removed: [String] = []
         removed.reserveCapacity(old.count)
-        for attachment in old where !keptNames.contains(attachment.fileName) {
+        for attachment in old where !attachment.isCard && !keptNames.contains(attachment.fileName) {
             removed.append(attachment.fileName)
         }
         return removed

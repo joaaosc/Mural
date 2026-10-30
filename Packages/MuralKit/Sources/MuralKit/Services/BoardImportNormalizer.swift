@@ -49,6 +49,16 @@ enum BoardImportNormalizer {
         }
         if let attachments = item.attachments {
             item.attachments = attachments.map { attachment in
+                // Cartão embutido não tem arquivo: nada de pixels. Chega desligado do Lembretes e sem partes locais.
+                if var card = attachment.card {
+                    if case .reminder(var reminder) = card {
+                        reminder.identifier = ""
+                        reminder.externalIdentifier = nil
+                        card = .reminder(reminder)
+                    }
+                    return NoteAttachment(
+                        fileName: attachment.fileName, pixelWidth: 0, pixelHeight: 0, card: SharedFieldPolicy.sharedCard(card))
+                }
                 let size = pixelSize(of: itemsURL.appendingPathComponent(attachment.fileName))
                 return NoteAttachment(
                     fileName: attachment.fileName,
@@ -90,6 +100,18 @@ enum BoardImportNormalizer {
         }
         if let link = item.link {
             texts.append(contentsOf: [link.pageTitle, link.siteName, link.summary])
+        }
+        for attachment in item.embeddedCards {
+            switch attachment.card {
+            case .link(let link)?:
+                texts.append(contentsOf: [link.pageTitle, link.siteName, link.summary, link.remoteImageURL?.absoluteString])
+            case .reminder(let reminder)?:
+                texts.append(contentsOf: [reminder.title, reminder.notes, reminder.listTitle, reminder.url?.absoluteString])
+            case .music(let music)?:
+                texts.append(contentsOf: [music.title, music.subtitle, music.albumTitle, music.libraryPlaylistName])
+            case nil:
+                break
+            }
         }
         for case let text? in texts where text.utf8.count > maximumTextBytes {
             throw BoardPortablePackageError.textTooLarge(item.id)

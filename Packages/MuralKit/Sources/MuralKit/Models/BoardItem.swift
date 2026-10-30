@@ -223,7 +223,18 @@ extension BoardItem {
         assetFileNames(includeTextReferences: false)
     }
 
-    /// Todos os arquivos de `Items/` ligados ao cartão: os obrigatórios e, numa nota, os que o texto cita.
+    /// Os anexos da nota que são cartões embutidos, na ordem em que estão guardados.
+    public var embeddedCards: [NoteAttachment] {
+        (attachments ?? []).filter(\.isCard)
+    }
+
+    /// O cartão embutido de id `id`, se a nota o guarda.
+    public func embeddedCard(id: UUID) -> EmbeddedCard? {
+        (attachments ?? []).first { $0.cardID == id }?.card
+    }
+
+    /// Todos os arquivos de `Items/` ligados ao cartão: os obrigatórios e, numa nota, os que o texto cita. Cartões embutidos
+    /// ficam de fora: não têm arquivo.
     public var assetFileNames: [String] {
         assetFileNames(includeTextReferences: true)
     }
@@ -238,7 +249,7 @@ extension BoardItem {
         if let fileName, seen.insert(fileName).inserted {
             names.append(fileName)
         }
-        for attachment in attachments ?? [] where seen.insert(attachment.fileName).inserted {
+        for attachment in attachments ?? [] where !attachment.isCard && seen.insert(attachment.fileName).inserted {
             names.append(attachment.fileName)
         }
         if includeTextReferences, kind == .text, let text {

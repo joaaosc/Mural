@@ -46,11 +46,55 @@ public enum SharedFieldPolicy {
 
     // MARK: Cópias
 
-    /// O cartão sem as partes locais: sem frases curtas, e com o link e a música sem arquivos. O estado da prévia volta ao neutro
-    /// de "ainda não buscada" (`LinkPreviewState.pending`); o resto fica como está.
+    /// A prévia e a capa de um link ou de uma música embutidos numa nota (`NoteAttachment.card`) são locais como as dos cartões
+    /// avulsos: saem de `shared(_:)` e voltam em `preservingLocalFields(of:in:)`, casando os anexos pelo nome (`<UUID>.card`).
+    /// O lembrete embutido não tem parte local.
+    static func sharedCard(_ card: EmbeddedCard) -> EmbeddedCard {
+        switch card {
+        case .link(var link):
+            link.previewImageFile = nil
+            link.iconFile = nil
+            link.preview = .pending
+            return .link(link)
+        case .music(var music):
+            music.artworkFile = nil
+            music.libraryID = nil
+            return .music(music)
+        case .reminder:
+            return card
+        }
+    }
+
+    /// O cartão embutido que chegou, com as partes locais do que este Mac já tinha quando os dois são o mesmo link ou a mesma
+    /// música (mesmos critérios dos cartões avulsos).
+    private static func preservingLocalFields(ofCard local: EmbeddedCard, in incoming: EmbeddedCard) -> EmbeddedCard {
+        switch (local, incoming) {
+        case (.link(let localLink), .link(var link)) where localLink.url == link.url:
+            link.previewImageFile = localLink.previewImageFile
+            link.iconFile = localLink.iconFile
+            link.preview = localLink.preview
+            return .link(link)
+        case (.music(let localMusic), .music(var music)) where isSameItem(localMusic, music):
+            music.artworkFile = localMusic.artworkFile
+            music.libraryID = localMusic.libraryID
+            return .music(music)
+        default:
+            return incoming
+        }
+    }
+
+    /// O cartão sem as partes locais: sem frases curtas, e com o link e a música sem arquivos (inclusive os embutidos numa nota).
+    /// O estado da prévia volta ao neutro de "ainda não buscada" (`LinkPreviewState.pending`); o resto fica como está.
     public static func shared(_ item: BoardItem) -> BoardItem {
         var copy = item
         copy.keySentences = nil
+        if let attachments = copy.attachments, attachments.contains(where: \.isCard) {
+            copy.attachments = attachments.map { attachment in
+                var attachment = attachment
+                attachment.card = attachment.card.map(sharedCard)
+                return attachment
+            }
+        }
         if var link = copy.link {
             link.previewImageFile = nil
             link.iconFile = nil
@@ -89,6 +133,15 @@ public enum SharedFieldPolicy {
             music.artworkFile = localMusic.artworkFile
             music.libraryID = localMusic.libraryID
             result.music = music
+        }
+        if let localAttachments = local.attachments, var attachments = result.attachments {
+            for index in attachments.indices {
+                guard let incomingCard = attachments[index].card,
+                    let localCard = localAttachments.first(where: { $0.fileName == attachments[index].fileName })?.card
+                else { continue }
+                attachments[index].card = preservingLocalFields(ofCard: localCard, in: incomingCard)
+            }
+            result.attachments = attachments
         }
         return result
     }

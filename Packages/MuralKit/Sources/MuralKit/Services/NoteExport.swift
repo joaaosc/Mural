@@ -19,6 +19,8 @@ public enum NoteExport {
         case quote(String)
         case code(String)
         case image(fileName: String, alt: String)
+        /// Cartão embutido na nota (música, lembrete ou link), com o título da linha de imagem.
+        case card(EmbeddedCard, title: String)
         case rule
     }
 
@@ -28,7 +30,7 @@ public enum NoteExport {
         case .text:
             var blocks: [Block] = []
             if !isBlank(item.title) { blocks.append(.title(item.title)) }
-            blocks.append(contentsOf: markdownBlocks(item.text ?? ""))
+            blocks.append(contentsOf: markdownBlocks(item.text ?? "", in: item))
             return blocks
         case .sticky:
             let text = item.text ?? ""
@@ -53,16 +55,17 @@ public enum NoteExport {
         return blocks
     }
 
-    /// Blocos do Markdown inteiro: os parágrafos dobráveis saem na forma longa.
-    private static func markdownBlocks(_ text: String) -> [Block] {
+    /// Blocos do Markdown inteiro: os parágrafos dobráveis saem na forma longa. Com `item`, uma linha `mural-card:` vira
+    /// `.card` se a nota guarda o cartão, e senão um parágrafo com o título.
+    private static func markdownBlocks(_ text: String, in item: BoardItem? = nil) -> [Block] {
         guard !isBlank(text) else { return [] }
         let result = StretchFolder.foldWithFirstSentence(TextSegmenter.segment(text))
         var state = StretchState(document: result.document)
         for id in result.document.stretchIDs { _ = state.toggle(id) }
-        return ReadingBlock.blocks(for: result, state: state).map(block)
+        return ReadingBlock.blocks(for: result, state: state).map { block($0, in: item) }
     }
 
-    private static func block(_ reading: ReadingBlock) -> Block {
+    private static func block(_ reading: ReadingBlock, in item: BoardItem?) -> Block {
         switch reading.kind {
         case .paragraph: .paragraph(reading.text)
         case .heading(let level): .heading(level: level, text: reading.text)
@@ -77,7 +80,16 @@ public enum NoteExport {
         case .blockQuote: .quote(reading.text)
         case .codeBlock, .table: .code(reading.text)
         case .thematicBreak: .rule
-        case .image(let image): .image(fileName: image.source, alt: reading.text)
+        case .image(let image):
+            if NoteImageMarkup.isCardSource(image.source) {
+                if let id = NoteImageMarkup.cardID(inSource: image.source), let card = item?.embeddedCard(id: id) {
+                    .card(card, title: reading.text)
+                } else {
+                    .paragraph(reading.text)
+                }
+            } else {
+                .image(fileName: image.source, alt: reading.text)
+            }
         }
     }
 

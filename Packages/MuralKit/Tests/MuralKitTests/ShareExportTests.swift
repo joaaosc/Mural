@@ -149,7 +149,8 @@ private struct Fixture {
 }
 
 private func makeFixture(
-    image: Bool = true, video: Bool = false, previewFiles: [String] = ["link-image.png", "link-icon.png", "capa.png"]
+    image: Bool = true, video: Bool = false, previewFiles: [String] = ["link-image.png", "link-icon.png", "capa.png"],
+    noteAttachments: [NoteAttachment]? = nil
 ) async throws -> Fixture {
     let root = try temporaryRoot()
     let library = BoardLibrary(rootDirectory: root, discardPackage: { try FileManager.default.removeItem(at: $0) })
@@ -181,7 +182,7 @@ private func makeFixture(
             reminder: ReminderSnapshot(identifier: "ABC-123", externalIdentifier: "EXT-9", title: "Lembrar")),
         BoardItem(
             id: noteItem, kind: .text, title: "Nota", position: BoardPoint(x: 2, y: 2), text: "A visita é na segunda. Medir a parede.",
-            keySentences: KeySentenceRecord(source: "A visita é na segunda. Medir a parede.", choices: [:])),
+            keySentences: KeySentenceRecord(source: "A visita é na segunda. Medir a parede.", choices: [:]), attachments: noteAttachments),
     ]
     if image {
         items.append(
@@ -329,6 +330,34 @@ struct ShareExportTests {
         #expect(workspace.canvas.logicalCenter == BoardPoint(x: 40, y: 50))
         #expect(workspace.contentRevision == 1)
         #expect(workspace.path.isEmpty && workspace.filter == nil && workspace.readingPositions.isEmpty && workspace.openStretches.isEmpty)
+    }
+
+    @Test("Cartões embutidos numa nota saem sem vínculo com o Lembretes, sem rastreamento no endereço e sem arquivos de prévia")
+    func embeddedCardsAreSanitized() async throws {
+        let reminder = NoteAttachment(
+            fileName: NoteImageMarkup.cardAttachmentName(for: UUID()), pixelWidth: 0, pixelHeight: 0,
+            card: .reminder(ReminderSnapshot(identifier: "ABC-123", externalIdentifier: "EXT-9", title: "Lembrar")))
+        let link = NoteAttachment(
+            fileName: NoteImageMarkup.cardAttachmentName(for: UUID()), pixelWidth: 0, pixelHeight: 0,
+            card: .link(
+                LinkInfo(
+                    url: URL(string: "https://exemplo.test/p?utm_source=x&id=7")!, pageTitle: "P", previewImageFile: "link-image.png",
+                    iconFile: "link-icon.png", preview: .ready(fetchedAt: Date(timeIntervalSince1970: 5)))))
+        let fixture = try await makeFixture(noteAttachments: [reminder, link])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let package = try await fixture.library.exportPackage(
+            fixture.route, profile: .share(includeLocation: false), previewsDirectory: fixture.previews)
+
+        let board = try decodeJSON(Board.self, at: package.appendingPathComponent("board.json"))
+        let attachments = try #require(board.items.first { $0.id == fixture.noteItem }?.attachments)
+        guard case .reminder(let sharedReminder)? = attachments[0].card, case .link(let sharedLink)? = attachments[1].card else {
+            Issue.record("tipos mudaram")
+            return
+        }
+        #expect(sharedReminder.identifier == "" && sharedReminder.externalIdentifier == nil && sharedReminder.title == "Lembrar")
+        #expect(sharedLink.url.absoluteString == "https://exemplo.test/p?id=7")
+        #expect(sharedLink.previewImageFile == nil && sharedLink.iconFile == nil && sharedLink.preview == .pending)
+        #expect(board.formatVersion == 13)
     }
 
     @Test("As prévias citadas vão em Previews/ sem atributos, o manifesto pede o formato 3 e os cartões voltam a citá-las")

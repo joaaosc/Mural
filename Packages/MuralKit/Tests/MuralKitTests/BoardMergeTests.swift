@@ -470,6 +470,38 @@ struct MergeItemTests {
         #expect(result.conflictCopy == nil)
     }
 
+    @Test("Dois cartões embutidos com o mesmo nome de anexo viram um só, com o conteúdo do remote")
+    func embeddedCardsWithSameNameDedupe() {
+        let name = "\(id(9).uuidString).card"
+        func card(_ title: String) -> NoteAttachment {
+            NoteAttachment(fileName: name, pixelWidth: 0, pixelHeight: 0, card: .reminder(ReminderSnapshot(identifier: "", title: title)))
+        }
+        let base = note(1, text: "a")
+        var local = base
+        local.attachments = [card("local")]
+        var remote = base
+        remote.attachments = [card("remoto")]
+
+        let result = BoardMerge.mergeItem(base: base, local: local, remote: remote, now: now)
+        #expect(result.merged.attachments == [card("remoto")])
+        #expect(result.conflictCopy == nil)
+    }
+
+    @Test("Cartão embutido mudado só de um lado mantém a mudança")
+    func embeddedCardChangedOnOneSideIsKept() {
+        let name = "\(id(9).uuidString).card"
+        func card(_ title: String) -> NoteAttachment {
+            NoteAttachment(fileName: name, pixelWidth: 0, pixelHeight: 0, card: .reminder(ReminderSnapshot(identifier: "", title: title)))
+        }
+        var base = note(1, text: "a")
+        base.attachments = [card("antes")]
+        var edited = base
+        edited.attachments = [card("depois")]
+
+        #expect(BoardMerge.mergeItem(base: base, local: base, remote: edited, now: now).merged.attachments == [card("depois")])
+        #expect(BoardMerge.mergeItem(base: base, local: edited, remote: base, now: now).merged.attachments == [card("depois")])
+    }
+
     @Test("Anexos que ficam vazios nos dois lados voltam a ser nulos")
     func emptyAttachmentsBecomeNil() {
         var base = note(1, text: "a")

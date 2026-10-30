@@ -71,6 +71,24 @@ struct BoardShareExporter {
             }
             copy.link = link
         }
+        // Cartões embutidos numa nota seguem a mesma limpeza, mas sem arquivos de prévia (`SharedFieldPolicy.shared` já os tirou).
+        if let attachments = copy.attachments, attachments.contains(where: \.isCard) {
+            copy.attachments = attachments.map { attachment in
+                var attachment = attachment
+                switch attachment.card {
+                case .reminder(var reminder)?:
+                    reminder.identifier = ""
+                    reminder.externalIdentifier = nil
+                    attachment.card = .reminder(reminder)
+                case .link(var link)?:
+                    link.url = WebLink.removingTrackingParameters(from: link.url)
+                    attachment.card = .link(link)
+                case .music?, nil:
+                    break
+                }
+                return attachment
+            }
+        }
         if var music = copy.music, let name = item.music?.artworkFile, embedded.contains(name) {
             music.artworkFile = name
             copy.music = music

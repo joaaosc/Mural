@@ -124,6 +124,18 @@ public enum CardRecordMapping {
         for name in (fileName.map { [$0] } ?? []) + (attachments ?? []).map(\.fileName) where !BoardRepository.isSafeAssetName(name) {
             throw CardRecordMappingError.invalidRecord("nome de arquivo fora de Items/: \(name)")
         }
+        // Cartão embutido e nome `<UUID>.card` andam juntos; o link embutido, como o avulso, é só http ou https.
+        for attachment in attachments ?? [] {
+            guard attachment.isCard == NoteImageMarkup.isCardAttachmentName(attachment.fileName) else {
+                throw CardRecordMappingError.invalidRecord(
+                    "anexo com nome e conteúdo de cartão embutido incoerentes: \(attachment.fileName)")
+            }
+            if case .link(let link)? = attachment.card {
+                guard let scheme = link.url.scheme?.lowercased(), scheme == "http" || scheme == "https", link.url.host != nil else {
+                    throw CardRecordMappingError.invalidRecord("link embutido com endereço inválido: \(attachment.fileName)")
+                }
+            }
+        }
 
         let item = BoardItem(
             id: id,

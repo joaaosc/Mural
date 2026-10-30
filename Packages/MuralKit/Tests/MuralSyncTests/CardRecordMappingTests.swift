@@ -104,6 +104,45 @@ struct CardRecordMappingTests {
         #expect(try decodedCard(record)?.item == item)
     }
 
+    @Test("Cartão embutido numa nota viaja no registro sem as partes locais do link")
+    func embeddedCardRoundTrips() throws {
+        let link = LinkInfo(
+            url: URL(string: "https://example.com")!, pageTitle: "Exemplo", previewImageFile: "p.jpg", preview: .ready(fetchedAt: .now))
+        let attachment = NoteAttachment(fileName: "\(UUID().uuidString).card", pixelWidth: 0, pixelHeight: 0, card: .link(link))
+        let item = BoardItem(id: Self.fixedID, kind: .text, title: "n", text: "t", attachments: [attachment])
+        let fields = try CardRecordMapping.fields(for: item, layer: 0)
+        #expect(fields["formatVersion"] == .int(13))
+        let record = SyncFixtures.record(.card, name: item.id.uuidString, fields: fields)
+        let decoded = try #require(try decodedCard(record)).item
+        #expect(decoded == SharedFieldPolicy.shared(item))
+        guard case .link(let received)? = decoded.attachments?.first?.card else {
+            Issue.record("tipo mudou")
+            return
+        }
+        #expect(received.previewImageFile == nil && received.preview == .pending && received.pageTitle == "Exemplo")
+    }
+
+    @Test("Anexo com nome e conteúdo de cartão incoerentes, ou link embutido que não é http, é registro inválido")
+    func incoherentEmbeddedCardsAreInvalid() throws {
+        let valid = try SyncFixtures.cardRecord(SyncFixtures.fullItem(kind: .text))
+        let reminder = EmbeddedCard.reminder(ReminderSnapshot(identifier: "", title: "r"))
+        let cardName = "\(UUID().uuidString).card"
+        let cases: [(String, NoteAttachment)] = [
+            ("png com cartão", NoteAttachment(fileName: "\(UUID().uuidString).png", pixelWidth: 0, pixelHeight: 0, card: reminder)),
+            ("card sem cartão", NoteAttachment(fileName: cardName, pixelWidth: 0, pixelHeight: 0)),
+            (
+                "link ftp",
+                NoteAttachment(
+                    fileName: cardName, pixelWidth: 0, pixelHeight: 0, card: .link(LinkInfo(url: URL(string: "ftp://exemplo.com/a")!)))
+            ),
+        ]
+        for (name, attachment) in cases {
+            var record = valid
+            record.fields["attachments"] = .data(try JSONEncoder().encode([attachment]))
+            #expect(!(try invalidMessage(of: record)).isEmpty, "\(name)")
+        }
+    }
+
     @Test("O mesmo cartão dá sempre os mesmos campos, byte a byte, e o empilhamento acompanha o número dado")
     func fieldsAreDeterministic() throws {
         let item = SyncFixtures.fullItem(kind: .link)
@@ -204,6 +243,16 @@ struct CardRecordMappingTests {
             ("legenda", BoardItem(kind: .image, title: "i", caption: "legenda"), 10),
             ("tamanho", BoardItem(kind: .sticky, title: "t", size: BoardSize(width: 200, height: 150)), 11),
             ("tamanho de imagem", BoardItem(kind: .image, title: "i", size: BoardSize(width: 200, height: 150)), 12),
+            (
+                "cartão embutido",
+                BoardItem(
+                    kind: .text, title: "n",
+                    attachments: [
+                        NoteAttachment(
+                            fileName: "\(UUID().uuidString).card", pixelWidth: 0, pixelHeight: 0,
+                            card: .reminder(ReminderSnapshot(identifier: "", title: "r")))
+                    ]), 13
+            ),
         ]
         for (name, item, version) in cases {
             let fields = try CardRecordMapping.fields(for: item, layer: 0)

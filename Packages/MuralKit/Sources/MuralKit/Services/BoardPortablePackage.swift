@@ -415,9 +415,14 @@ public actor BoardPortablePackageService {
         }
         let mediaNames = referenced
         for item in board.items {
+            var attachmentNames = Set<String>()
             for attachment in item.attachments ?? [] {
+                // Dois anexos com o mesmo nome na mesma nota não fazem sentido: a nota cita um nome só.
+                guard attachmentNames.insert(attachment.fileName).inserted else {
+                    throw BoardPortablePackageError.invalidFileName(item.id)
+                }
                 try validateAttachment(attachment, of: item, mediaNames: mediaNames, itemsURL: itemsURL, forImport: forImport)
-                referenced.insert(attachment.fileName)
+                if !attachment.isCard { referenced.insert(attachment.fileName) }
             }
         }
         // Nomes que o texto da nota cita e existem em `Items/` também são referenciados.
@@ -469,6 +474,11 @@ public actor BoardPortablePackageService {
         _ attachment: NoteAttachment, of item: BoardItem, mediaNames: Set<String>, itemsURL: URL, forImport: Bool
     ) throws {
         let name = attachment.fileName
+        if let card = attachment.card {
+            try validateEmbeddedCard(
+                card, named: name, pixels: (attachment.pixelWidth, attachment.pixelHeight), of: item, forImport: forImport)
+            return
+        }
         // Na importação as dimensões são relidas do arquivo depois; o que o pacote declara não conta.
         let validSize = forImport || (attachment.pixelWidth > 0 && attachment.pixelHeight > 0)
         guard NoteImageMarkup.isAttachmentName(name), validSize else {
@@ -484,6 +494,39 @@ public actor BoardPortablePackageService {
         }
         guard try fileSize(asset) <= limits.maximumFileBytes else {
             throw BoardPortablePackageError.fileTooLarge(asset, limit: limits.maximumFileBytes)
+        }
+    }
+
+    /// Um cartão embutido não tem arquivo: o nome é `<UUID>.card`, os pixels são 0 (na importação o que o pacote declara não
+    /// conta) e o conteúdo passa pelas mesmas conferências dos cartões avulsos (lembrete e música) ou exige endereço `http`/`https`
+    /// (link). Um conteúdo inválido de link recusa o pacote com `invalidBoard`.
+    private func validateEmbeddedCard(
+        _ card: EmbeddedCard, named name: String, pixels: (width: Int, height: Int), of item: BoardItem, forImport: Bool
+    ) throws {
+        guard NoteImageMarkup.isCardAttachmentName(name), forImport || (pixels.width == 0 && pixels.height == 0) else {
+            throw BoardPortablePackageError.invalidFileName(item.id)
+        }
+        switch card {
+        case .reminder(let reminder):
+            guard reminder.title.count <= 1_000, (reminder.notes?.count ?? 0) <= 100_000, reminder.listTitle.count <= 1_000 else {
+                throw BoardPortablePackageError.invalidReminder(item.id)
+            }
+        case .music(let music):
+            guard !music.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, music.title.count <= 1_000,
+                (music.subtitle?.count ?? 0) <= 1_000, (music.albumTitle?.count ?? 0) <= 1_000,
+                (music.libraryPlaylistName?.count ?? 0) <= 1_000,
+                music.artworkFile.map({ isSafeFileName($0, forImport: forImport) }) ?? true,
+                music.duration.map({ $0.isFinite && $0 >= 0 && $0 <= 10_000_000 }) ?? true,
+                music.trackCount.map({ (0...100_000).contains($0) }) ?? true
+            else { throw BoardPortablePackageError.invalidMusic(item.id) }
+        case .link(let link):
+            guard let scheme = link.url.scheme?.lowercased(), scheme == "http" || scheme == "https", link.url.host != nil else {
+                throw BoardPortablePackageError.invalidBoard("Cartão embutido de link com endereço inválido: \(item.id.uuidString)")
+            }
+            guard (link.pageTitle?.count ?? 0) <= 1_000, (link.siteName?.count ?? 0) <= 1_000, (link.summary?.count ?? 0) <= 100_000
+            else {
+                throw BoardPortablePackageError.invalidBoard("Cartão embutido de link com texto grande demais: \(item.id.uuidString)")
+            }
         }
     }
 

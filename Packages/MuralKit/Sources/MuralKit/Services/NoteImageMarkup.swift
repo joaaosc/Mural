@@ -27,17 +27,27 @@ public enum NoteImageMarkup {
     }
 
     /// Nomes de arquivo citados em linhas de imagem (as dentro de cerca de código não contam), só os
-    /// que são de anexo, sem repetição e na ordem em que aparecem.
+    /// que são de anexo, sem repetição e na ordem em que aparecem. Cartões embutidos não entram: não têm arquivo.
     public static func referencedFileNames(in text: String) -> [String] {
-        var seen = Set<String>()
+        references(in: text).fileNames
+    }
+
+    /// Os nomes de arquivo de imagem e os ids de cartões embutidos citados no texto, numa só passada de segmentação. Cada lista
+    /// vem sem repetição e na ordem em que aparece; linhas dentro de cerca de código não contam.
+    public static func references(in text: String) -> (fileNames: [String], cardIDs: [UUID]) {
+        var seenNames = Set<String>()
+        var seenIDs = Set<UUID>()
         var names: [String] = []
+        var ids: [UUID] = []
         for segment in TextSegmenter.segment(text).segments where segment.kind == .image {
-            guard let image = MarkdownImage.parse(segment.text), isAttachmentName(image.source),
-                seen.insert(image.source).inserted
-            else { continue }
-            names.append(image.source)
+            guard let image = MarkdownImage.parse(segment.text) else { continue }
+            if isAttachmentName(image.source) {
+                if seenNames.insert(image.source).inserted { names.append(image.source) }
+            } else if let id = cardID(inSource: image.source), seenIDs.insert(id).inserted {
+                ids.append(id)
+            }
         }
-        return names
+        return (names, ids)
     }
 
     /// Verdadeiro para exatamente `<UUID>.<extensão de imagem>`, o nome que o `ItemImporter` gera.
@@ -46,6 +56,54 @@ public enum NoteImageMarkup {
         let parts = name.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 2, parts[0].count == 36, UUID(uuidString: String(parts[0])) != nil else { return false }
         return imageExtensions.contains(parts[1].lowercased())
+    }
+
+    // MARK: Cartões embutidos
+
+    /// Início da origem de uma linha de cartão embutido: `![título](mural-card:<UUID>)`.
+    public static let cardScheme = "mural-card:"
+
+    private static let cardExtension = "card"
+    private static let cardFallbackTitle = "Cartão"
+
+    /// Linha de imagem Markdown para um cartão embutido. O título perde `]` e quebras de linha, que fechariam o texto alternativo
+    /// ou partiriam a linha; sem nada sobrando, vira "Cartão".
+    public static func cardLine(id: UUID, title: String) -> String {
+        let cleaned =
+            title
+            .replacingOccurrences(of: "]", with: "")
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return "![\(cleaned.isEmpty ? cardFallbackTitle : cleaned)](\(cardScheme)\(id.uuidString))"
+    }
+
+    /// Verdadeiro para a origem de um cartão embutido (`mural-card:…`), já lida da linha de imagem.
+    public static func isCardSource(_ source: String) -> Bool {
+        source.hasPrefix(cardScheme)
+    }
+
+    /// O id de uma origem `mural-card:<UUID>`; `nil` se a origem é de outro tipo ou o id é inválido.
+    public static func cardID(inSource source: String) -> UUID? {
+        guard isCardSource(source) else { return nil }
+        return UUID(uuidString: String(source.dropFirst(cardScheme.count)))
+    }
+
+    /// Ids de cartões citados em linhas de imagem (as dentro de cerca de código não contam), sem repetição e na ordem em que
+    /// aparecem.
+    public static func referencedCardIDs(in text: String) -> [UUID] {
+        references(in: text).cardIDs
+    }
+
+    /// O nome do anexo de um cartão embutido: `<UUID>.card`.
+    public static func cardAttachmentName(for id: UUID) -> String {
+        "\(id.uuidString).\(cardExtension)"
+    }
+
+    /// Verdadeiro para exatamente `<UUID>.card`.
+    public static func isCardAttachmentName(_ name: String) -> Bool {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 2 && parts[0].count == 36 && UUID(uuidString: String(parts[0])) != nil && parts[1] == cardExtension
     }
 
     // MARK: Marcador provisório

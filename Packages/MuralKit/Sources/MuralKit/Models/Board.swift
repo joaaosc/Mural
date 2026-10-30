@@ -15,7 +15,8 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 10: legenda separada do corpo (`BoardItem.caption`).
     /// - 11: tamanho escolhido para post-it e texto livre (`BoardItem.size`, `BoardFreeText.size`).
     /// - 12: tamanho escolhido para imagens (`BoardItem.size`).
-    public static let currentFormatVersion = 12
+    /// - 13: cartão embutido numa nota (`NoteAttachment.card`).
+    public static let currentFormatVersion = 13
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -73,6 +74,7 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.caption != nil }) { version = max(version, 10) }
         if items.contains(where: { $0.size != nil }) { version = max(version, 11) }
         if items.contains(where: { $0.kind == .image && $0.size != nil }) { version = max(version, 12) }
+        if items.contains(where: { ($0.attachments ?? []).contains(where: \.isCard) }) { version = max(version, 13) }
         return version
     }
 
