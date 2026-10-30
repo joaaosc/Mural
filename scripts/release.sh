@@ -14,7 +14,11 @@
 #   --verify    roda scripts/verify.sh antes (formatação, projeto e testes)
 #
 # A regra de qual tag vira release é a do Xcode Cloud (ci_scripts/release_rules.sh): o erro aparece aqui, antes de enviar,
-# e não depois de a build falhar. O número da build fica com o Xcode Cloud.
+# e não depois de a build falhar.
+#
+# O número da build local (CLOUD_BUILD_NUMBER) sobe um a cada release, no mesmo commit da versão: é o que vale num archive
+# feito no Mac. No Xcode Cloud vale o número dele (ci_scripts/ci_pre_xcodebuild.sh), desde que o projeto não fixe
+# CURRENT_PROJECT_VERSION; por isso o release recusa um projeto que troque $(CLOUD_BUILD_NUMBER) por um número.
 set -euo pipefail
 
 script="${0:A}"
@@ -55,10 +59,14 @@ for argument in "$@"; do
 done
 
 current="$(mural_project_version "$root")"
+# Número da build local, lido do mesmo arquivo da versão.
+build="$(sed -n 's/^CLOUD_BUILD_NUMBER[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' Config/Project.xcconfig | head -n 1)"
+[[ "$build" =~ '^[0-9]+$' ]] || die "CLOUD_BUILD_NUMBER não encontrado ou inválido em Config/Project.xcconfig"
+next_build=$(( build + 1 ))
 if [[ -z "$version" ]]; then
     usage
     echo
-    echo "Versão atual: $current"
+    echo "Versão atual: $current (build local $build)"
     exit 2
 fi
 [[ "$version" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || die "versão inválida: $version (use X.Y.Z, como 1.1.0)"
@@ -80,24 +88,30 @@ if [[ -z "$branch" ]] && git merge-base --is-ancestor HEAD main; then
 fi
 [[ "$branch" == main ]] || die "o release sai da main (agora: ${branch:-HEAD solto}); volte com: git switch main"
 git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null && die "a tag $tag já existe"
+# Um número fixo no projeto passa por cima do xcconfig, aqui e no Xcode Cloud: todas as builds sairiam com ele.
+fixed="$(grep -E '"CURRENT_PROJECT_VERSION"' Mural.xcodeproj/project.xcproj | grep -v -F '"$(CLOUD_BUILD_NUMBER)"' || true)"
+[[ -z "$fixed" ]] || die "o projeto fixa CURRENT_PROJECT_VERSION; volte para \$(CLOUD_BUILD_NUMBER) com: xcrun xcodeproj setting set CURRENT_PROJECT_VERSION '\$(CLOUD_BUILD_NUMBER)' --target Mural"
 mural_release_tag_version "$tag" "$root" >/dev/null || exit 1
 git fetch --quiet "$remote" main || die "não deu para ler a main de $remote"
 git merge-base --is-ancestor "$remote/main" main || die "a main de $remote tem commits que a local não tem; atualize antes"
 
 pending="$(git rev-list --count "$remote/main..main")"
 if $check_only; then
-    echo "$tag: versão $current → $version, $pending commits a enviar para $remote"
+    echo "$tag: versão $current → $version, build local $build → $next_build, $pending commits a enviar para $remote"
     exit 0
 fi
 
 $verify && scripts/verify.sh
 
-# Versão e tag.
+# Versão, build local e tag: a build sobe a cada release, mesmo que a versão já seja a pedida.
+sed -i '' "s/^CLOUD_BUILD_NUMBER[[:space:]]*=.*/CLOUD_BUILD_NUMBER = $next_build/" Config/Project.xcconfig
 if [[ "$current" != "$version" ]]; then
     sed -i '' "s/^CLOUD_MARKETING_VERSION[[:space:]]*=.*/CLOUD_MARKETING_VERSION = $version/" Config/Project.xcconfig
-    git commit --quiet -m "Sobe a versão para $version" -- Config/Project.xcconfig
+    git commit --quiet -m "Sobe a versão para $version e a build local para $next_build" -- Config/Project.xcconfig
+else
+    git commit --quiet -m "Sobe a build local para $next_build" -- Config/Project.xcconfig
 fi
-git tag -a "$tag" -m "Mural $version"
+git tag -a "$tag" -m "Mural $version (build $next_build)"
 
 pending="$(git rev-list --count "$remote/main..main")"
 echo "Pronto: $tag, com $pending commits na main ainda não enviados para $remote:"
