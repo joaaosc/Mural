@@ -76,4 +76,29 @@ struct LaunchConfigurationTests {
         #expect(performance.path != manual.path)
         #expect(performance.deletingLastPathComponent().path == manual.deletingLastPathComponent().path)
     }
+
+    @Test("As cópias de edição: dentro da biblioteca; a pasta visível fica na biblioteca de testes nos testes de interface")
+    func pasteEditRootsInUITesting() {
+        for argument in ["-uiTesting", "-uiTestingKeep"] {
+            let arguments = [argument]
+            let library = LaunchConfiguration.libraryRoot(arguments: arguments)
+            let roots = LaunchConfiguration.pasteEditRoots(arguments: arguments)
+
+            #expect(roots.inside.path == library.path + "/PasteEdits")
+            #expect(roots.visible.path == library.path + "/PasteEditsVisible")
+            #expect(!roots.visible.path.hasSuffix("/Downloads/Edições do Mural"))
+        }
+    }
+
+    @Test("Com -realPasteEditor, ou sem testes de interface, a pasta visível é a Downloads de verdade")
+    func pasteEditRootsUseTheRealDownloads() {
+        let home = LaunchConfiguration.realHomeDirectory().path
+        for arguments in [[], ["-uiTesting", "-realPasteEditor"], ["-uiTestingKeep", "-realPasteEditor"]] {
+            let roots = LaunchConfiguration.pasteEditRoots(arguments: arguments)
+
+            #expect(roots.visible.path == home + "/Downloads/Edições do Mural", "\(arguments)")
+            #expect(!roots.visible.path.contains("/Library/Containers/"), "\(arguments)")
+            #expect(roots.inside.path == LaunchConfiguration.libraryRoot(arguments: arguments).path + "/PasteEdits")
+        }
+    }
 }
