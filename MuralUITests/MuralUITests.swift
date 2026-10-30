@@ -703,6 +703,11 @@ final class MuralUITests: XCTestCase {
 
         let card = app.buttons["foto-teste"]
         XCTAssertTrue(card.waitForExistence(timeout: 5), "⌘V com arquivo de imagem deveria criar um cartão")
+        // Para conferir a folha de trás da foto.
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "Foto com folha atrás"
+        shot.lifetime = .keepAlways
+        add(shot)
         card.click()
         // Rótulo e valor formam um só elemento de acessibilidade: "RESOLUTION, 40 × 30".
         let resolution = app.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", "40 × 30")).firstMatch
