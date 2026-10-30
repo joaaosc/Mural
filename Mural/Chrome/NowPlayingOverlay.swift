@@ -10,23 +10,20 @@ struct NowPlayingOverlay: View {
     let obstacles: [CGRect]
     let container: CGSize
 
-    var dockStore: NowPlayingDockStore = .shared
-
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let summary = playback.summary(in: tabs)
-        ZStack(alignment: .bottomLeading) {
+        ZStack(alignment: .bottom) {
             if let summary {
                 NowPlayingPositioned(
                     summary: summary, elapsed: { playback.playbackTime }, actions: actions(for: summary),
-                    obstacles: obstacles, container: container, dock: dockStore.dock,
-                    setDock: { dockStore.dock = $0 }
+                    obstacles: obstacles, container: container
                 )
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: summary?.itemID)
     }
 

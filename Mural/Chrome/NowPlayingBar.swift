@@ -145,36 +145,29 @@ struct NowPlayingBar: View {
     }
 }
 
-/// O miniplayer no rodapé da janela, encaixado à esquerda, no centro ou à direita, acima dos controles do rodapé que
-/// cruzem o lugar dele. Arrastar a cápsula na horizontal a leva ao ponto mais perto; clicar nela abre o cartão expandido
-/// acima.
+/// O miniplayer centralizado no rodapé da janela, acima dos controles do rodapé que cruzem o lugar dele. Clicar na
+/// cápsula abre o cartão expandido acima.
 struct NowPlayingPositioned: View {
     let summary: NowPlayingSummary
     let elapsed: () -> TimeInterval
     let actions: NowPlayingActions
     let obstacles: [CGRect]
     let container: CGSize
-    let dock: NowPlayingDock
-    let setDock: (NowPlayingDock) -> Void
 
     /// O vão entre o cartão expandido e a cápsula, em pontos.
     private static let cardGap: CGFloat = 10
 
     @Namespace private var glassNamespace
     @State private var isExpanded = false
-    @GestureState private var dragX: CGFloat = 0
-    @GestureState private var isDragging = false
-    @State private var lastDragEnd = Date.distantPast
     @FocusState private var cardHasFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let placement = NowPlayingPlacement(
-            container: container, obstacles: obstacles, dock: dock, barWidth: NowPlayingPlacement.pillWidth)
+        let placement = NowPlayingPlacement(container: container, obstacles: obstacles)
         // `spacing: 0`: o vidro só se funde com formas que se tocam; com o vão de `cardGap`, o cartão e a cápsula ficam
         // duas formas separadas, sem "cola" entre elas.
         GlassEffectContainer(spacing: 0) {
-            VStack(alignment: dock.horizontalAlignment, spacing: Self.cardGap) {
+            VStack(spacing: Self.cardGap) {
                 if isExpanded {
                     NowPlayingExpanded(
                         summary: summary, elapsed: elapsed, actions: expandedActions, glassNamespace: glassNamespace,
@@ -188,20 +181,15 @@ struct NowPlayingPositioned: View {
                     .transition(reduceMotion ? .opacity : .identity)
                 }
                 NowPlayingBar(
-                    summary: summary, elapsed: elapsed, actions: barActions, expand: { setExpanded(!isExpanded) },
+                    summary: summary, elapsed: elapsed, actions: actions, expand: { setExpanded(!isExpanded) },
                     glassNamespace: glassNamespace
                 )
                 .frame(width: placement.maxWidth)
-                .simultaneousGesture(drag(placement))
-                .accessibilityAction(named: "Encaixar à esquerda") { snap(to: .leading) }
-                .accessibilityAction(named: "Encaixar no centro") { snap(to: .center) }
-                .accessibilityAction(named: "Encaixar à direita") { snap(to: .trailing) }
             }
         }
-        .offset(x: dragX)
         .padding(.horizontal, NowPlayingPlacement.margin)
         .padding(.bottom, placement.bottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: dock.bottomAlignment)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .background {
             // Um clique fora do cartão o recolhe.
             if isExpanded {
@@ -210,44 +198,7 @@ struct NowPlayingPositioned: View {
                     .onTapGesture { setExpanded(false) }
             }
         }
-        .onChange(of: dock) { HapticFeedback.play() }
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement.bottomPadding)
-    }
-
-    // MARK: Arrastar
-
-    private func drag(_ placement: NowPlayingPlacement) -> some Gesture {
-        DragGesture(minimumDistance: 4, coordinateSpace: .global)
-            .updating($isDragging) { _, active, _ in active = true }
-            .updating($dragX) { value, offset, _ in
-                let lower = NowPlayingPlacement.margin - placement.originX
-                let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
-                offset = min(max(value.translation.width, lower), max(upper, lower))
-            }
-            .onEnded { value in
-                let lower = NowPlayingPlacement.margin - placement.originX
-                let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
-                let offset = min(max(value.translation.width, lower), max(upper, lower))
-                let midX = placement.originX + placement.maxWidth / 2 + offset
-                lastDragEnd = Date()
-                snap(to: NowPlayingDock.nearest(toMidX: midX, container: container, barWidth: placement.maxWidth))
-            }
-    }
-
-    private func snap(to target: NowPlayingDock) {
-        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.45, bounce: 0.25)) {
-            setDock(target)
-        }
-    }
-
-    /// Cliques que terminam um arrasto não contam: a cápsula acompanha o ponteiro, que acaba solto sobre um botão.
-    private var justDragged: Bool { isDragging || Date().timeIntervalSince(lastDragEnd) < 0.3 }
-
-    private var barActions: NowPlayingActions {
-        var guarded = actions
-        guarded.playPause = { if !justDragged { actions.playPause() } }
-        guarded.next = { if !justDragged { actions.next() } }
-        return guarded
     }
 
     // MARK: Expandir
@@ -263,7 +214,6 @@ struct NowPlayingPositioned: View {
     }
 
     private func setExpanded(_ value: Bool) {
-        guard !justDragged else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.4, bounce: 0.15)) {
             isExpanded = value
         }
@@ -290,7 +240,6 @@ private struct PreviewBar: View {
 /// Simula a janela: uma barra de criação ao centro e o zoom à direita, ambos marcados como obstáculos.
 private struct PreviewPlacement: View {
     let size: CGSize
-    @State private var dock = NowPlayingDock.leading
 
     var body: some View {
         Theme.canvas
@@ -308,7 +257,7 @@ private struct PreviewPlacement: View {
                 GeometryReader { proxy in
                     NowPlayingPositioned(
                         summary: .playing, elapsed: { 60 }, actions: previewActions,
-                        obstacles: anchors.map { proxy[$0] }, container: proxy.size, dock: dock, setDock: { dock = $0 }
+                        obstacles: anchors.map { proxy[$0] }, container: proxy.size
                     )
                 }
             }
