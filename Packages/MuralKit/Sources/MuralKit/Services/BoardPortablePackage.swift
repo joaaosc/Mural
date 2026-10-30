@@ -126,32 +126,6 @@ public actor BoardPortablePackageService {
         self.availableCapacity = availableCapacity
     }
 
-    public func export(
-        snapshot: BoardRepositorySnapshot,
-        sourceItems: URL?,
-        destination: URL
-    ) throws -> URL {
-        let root = destination.deletingLastPathComponent().standardizedFileURL
-        let package = destination.standardizedFileURL
-        try ensureDescendant(package, of: root)
-        try ensurePathComponents(from: root, to: package)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        let staging = root.appendingPathComponent(".\(package.lastPathComponent)-staging-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: staging) }
-        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
-        let items = staging.appendingPathComponent("Items", isDirectory: true)
-        try fileManager.createDirectory(at: items, withIntermediateDirectories: true)
-        if let sourceItems {
-            try copyTree(sourceItems.standardizedFileURL, to: items)
-        }
-        try encode(snapshot.manifest).write(to: staging.appendingPathComponent("manifest.json"), options: .atomic)
-        try encode(snapshot.board).write(to: staging.appendingPathComponent("board.json"), options: .atomic)
-        try encode(snapshot.workspace.validated(for: snapshot.board)).write(
-            to: staging.appendingPathComponent("view-state.json"), options: .atomic)
-        try validate(staging)
-        return try finalize(package: staging, destination: package, root: root)
-    }
-
     func finalize(package: URL, destination: URL, root: URL) throws -> URL {
         let package = package.standardizedFileURL
         let destination = destination.standardizedFileURL
