@@ -190,10 +190,29 @@ struct BoardLibraryReadTests {
         #expect(try contents(of: created.package) == before, "nada foi movido, criado nem apagado")
         #expect(try Data(contentsOf: viewState) == Data("not-json".utf8))
 
-        // Controle: abrir o mural é que move o arquivo ilegível para a quarentena.
+        // Controle: abrir o mural é que move o arquivo ilegível para a quarentena e grava o estado padrão no lugar.
         _ = try await library.open(created.route)
-        #expect(!FileManager.default.fileExists(atPath: viewState.path))
+        #expect(try Data(contentsOf: viewState) != Data("not-json".utf8))
         #expect(try contents(of: created.package).keys.contains { $0.hasPrefix("view-state-corrupt-") })
+    }
+
+    @Test("Depois da quarentena do view-state.json o mural abre de novo e continua na listagem")
+    func quarantinedViewStateIsReplacedWithDefault() async throws {
+        let directory = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = BoardLibrary(rootDirectory: directory)
+        let created = try await createBoard("Estado ilegível", in: library)
+        try await save(Board(items: [sticky]), to: created.route, in: library)
+        let viewState = created.package.appendingPathComponent("view-state.json")
+        try Data("not-json".utf8).write(to: viewState)
+
+        let first = try #require(await library.open(created.route))
+        #expect(FileManager.default.fileExists(atPath: viewState.path), "o estado padrão foi regravado")
+
+        let second = try #require(await library.open(created.route))
+        #expect(second.board == Board(items: [sticky]))
+        #expect(second.workspace == first.workspace)
+        #expect(try await library.listSavedReport().entries.map(\.route) == [created.route])
     }
 
     @Test("Um manifest.json ilegível também não impede a leitura do board.json")

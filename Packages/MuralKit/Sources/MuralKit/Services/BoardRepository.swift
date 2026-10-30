@@ -160,6 +160,9 @@ public actor BoardRepository {
                 try FileManager.default.moveItem(at: viewStateURL, to: quarantineURL)
                 let validation = BoardWorkspaceState(contentRevision: manifest.contentRevision)
                     .canonicalized(for: board)
+                // Sem um view-state.json novo a biblioteca recusaria o pacote incompleto na abertura seguinte e na listagem.
+                // Se a gravação falhar, o retorno continua o mesmo e o próximo load trata o arquivo como ausente.
+                try? encode(validation.state).write(to: viewStateURL, options: .atomic)
                 return BoardRepositoryLoadResult(
                     snapshot: BoardRepositorySnapshot(manifest: manifest, board: board, workspace: validation.state),
                     workspaceStatus: .quarantined(filename: quarantineName),
