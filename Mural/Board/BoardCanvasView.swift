@@ -155,26 +155,30 @@ struct BoardCanvasView: View {
                     let itemEmphasis = currentFocus.emphasis(for: item)
                     let itemSize = displayedSize(for: item, cachedSizes: itemSizes, override: itemSizeOverride)
                     let shrink = hoverShrinkState(for: item, size: itemSize)
-                    cardGroup(for: item, size: itemSize, focus: currentFocus)
-                        .cardEmphasis(itemEmphasis)
-                        // Sobre uma pasta: encolhe em direção ao ponteiro para a pasta continuar visível.
-                        .modifier(
-                            FolderHoverShrink(
-                                progress: shrink.isShrunk ? 1 : 0, anchor: shrink.anchor, minScale: shrink.minScale,
-                                reduceMotion: reduceMotion)
-                        )
-                        .animation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.35), value: shrink.isShrunk)
-                        // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
-                        .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSize))
-                        .opacity(storing == item.id ? 0 : 1)
-                        .offset(offset(for: item))
-                        .zIndex(drag?.origins[item.id] != nil ? 4 : currentFocus.layer(for: item, emphasis: itemEmphasis))
+                    cardGroup(
+                        for: item, size: itemSize, focus: currentFocus,
+                        rendersContent: rendered.visualItemIDs.contains(item.id)
+                    )
+                    .cardEmphasis(itemEmphasis)
+                    // Sobre uma pasta: encolhe em direção ao ponteiro para a pasta continuar visível.
+                    .modifier(
+                        FolderHoverShrink(
+                            progress: shrink.isShrunk ? 1 : 0, anchor: shrink.anchor, minScale: shrink.minScale,
+                            reduceMotion: reduceMotion)
+                    )
+                    .animation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.35), value: shrink.isShrunk)
+                    // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
+                    .scaleEffect(storing == item.id ? 0.1 : 1, anchor: storeAnchor(for: item, size: itemSize))
+                    .opacity(storing == item.id ? 0 : 1)
+                    .offset(offset(for: item))
+                    .zIndex(drag?.origins[item.id] != nil ? 4 : currentFocus.layer(for: item, emphasis: itemEmphasis))
                 }
                 ForEach(renderedFreeTexts) { freeText in
                     let freeTextSize = displayedSize(for: freeText, cachedSizes: freeTextSizes, override: freeTextSizeOverride)
                     BoardFreeTextView(
                         freeText: freeText,
                         size: freeTextSize,
+                        rendersContent: rendered.visualFreeTextIDs.contains(freeText.id),
                         onEdit: { onFreeTextEdit?(freeText.id) },
                         onDelete: { onFreeTextDelete?(freeText.id) },
                         onResize: { size in
@@ -299,13 +303,13 @@ struct BoardCanvasView: View {
 
     @ViewBuilder
     private func cardGroup(
-        for item: BoardItem, size cachedSize: BoardSize? = nil, focus: BoardFocus
+        for item: BoardItem, size cachedSize: BoardSize? = nil, focus: BoardFocus, rendersContent: Bool = true
     ) -> some View {
         let size = cachedSize ?? displayedSize(of: item)
         if item.kind == .folder {
             // O leque da pasta sai pela borda direita: a prévia começa depois dele, com a folga de 14 pt de sempre.
             HStack(alignment: .top, spacing: FolderCard.fanReach + 14) {
-                cardButton(item, open: [.collection(item.id)], size: size)
+                cardButton(item, open: [.collection(item.id)], size: size, rendersContent: rendersContent)
                     .frame(width: size.width, height: size.height)
                     .dropTargetHighlight(highlightState(of: item, focus: focus))
                     .highPriorityGesture(moveGesture(for: item))
@@ -331,7 +335,7 @@ struct BoardCanvasView: View {
             }
             .onHover { inside in pointerMoved(over: item.id, inside: inside) }
         } else if BoardLayout.isResizable(item.kind) {
-            cardButton(item, open: [.item(item.id)], size: size)
+            cardButton(item, open: [.item(item.id)], size: size, rendersContent: rendersContent)
                 .frame(width: size.width, height: size.height)
                 // A letra e a margem do post-it acompanham o tamanho mostrado, inclusive durante o arrasto do canto.
                 .contentScaled(for: item, width: size.width, height: size.height)
@@ -345,7 +349,7 @@ struct BoardCanvasView: View {
                 .onHover { inside in resizableHoverChanged(.item(item.id), inside: inside) }
                 .highPriorityGesture(moveGesture(for: item))
         } else {
-            cardButton(item, open: [.item(item.id)], size: size)
+            cardButton(item, open: [.item(item.id)], size: size, rendersContent: rendersContent)
                 .frame(width: size.width, height: size.height)
                 .highPriorityGesture(moveGesture(for: item))
         }
@@ -354,12 +358,14 @@ struct BoardCanvasView: View {
     private func cardButton(
         _ item: BoardItem,
         open destinations: [Destination],
-        size: BoardSize? = nil
+        size: BoardSize? = nil,
+        rendersContent: Bool = true
     ) -> some View {
         CardButton(
             item: item,
             model: model,
             hero: hero,
+            rendersContent: rendersContent,
             onOpen: { open(destinations) },
             onDelete: onDelete,
             onMoveToBoard: onMoveToBoard,

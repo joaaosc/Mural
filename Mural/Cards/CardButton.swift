@@ -10,6 +10,8 @@ struct CardButton: View {
     let item: BoardItem
     let model: BoardModel
     let hero: HeroContext
+    /// Fora da região pré-carregada, mantém o botão e suas ações acessíveis sem construir a prévia visual.
+    var rendersContent = true
     var onOpen: () -> Void
     var onDelete: ((UUID) -> Void)? = nil
     var onMoveToBoard: ((UUID) -> Void)? = nil
@@ -60,9 +62,13 @@ struct CardButton: View {
         let detail = accessibilityDetail
         let card = Button(action: activate) {
             ZStack(alignment: .bottomLeading) {
-                CardView(item: item, model: model)
-                    .environment(\.hoverVideoPreviewEnabled, allowsHoverVideo)
-                CardCaptionView(caption: item.caption)
+                if rendersContent {
+                    CardView(item: item, model: model)
+                        .environment(\.hoverVideoPreviewEnabled, allowsHoverVideo)
+                    CardCaptionView(caption: item.caption)
+                } else {
+                    Color.clear
+                }
             }
         }
         .buttonStyle(.plain)

@@ -8,6 +8,8 @@ struct BoardFreeTextView: View {
     let freeText: BoardFreeText
     /// Tamanho mostrado agora, em pontos do mural: o do texto ou, durante o arrasto do canto, o que o arrasto dá a ele.
     let size: BoardSize
+    /// A representação acessível permanece disponível quando o texto está fora da região pré-carregada.
+    var rendersContent = true
     var onEdit: () -> Void
     var onDelete: (() -> Void)? = nil
     /// Muda o tamanho pelo menu; `nil` esconde a ação. Recebe `nil` para voltar ao quadrado padrão.
@@ -28,7 +30,7 @@ struct BoardFreeTextView: View {
     }
 
     var body: some View {
-        Text(freeText.text.isEmpty ? "Texto livre" : freeText.text)
+        Text(rendersContent ? (freeText.text.isEmpty ? "Texto livre" : freeText.text) : "")
             .font(.system(size: Self.fontSize(for: size), weight: .regular, design: .default))
             .multilineTextAlignment(.center)
             // O conteúdo continua limitado no domínio a 280 caracteres; o limite
@@ -43,12 +45,12 @@ struct BoardFreeTextView: View {
             )
             .clipped()
             .contentShape(Rectangle())
-            .background(
-                reduceTransparency
-                    ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
-                    : AnyShapeStyle(.regularMaterial),
-                in: .rect(cornerRadius: 24)
-            )
+            .background {
+                if rendersContent {
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(reduceTransparency ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor)) : AnyShapeStyle(.regularMaterial))
+                }
+            }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(freeText.text.isEmpty ? "Texto livre vazio" : freeText.text)
             .accessibilityHint("Clique duas vezes para editar. Arraste para mover.")

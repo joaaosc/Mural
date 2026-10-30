@@ -4,8 +4,11 @@ import MuralKit
 
 /// Seleção geométrica dos elementos que precisam existir na árvore do canvas agora.
 /// O frame do `ScrollView` continua cobrindo o mural inteiro; só os elementos fora da
-/// janela (com uma margem de pré-carregamento) deixam de construir subviews SwiftUI.
+/// janela (com uma margem de pré-carregamento) deixam de construir prévias SwiftUI.
+/// Com acessibilidade ativa, os controles permanecem presentes sem suas prévias distantes.
 enum CanvasRenderCulling {
+    // A margem excede a histerese de 0,25 janela para atualizar o recorte antes de expor cartões novos.
+    static let defaultOverscan: CGFloat = 0.5
     struct SizeOverride: Equatable {
         let id: UUID
         let size: BoardSize
@@ -28,6 +31,8 @@ enum CanvasRenderCulling {
         let key: Key
         let items: [BoardItem]
         let freeTexts: [BoardFreeText]
+        let visualItemIDs: Set<UUID>
+        let visualFreeTextIDs: Set<UUID>
     }
 
     final class Cache {
@@ -45,34 +50,42 @@ enum CanvasRenderCulling {
             freeTextSizes: [UUID: BoardSize],
             itemSizeOverride: SizeOverride? = nil,
             freeTextSizeOverride: SizeOverride? = nil
-        ) -> (items: [BoardItem], freeTexts: [BoardFreeText]) {
+        ) -> Snapshot {
             if let snapshot, snapshot.key == key {
-                return (snapshot.items, snapshot.freeTexts)
+                return snapshot
             }
             let content: (items: [BoardItem], freeTexts: [BoardFreeText])
             if viewport.isEmpty {
-                content = (items, freeTexts)
+                // A extensão do ScrollView independe dos filhos. Aguarda a geometria sem
+                // materializar um mural inteiro no primeiro layout; preserva interações ativas.
+                content = (items.filter { alwaysRendered.contains($0.id) }, freeTexts.filter { alwaysRenderedFreeTexts.contains($0.id) })
             } else {
                 content = (
                     visibleItems(
                         items,
                         in: viewport,
                         alwaysInclude: alwaysRendered,
-                        forceAll: forceAll,
+                        forceAll: false,
                         displayedSizes: itemSizes,
                         sizeOverride: itemSizeOverride),
                     visibleFreeTexts(
                         freeTexts,
                         in: viewport,
                         alwaysInclude: alwaysRenderedFreeTexts,
-                        forceAll: forceAll,
+                        forceAll: false,
                         displayedSizes: freeTextSizes,
                         sizeOverride: freeTextSizeOverride
                     )
                 )
             }
-            snapshot = Snapshot(key: key, items: content.items, freeTexts: content.freeTexts)
-            return content
+            let next = Snapshot(
+                key: key,
+                items: forceAll ? items : content.items,
+                freeTexts: forceAll ? freeTexts : content.freeTexts,
+                visualItemIDs: Set(content.items.map(\.id)),
+                visualFreeTextIDs: Set(content.freeTexts.map(\.id)))
+            snapshot = next
+            return next
         }
     }
 
@@ -92,8 +105,7 @@ enum CanvasRenderCulling {
 
     /// Recalcula imediatamente a janela lógica quando o zoom confirmado muda.
     /// Se a geometria real ainda não existe, conserva o último recorte conhecido:
-    /// viewport vazia significa "renderizar tudo" para o cache e causaria uma
-    /// materialização integral do mural entre o comando de zoom e o próximo layout.
+    /// evita descartar as prévias atuais e reconstruí-las no próximo layout.
     static func viewportAfterZoom(current: CGRect, visibleRect: CGRect, zoom: CGFloat) -> CGRect {
         let updated = logicalVisibleRect(visibleRect, zoom: zoom)
         return updated.isEmpty ? current : updated
@@ -115,7 +127,7 @@ enum CanvasRenderCulling {
         _ items: [BoardItem],
         in logicalViewport: CGRect,
         alwaysInclude: Set<UUID> = [],
-        overscan: CGFloat = 1,
+        overscan: CGFloat = defaultOverscan,
         forceAll: Bool = false,
         displayedSizes: [UUID: BoardSize] = [:],
         sizeOverride: SizeOverride? = nil
@@ -145,7 +157,7 @@ enum CanvasRenderCulling {
         _ freeTexts: [BoardFreeText],
         in logicalViewport: CGRect,
         alwaysInclude: Set<UUID> = [],
-        overscan: CGFloat = 1,
+        overscan: CGFloat = defaultOverscan,
         forceAll: Bool = false,
         displayedSizes: [UUID: BoardSize] = [:],
         sizeOverride: SizeOverride? = nil

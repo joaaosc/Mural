@@ -155,6 +155,75 @@ struct CanvasRenderCullingTests {
         #expect(CanvasRenderCulling.shouldUpdateViewport(current: current, next: CGRect(x: 60, y: 0, width: 200, height: 200)))
     }
 
+    @Test("A árvore acessível mantém itens distantes, mas suas prévias visuais são recortadas")
+    func accessibleItemsKeepIndependentVisualVisibility() {
+        let visible = BoardItem(id: UUID(), kind: .text, title: "Visível", position: BoardPoint(x: 20, y: 20))
+        let distant = BoardItem(id: UUID(), kind: .text, title: "Distante", position: BoardPoint(x: 2000, y: 2000))
+        let text = BoardFreeText(id: UUID(), text: "Texto distante", position: BoardPoint(x: 2000, y: 2000))
+        let viewport = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let full = snapshot(items: [visible, distant], freeTexts: [text], viewport: viewport, forceAll: true)
+        #expect(full.items == [visible, distant])
+        #expect(full.freeTexts == [text])
+        #expect(full.visualItemIDs == [visible.id])
+        #expect(full.visualFreeTextIDs.isEmpty)
+
+        let culled = snapshot(items: [visible, distant], freeTexts: [text], viewport: viewport, forceAll: false)
+        #expect(culled.items == [visible])
+        #expect(culled.freeTexts.isEmpty)
+        #expect(culled.visualItemIDs == full.visualItemIDs)
+    }
+
+    @Test("Sem geometria, aguarda o primeiro layout sem construir todas as prévias")
+    func initialLayoutPreservesSemanticsAndActiveInteractions() {
+        let item = BoardItem(id: UUID(), kind: .text, title: "Cartão", position: BoardPoint(x: 20, y: 20))
+        let text = BoardFreeText(id: UUID(), text: "Texto", position: BoardPoint(x: 20, y: 20))
+        let pending = snapshot(items: [item], freeTexts: [text], viewport: .zero, forceAll: true)
+        #expect(pending.items == [item])
+        #expect(pending.freeTexts == [text])
+        #expect(pending.visualItemIDs.isEmpty)
+        #expect(pending.visualFreeTextIDs.isEmpty)
+        let normal = snapshot(items: [item], freeTexts: [text], viewport: .zero, forceAll: false)
+        #expect(normal.items.isEmpty)
+        #expect(normal.freeTexts.isEmpty)
+        let active = snapshot(
+            items: [item], freeTexts: [text], viewport: .zero, forceAll: false, alwaysItems: [item.id], alwaysTexts: [text.id])
+        #expect(active.items == [item])
+        #expect(active.freeTexts == [text])
+        #expect(active.visualItemIDs == [item.id])
+        #expect(active.visualFreeTextIDs == [text.id])
+    }
+
+    @Test("O pré-carregamento cobre a área visível em todas as direções até o limite da histerese")
+    func preloadCoversViewportUntilRefresh() {
+        let items = (0..<400).map { index in
+            BoardItem(
+                id: UUID(), kind: .sticky, title: "\(index)", position: BoardPoint(x: Double(index % 20) * 50, y: Double(index / 20) * 50))
+        }
+        let current = CGRect(x: 500, y: 500, width: 200, height: 100)
+        let preloaded = Set(CanvasRenderCulling.visibleItems(items, in: current).map(\.id))
+        for dx in [-50.0, 0, 50] {
+            for dy in [-25.0, 0, 25] {
+                let next = current.offsetBy(dx: dx, dy: dy)
+                #expect(!CanvasRenderCulling.shouldUpdateViewport(current: current, next: next))
+                let visible = Set(CanvasRenderCulling.visibleItems(items, in: next, overscan: 0).map(\.id))
+                #expect(visible.isSubset(of: preloaded))
+            }
+        }
+        #expect(CanvasRenderCulling.shouldUpdateViewport(current: current, next: current.offsetBy(dx: 51, dy: 0)))
+    }
+
+    private func snapshot(
+        items: [BoardItem], freeTexts: [BoardFreeText], viewport: CGRect, forceAll: Bool, alwaysItems: Set<UUID> = [],
+        alwaysTexts: Set<UUID> = []
+    ) -> CanvasRenderCulling.Snapshot {
+        let key = CanvasRenderCulling.Key(
+            boardID: BoardID(), generation: 1, boardRevision: 1, renderViewport: viewport, alwaysRendered: alwaysItems,
+            alwaysRenderedFreeTexts: alwaysTexts, forceAll: forceAll, resizingItemID: nil, resizingFreeTextID: nil, resizingSize: nil)
+        return CanvasRenderCulling.Cache().content(
+            for: key, items: items, freeTexts: freeTexts, viewport: viewport, alwaysRendered: alwaysItems,
+            alwaysRenderedFreeTexts: alwaysTexts, forceAll: forceAll, itemSizes: [:], freeTextSizes: [:])
+    }
+
     @Test("Zoom recalcula a viewport lógica sem abrir o mural inteiro")
     func viewportAfterZoomUsesCompensatedVisibleRect() {
         let current = CGRect(x: 10, y: 20, width: 800, height: 600)
