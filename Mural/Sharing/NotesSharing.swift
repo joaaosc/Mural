@@ -44,8 +44,23 @@ enum NotesRichText {
                 return NSAttributedString(attachment: attachment)
             }
             return plain(alt, font: .systemFont(ofSize: baseSize))
+        case .card(let card, let title):
+            return plain(cardLine(card, title: title), font: .systemFont(ofSize: baseSize))
         case .rule:
             return plain(String(repeating: "—", count: 20), font: .systemFont(ofSize: baseSize))
+        }
+    }
+
+    /// Linha de texto simples de um cartão embutido: música "título — subtítulo", lembrete só o título, link "título (endereço)".
+    private static func cardLine(_ card: EmbeddedCard, title: String) -> String {
+        switch card {
+        case .music(let snapshot):
+            guard let subtitle = snapshot.subtitle, !subtitle.isEmpty else { return title }
+            return "\(title) — \(subtitle)"
+        case .reminder:
+            return title
+        case .link(let info):
+            return "\(title) (\(WebLink.removingTrackingParameters(from: info.url).absoluteString))"
         }
     }
 
