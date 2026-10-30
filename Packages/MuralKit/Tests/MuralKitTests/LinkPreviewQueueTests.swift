@@ -334,6 +334,23 @@ struct LinkPreviewQueueTests {
             ])
     }
 
+    @Test("Contador de tentativas absurdo (de um board.json importado) é limitado e não trava")
+    func absurdAttemptCountIsClamped() async {
+        let harness = Harness()
+        defer { harness.cleanup() }
+        let request = harness.request("a.example.com", attempts: Int.max)
+        await harness.fetcher.setOutcome(.failure(URLError(.notConnectedToInternet)), for: request.itemID)
+        await harness.fetcher.releaseAll()
+
+        await harness.queue.enqueue([request])
+        await harness.settle()
+
+        #expect(
+            await harness.deliveries.updates == [
+                LinkPreviewUpdate(itemID: request.itemID, state: .failed(at: fixedNow, attempts: 1_001))
+            ])
+    }
+
     @Test("Falha ao gravar os arquivos também vira .failed")
     func storeFailureBecomesFailedUpdate() async throws {
         let blocker = FileManager.default.temporaryDirectory.appendingPathComponent("MuralQueueBlocker-\(UUID().uuidString)")

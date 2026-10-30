@@ -411,7 +411,10 @@ public actor BoardPortablePackageService {
             item.title.count <= 1_000, music.title.count <= 1_000,
             (music.subtitle?.count ?? 0) <= 1_000, (music.albumTitle?.count ?? 0) <= 1_000,
             (music.libraryPlaylistName?.count ?? 0) <= 1_000,
-            music.artworkFile.map(isSafeFileName) ?? true
+            music.artworkFile.map(isSafeFileName) ?? true,
+            // Valores absurdos viriam de um pacote adulterado e travariam a exibição.
+            music.duration.map({ $0.isFinite && $0 >= 0 && $0 <= 10_000_000 }) ?? true,
+            music.trackCount.map({ (0...100_000).contains($0) }) ?? true
         else { throw BoardPortablePackageError.invalidMusic(item.id) }
     }
 

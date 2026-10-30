@@ -26,6 +26,16 @@ struct MusicCardTests {
         #expect(music(.station).detailLine == "Estação")
     }
 
+    @Test("Duração absurda ou inválida mostra só o nome, sem travar")
+    func absurdDurationShowsOnlyName() {
+        #expect(music(.song, duration: 1e300).detailLine == "Música")
+        #expect(music(.song, duration: 10_000_001).detailLine == "Música")
+        #expect(music(.song, duration: .infinity).detailLine == "Música")
+        #expect(music(.song, duration: .nan).detailLine == "Música")
+        #expect(music(.song, duration: -1).detailLine == "Música")
+        #expect(MusicSnapshot.clock(1e300) == "2777:46:40")
+    }
+
     @Test("Nomes e símbolos dos tipos")
     func namesAndSymbols() {
         #expect(MusicItemKind.allCases.map(\.displayName) == ["Álbum", "Música", "Playlist", "Estação"])

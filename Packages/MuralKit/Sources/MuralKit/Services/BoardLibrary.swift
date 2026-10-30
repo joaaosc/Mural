@@ -478,9 +478,14 @@ public actor BoardLibrary {
             manifest.id = newID
             // O mural importado é um mural novo, só deste Mac: não herda a zona do iCloud do mural de origem.
             manifest.cloud = nil
+            // Mural novo recomeça as revisões: um valor no teto do inteiro travaria a primeira edição (`+= 1`).
+            manifest.contentRevision = 0
+            manifest.workspaceRevision = 0
             // O pacote pode vir de fora (outra build, outro programa) com um nome que o macOS não aceita num arquivo.
             if BoardName.issue(in: manifest.name) != nil { manifest.name = BoardName.sanitized(manifest.name) }
-            let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: loaded.snapshot.workspace)
+            var workspace = loaded.snapshot.workspace
+            workspace.contentRevision = manifest.contentRevision
+            let snapshot = BoardRepositorySnapshot(manifest: manifest, board: loaded.snapshot.board, workspace: workspace)
             try await savedRepository.save(
                 snapshot,
                 copyingItemsFrom: staging.appendingPathComponent("Items", isDirectory: true),

@@ -11,11 +11,13 @@ struct BoardPortablePackageTests {
         return url
     }
 
-    private func package(at root: URL, board: Board, workspace: BoardWorkspaceState? = nil) throws -> URL {
+    private func package(
+        at root: URL, board: Board, workspace: BoardWorkspaceState? = nil, manifest: BoardManifest? = nil
+    ) throws -> URL {
         let package = root.appendingPathComponent("external-\(UUID().uuidString).mural", isDirectory: true)
         try FileManager.default.createDirectory(
             at: package.appendingPathComponent("Items", isDirectory: true), withIntermediateDirectories: true)
-        let manifest = BoardManifest(id: BoardID(), name: "Transfer")
+        let manifest = manifest ?? BoardManifest(id: BoardID(), name: "Transfer")
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .custom { date, encoder in
             var container = encoder.singleValueContainer()
@@ -54,12 +56,66 @@ struct BoardPortablePackageTests {
         let imported = try await library.importPackage(from: exported)
         let importedSnapshot = try #require(await library.open(imported))
         #expect(importedSnapshot.board == board)
-        #expect(importedSnapshot.workspace == workspace)
+        // O mural importado é novo e recomeça as revisões; o resto do estado de visualização é preservado.
+        var expectedWorkspace = workspace
+        expectedWorkspace.contentRevision = 0
+        #expect(importedSnapshot.workspace == expectedWorkspace)
         #expect(imported != route)
         #expect(try snapshot(exported) == before)
         #expect(FileManager.default.fileExists(atPath: exported.path))
         try await library.cleanupTransfer(exported)
         #expect(!FileManager.default.fileExists(atPath: exported.path))
+    }
+
+    @Test("Cartão de música com duração ou contagem absurdas é recusado na importação")
+    func absurdMusicValuesAreRejected() async throws {
+        let cases: [MusicSnapshot] = [
+            MusicSnapshot(kind: .song, title: "Faixa", duration: 1e300),
+            MusicSnapshot(kind: .song, title: "Faixa", duration: -1),
+            MusicSnapshot(kind: .song, title: "Faixa", duration: 10_000_001),
+            MusicSnapshot(kind: .album, title: "Álbum", trackCount: -1),
+            MusicSnapshot(kind: .album, title: "Álbum", trackCount: 100_001),
+        ]
+        for music in cases {
+            let root = try root()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let itemID = UUID()
+            let package = try package(at: root, board: Board(items: [BoardItem(id: itemID, kind: .music, title: "Faixa", music: music)]))
+            let library = BoardLibrary(rootDirectory: root)
+            await #expect(throws: BoardLibraryError.portable(.invalidMusic(itemID))) {
+                _ = try await library.importPackage(from: package)
+            }
+        }
+    }
+
+    @Test("Cartão de música com valores nos limites é aceito")
+    func musicValuesAtLimitsAreAccepted() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let music = MusicSnapshot(kind: .song, title: "Faixa", trackCount: 100_000, duration: 10_000_000)
+        let package = try package(at: root, board: Board(items: [BoardItem(kind: .music, title: "Faixa", music: music)]))
+        _ = try await BoardLibrary(rootDirectory: root).importPackage(from: package)
+    }
+
+    @Test("Importar zera as revisões do manifesto e a sessão aceita a primeira edição")
+    func importResetsRevisions() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manifest = BoardManifest(
+            id: BoardID(), name: "Transfer", contentRevision: Int.max, workspaceRevision: Int.max)
+        let workspace = BoardWorkspaceState(contentRevision: Int.max)
+        let package = try package(
+            at: root, board: Board(items: [BoardItem(kind: .text, title: "original")]), workspace: workspace, manifest: manifest)
+        let library = BoardLibrary(rootDirectory: root)
+        let route = try await library.importPackage(from: package)
+        let imported = try #require(await library.open(route))
+        #expect(imported.manifest.contentRevision == 0)
+        #expect(imported.manifest.workspaceRevision == 0)
+        #expect(imported.workspace.contentRevision == 0)
+
+        let session = BoardSession(snapshot: imported, repository: try await library.repository(for: route))
+        try await session.update(board: Board(items: [BoardItem(kind: .text, title: "alterado")]))
+        #expect(await session.manifest.contentRevision == 1)
     }
 
     @Test("Workspace ausente importa com defaults")

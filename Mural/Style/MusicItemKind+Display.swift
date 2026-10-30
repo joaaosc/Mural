@@ -32,16 +32,20 @@ extension MusicSnapshot {
             guard let trackCount, trackCount >= 0 else { return name }
             return "\(name) · \(trackCount) \(trackCount == 1 ? "faixa" : "faixas")"
         case .song:
-            guard let duration, duration >= 0, duration.isFinite else { return name }
+            // Acima do teto a conversão para inteiro poderia travar; mostra só o nome, como para valor inválido.
+            guard let duration, duration >= 0, duration <= Self.maxDisplayedDuration else { return name }
             return "\(name) · \(Self.clock(duration))"
         case .playlist, .station:
             return name
         }
     }
 
+    /// Teto (em segundos) da duração exibida; comparação falsa para NaN, então valor inválido também cai fora.
+    static let maxDisplayedDuration: TimeInterval = 10_000_000
+
     /// Duração como "m:ss" ou, a partir de uma hora, "h:mm:ss".
     static func clock(_ duration: TimeInterval) -> String {
-        let total = Int(duration.rounded())
+        let total = Int(min(max(duration, 0), maxDisplayedDuration).rounded())
         let hours = total / 3600
         let minutes = total % 3600 / 60
         let seconds = total % 60
