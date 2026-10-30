@@ -62,33 +62,6 @@ enum LaunchConfiguration {
         }
     }
 
-    /// As pastas das cópias de "Editar antes de colar". `inside` fica dentro da biblioteca (`<raiz>/PasteEdits`), no contêiner
-    /// do app, onde o Texto edita no lugar. `visible` é a pasta Downloads de verdade (`~/Downloads/Edições do Mural`), onde a
-    /// Pré-Visualização edita no lugar. Nos testes de interface (`-uiTesting`, `-uiTestingKeep`) ela fica dentro da biblioteca de
-    /// testes (`<raiz>/PasteEditsVisible`), para nenhum teste tocar o Downloads de quem os roda; `-realPasteEditor` volta à pasta
-    /// de verdade, para a conferência com a Pré-Visualização. Só calcula os endereços, sem criar nada.
-    static func pasteEditRoots(arguments: [String] = ProcessInfo.processInfo.arguments) -> PasteEditFiles.Roots {
-        let library = libraryRoot(arguments: arguments)
-        let isUITesting = ["-uiTesting", "-uiTestingKeep"].contains(where: arguments.contains)
-        let visible =
-            isUITesting && !arguments.contains("-realPasteEditor")
-            ? library.appendingPathComponent("PasteEditsVisible", isDirectory: true)
-            : realHomeDirectory().appendingPathComponent("Downloads", isDirectory: true)
-                .appendingPathComponent("Edições do Mural", isDirectory: true)
-        return PasteEditFiles.Roots(
-            inside: library.appendingPathComponent("PasteEdits", isDirectory: true), visible: visible)
-    }
-
-    /// A pasta pessoal de verdade (`/Users/<nome>`). No App Sandbox, a Downloads que o `FileManager` devolve é um link dentro
-    /// do contêiner, e a Pré-Visualização precisa receber o caminho real. Usa o banco de usuários do sistema e, sem ele, a
-    /// pasta pessoal do `FileManager`.
-    nonisolated static func realHomeDirectory() -> URL {
-        if let entry = getpwuid(getuid()), let path = entry.pointee.pw_dir {
-            return URL(fileURLWithPath: String(cString: path), isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-    }
-
     /// Pasta das imagens e dos ícones de prévia dos links de um mural: `<raiz>/LinkPreviews/<uuid do mural>`.
     static func linkPreviewsDirectory(
         for boardID: BoardID, arguments: [String] = ProcessInfo.processInfo.arguments
@@ -120,14 +93,6 @@ enum LaunchConfiguration {
     static func linkPreviewFetcher(arguments: [String] = ProcessInfo.processInfo.arguments) -> any LinkPreviewFetching {
         if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return FixtureLinkPreviewFetcher() }
         return SystemLinkPreviewFetcher()
-    }
-
-    /// Quem abre as cópias de "Editar antes de colar": nos testes de interface, um que não abre nada e só simula a edição; com
-    /// `-realPasteEditor` e no resto, o de verdade.
-    static func pasteEditorLauncher(arguments: [String] = ProcessInfo.processInfo.arguments) -> any PasteEditorLaunching {
-        let isUITesting = ["-uiTesting", "-uiTestingKeep"].contains(where: arguments.contains)
-        if isUITesting && !arguments.contains("-realPasteEditor") { return FixtureEditorLauncher() }
-        return WorkspaceEditorLauncher()
     }
 
     /// Quem baixa as capas de música: nos testes de interface, um buscador falso, sem rede; no resto, o de verdade.

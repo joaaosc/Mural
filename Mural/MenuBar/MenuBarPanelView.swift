@@ -42,7 +42,6 @@ struct MenuBarPanelView: View {
         let stage: PanelStage
         let clipboard: ClipboardState
         let pasteStatus: PasteStatus
-        let source: PasteSource
         let showsNowPlaying: Bool
         /// A barra de tempo muda a altura da seção "Tocando agora" (estações não a têm).
         let showsNowPlayingScrubber: Bool
@@ -51,7 +50,7 @@ struct MenuBarPanelView: View {
     private var layout: Layout {
         Layout(
             isLoaded: model.isLoaded, optionCount: model.options.count, formatCount: model.formats.count,
-            stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus, source: model.source,
+            stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus,
             showsNowPlaying: playback.source != nil,
             showsNowPlayingScrubber: playback.summary(in: tabs).map(NowPlayingSection.showsScrubber(for:)) ?? false)
     }
@@ -113,11 +112,7 @@ struct MenuBarPanelView: View {
         .onKeyPress(keys: [.tab, Self.backTab], phases: .down) { press in tab(press) }
         .onKeyPress(characters: .alphanumerics, phases: .down) { press in type(press) }
         // O painel transforma o ⌘V em `paste:`, que chega aqui como um colar pedido pela pessoa.
-        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in
-            // O ⌘V nunca descarta uma edição: com "Descartar" escolhida, cola a opção sugerida.
-            model.preferPasteOverDiscard()
-            pasteNow()
-        }
+        .onPasteCommand(of: PasteboardImporter.acceptedTypes + MusicPasteboardReader.pasteTypes) { _ in pasteNow() }
         .onExitCommand { escape() }
         .onChange(of: layout) { resize() }
     }

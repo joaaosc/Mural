@@ -58,94 +58,16 @@ enum PasteDescription {
 
     /// O título da linha de uma opção: "Colar como Sticker" para texto; para o resto, "Colar" e o tipo ("Colar link",
     /// "Colar 3 links", "Colar imagem", "Colar PDF", "Colar 2 arquivos", "Colar música", "Colar texto" antes de ler).
-    ///
-    /// A opção de editar se chama "Editar com <app> antes de colar" ("Editar antes de colar" sem o nome do app) e, com uma
-    /// edição pendente, "Continuar editando com <app>" ("Continuar editando"); a de descartar, "Descartar a edição". O nome
-    /// do app vem sem artigo: nomes de app não têm gênero fixo em português.
-    static func title(
-        of option: PasteOption, clipboard kind: ClipboardKind, editorName: String? = nil, isEditing: Bool = false
-    ) -> String {
+    static func title(of option: PasteOption, clipboard kind: ClipboardKind) -> String {
         switch option.action {
         case .text(let cardKind): "Colar como \(cardKind.creationTitle)"
         case .asRead, .read: "Colar \(noun(for: kind))"
-        case .edit:
-            switch (isEditing, editorName) {
-            case (true, let name?): "Continuar editando com \(name)"
-            case (true, nil): "Continuar editando"
-            case (false, let name?): "Editar com \(name) antes de colar"
-            case (false, nil): "Editar antes de colar"
-            }
-        case .discardEdit: "Descartar a edição"
         }
     }
 
-    /// O resumo que a linha escolhida mostra à direita: o mural que recebe o que for colado ("em Casa") nas opções que
-    /// colam ou abrem o editor; "volta ao que está copiado" na de descartar, que não vai para mural nenhum.
-    static func summary(of option: PasteOption, board: String) -> String {
-        switch option.action {
-        case .discardEdit: "volta ao que está copiado"
-        case .asRead, .read, .text, .edit: "em \(board)"
-        }
-    }
-
-    /// O rótulo da linha "Copiado:" no alto: "Copiado:" ou, com uma edição pendente, "Editado com <app>:" ("Editado:" sem
-    /// o nome do app).
-    static func copiedLabel(editorName: String? = nil, isEditing: Bool = false) -> String {
-        guard isEditing else { return "Copiado:" }
-        return editorName.map { "Editado com \($0):" } ?? "Editado:"
-    }
-
-    /// O símbolo da linha "Copiado:": o do tipo do que está copiado ou, com uma edição pendente, o lápis da edição.
-    static func copiedSymbol(for kind: ClipboardKind, isEditing: Bool = false) -> String {
-        isEditing ? "square.and.pencil" : symbol(for: kind)
-    }
-
-    /// O nome curto da tecla Return na linha escolhida: "Colar", "Editar" ou "Descartar".
-    static func returnHintLabel(of option: PasteOption) -> String {
-        switch option.action {
-        case .asRead, .read, .text: "Colar"
-        case .edit: "Editar"
-        case .discardEdit: "Descartar"
-        }
-    }
-
-    /// O que o Return faz na linha escolhida, para a dica de ferramenta e a de acessibilidade da tecla.
-    static func returnHintDescription(of option: PasteOption, editorName: String? = nil, isEditing: Bool = false) -> String {
-        switch option.action {
-        case .asRead, .read, .text: isEditing ? "Return cola o conteúdo editado" : "Return cola o que foi copiado"
-        case .edit: "Return abre a cópia \(inEditor(editorName))"
-        case .discardEdit: "Return descarta a edição"
-        }
-    }
-
-    /// A dica de acessibilidade da linha de uma opção: o que acontece ao pressioná-la.
-    static func accessibilityHint(of option: PasteOption, editorName: String? = nil, isEditing: Bool = false) -> String {
-        switch option.action {
-        case .asRead, .read, .text:
-            isEditing
-                ? "Cola o conteúdo editado no mural do centro da vitrine."
-                : "Cola o que foi copiado no mural do centro da vitrine."
-        case .edit:
-            isEditing
-                ? "Abre de novo a cópia \(inEditor(editorName))."
-                : "Abre uma cópia \(inEditor(editorName)). Depois de editar, volte ao painel para colar."
-        case .discardEdit: "Apaga a edição e volta ao que está copiado."
-        }
-    }
-
-    /// "em <app>", ou "no app de edição" quando não se sabe o nome.
-    private static func inEditor(_ editorName: String?) -> String {
-        editorName.map { "em \($0)" } ?? "no app de edição"
-    }
-
-    /// O símbolo da linha de uma opção: o da edição (`square.and.pencil`) ou o do descarte (`xmark.circle`); nas demais,
-    /// o do tipo de cartão que sai, ou `clipboard` quando não se sabe.
+    /// O símbolo da linha de uma opção: o do tipo de cartão que sai, ou `clipboard` quando não se sabe.
     static func symbol(of option: PasteOption) -> String {
-        switch option.action {
-        case .edit: "square.and.pencil"
-        case .discardEdit: "xmark.circle"
-        case .asRead, .read, .text: option.kind?.creationSymbol ?? "clipboard"
-        }
+        option.kind?.creationSymbol ?? "clipboard"
     }
 
     /// A frase de quando não há opções de colar, conforme o que se sabe da área de transferência.
@@ -198,11 +120,8 @@ enum PasteDescription {
     }
 
     /// A linha de cima da etapa de formatação: a maneira de colar escolhida e o mural, como "Colar como Sticker em Casa".
-    static func chosenOption(
-        _ option: PasteOption, clipboard kind: ClipboardKind, board: String, editorName: String? = nil,
-        isEditing: Bool = false
-    ) -> String {
-        "\(title(of: option, clipboard: kind, editorName: editorName, isEditing: isEditing)) em \(board)"
+    static func chosenOption(_ option: PasteOption, clipboard kind: ClipboardKind, board: String) -> String {
+        "\(title(of: option, clipboard: kind)) em \(board)"
     }
 
     private static func firstLine(of text: String) -> String? {

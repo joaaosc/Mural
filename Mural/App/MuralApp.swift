@@ -58,12 +58,6 @@ struct MuralApp: App {
         // A entrega do que foi copiado a um mural escolhido no painel. As abas adotam a sessão que a entrega abriu para
         // um mural fechado: nunca existem duas sessões do mesmo mural. O painel da barra de menus cola por ela.
         let delivery = BoardDelivery(registry: registry, covers: coverService)
-        // A edição antes de colar vive durante toda a sessão do app: o painel da barra de menus monta um modelo novo a cada
-        // abertura e se fecha quando o editor toma o foco. As cópias esquecidas há mais de um dia somem na abertura.
-        let pasteEditor = PasteEditor(
-            roots: LaunchConfiguration.pasteEditRoots(), launcher: LaunchConfiguration.pasteEditorLauncher())
-        pasteEditor.sweep()
-        pasteEditor.onPendingChange = { MenuBarController.shared.setEditPending($0) }
         let tabs = MuralTabs(
             registry: registry,
             makeSession: { route in
@@ -154,7 +148,7 @@ struct MuralApp: App {
         MenuBarController.shared.install { _ in
             let model = MenuBarPanelModel(
                 library: library, covers: coverService, activeBoard: { tabs.selected?.boardID },
-                reader: panelClipboardReader, delivery: delivery, editor: pasteEditor)
+                reader: panelClipboardReader, delivery: delivery)
             return GlassHostingView(
                 rootView: MenuBarPanelView(
                     tabs: tabs,

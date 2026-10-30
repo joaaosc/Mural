@@ -26,35 +26,27 @@ struct PasteSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.options.isEmpty {
-                // Abrindo o editor ou lendo a edição: a linha de estado, embaixo, já diz o que acontece.
-                if !model.pasteStatus.isWorking {
-                    Text(PasteDescription.emptyMessage(for: model.clipboard))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 10)
-                }
+                Text(PasteDescription.emptyMessage(for: model.clipboard))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10)
             } else {
                 switch model.stage {
                 case .boards:
-                    CopiedLine(
-                        kind: model.clipboardKind, content: model.clipboardContent, nextStage: "Colar", advance: advance,
-                        editorName: model.editorName, isEditing: model.source == .edit)
+                    CopiedLine(kind: model.clipboardKind, content: model.clipboardContent, nextStage: "Colar", advance: advance)
                 case .paste:
                     CopiedLine(
                         kind: model.clipboardKind, content: model.clipboardContent,
-                        nextStage: model.stages.contains(.format) ? "Formatar" : nil, advance: advance,
-                        editorName: model.editorName, isEditing: model.source == .edit)
+                        nextStage: model.formats.isEmpty ? nil : "Formatar", advance: advance)
                     PasteOptionRows(
                         options: model.options, selectedOption: model.selectedOption, clipboard: model.clipboardKind,
-                        boardName: boardName, editorName: model.editorName, isEditing: model.source == .edit, choose: choose)
+                        boardName: boardName, choose: choose)
                 case .format:
                     ChosenOptionLine(
                         symbolName: chosenOption.map(PasteDescription.symbol(of:)) ?? "clipboard",
                         text: chosenOption.map {
-                            PasteDescription.chosenOption(
-                                $0, clipboard: model.clipboardKind, board: boardName, editorName: model.editorName,
-                                isEditing: model.source == .edit)
+                            PasteDescription.chosenOption($0, clipboard: model.clipboardKind, board: boardName)
                         } ?? "",
                         goBack: retreat)
                     FormatOptionRows(

@@ -32,8 +32,6 @@ final class MenuBarController: NSObject {
     private static let fallbackVisibleFrame = NSRect(x: 0, y: 0, width: 1280, height: 800)
 
     private var statusItem: NSStatusItem?
-    /// Há uma edição esperando para ser colada: o ícone ganha o lápis.
-    private var isEditPending = false
     private var panel: MenuBarPanel?
     /// Guardado porque uma janela não retém o próprio delegate.
     private var dismissMonitor: PanelDismissMonitor?
@@ -59,21 +57,6 @@ final class MenuBarController: NSObject {
         makeContent = content
     }
 
-    /// Avisa se há uma edição esperando para ser colada: com ela, o ícone mostra um lápis e a dica diz o porquê. Pedir o
-    /// que já está assim não faz nada; um ícone recriado depois mantém o lápis.
-    func setEditPending(_ pending: Bool) {
-        guard pending != isEditPending else { return }
-        isEditPending = pending
-        if let statusItem { applyIcon(to: statusItem) }
-    }
-
-    private func applyIcon(to item: NSStatusItem) {
-        item.button?.image = NSImage(
-            systemSymbolName: MenuBarIcon.symbolName(isEditPending: isEditPending),
-            accessibilityDescription: MenuBarIcon.accessibilityDescription(isEditPending: isEditPending))
-        item.button?.toolTip = MenuBarIcon.toolTip(isEditPending: isEditPending)
-    }
-
     /// Põe o ícone na barra de menus ou o tira de lá. Pode ser chamado quantas vezes for: pedir o que já está assim não
     /// faz nada.
     ///
@@ -82,7 +65,8 @@ final class MenuBarController: NSObject {
         if visible {
             guard statusItem == nil else { return }
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            applyIcon(to: item)
+            item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "Mural")
+            item.button?.toolTip = "Mural"
             item.expandedInterfaceDelegate = self
             statusItem = item
         } else {

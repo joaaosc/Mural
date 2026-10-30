@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A linha de estado do colar do painel: nada em repouso; "Colando…", a frase do editor que abre ou da edição que é lida,
-/// "Colado em …" ou o motivo da falha nos outros casos.
+/// A linha de estado do colar do painel: nada em repouso; "Colando…", "Colado em …" ou o motivo da falha nos outros
+/// casos.
 struct PasteStatusLine: View {
     let status: PasteStatus
 
@@ -11,8 +11,6 @@ struct PasteStatusLine: View {
             EmptyView()
         case .pasting:
             row("Colando…") { ProgressView().controlSize(.small) }
-        case .working(let message):
-            row(message) { ProgressView().controlSize(.small) }
         case .pasted(let message):
             row(message) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
         case .failed(let message):

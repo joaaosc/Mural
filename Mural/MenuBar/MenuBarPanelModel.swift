@@ -2,29 +2,13 @@ import Foundation
 import MuralKit
 import Observation
 
-/// Em que pé está o colar do painel: nada em andamento, entregando, trabalhando no editor (abrindo-o ou lendo a edição),
-/// entregue (com a frase que o painel mostra) ou falho (com o motivo).
+/// Em que pé está o colar do painel: nada em andamento, entregando, entregue (com a frase que o painel mostra) ou falho
+/// (com o motivo).
 enum PasteStatus: Equatable, Sendable {
     case idle
     case pasting
-    /// Abrindo o app de edição ou lendo a edição de volta; traz a frase que o painel mostra.
-    case working(String)
     case pasted(String)
     case failed(String)
-
-    /// Está abrindo o editor ou lendo a edição.
-    var isWorking: Bool {
-        if case .working = self { return true }
-        return false
-    }
-}
-
-/// De onde vem o que o painel oferece para colar.
-enum PasteSource: Equatable, Sendable {
-    /// O que está na área de transferência.
-    case clipboard
-    /// Uma edição pendente: o conteúdo foi aberto num app de edição e espera ser colado.
-    case edit
 }
 
 /// O estado do painel da barra de menus: os murais da vitrine, qual está no centro, a busca por letras, o último
@@ -58,11 +42,6 @@ final class MenuBarPanelModel {
     /// escolhida, porque ali o teclado escolhe o mural.
     private(set) var selectedOption = 0
     private(set) var pasteStatus: PasteStatus = .idle
-    /// De onde vem o conteúdo: a área de transferência ou uma edição pendente.
-    private(set) var source: PasteSource = .clipboard
-    /// O nome do app que edita o conteúdo atual (guardado ao montar as opções, para as vistas não consultarem o sistema);
-    /// `nil` quando não há como editá-lo e, por isso, não há a opção de editar.
-    private(set) var editorName: String?
 
     /// A etapa em que está o teclado. O painel abre na vitrine.
     private(set) var stage: PanelStage = .boards
@@ -86,15 +65,12 @@ final class MenuBarPanelModel {
     private let activeBoard: @MainActor () -> BoardID?
     private let reader: ClipboardReader
     private let delivery: BoardDelivery
-    private let editor: PasteEditor?
     private let preferences: UserDefaults
     private let now: () -> Date
 
     /// As letras da busca em andamento e o instante da última.
     @ObservationIgnored private var typedText = ""
     @ObservationIgnored private var lastKeystroke: Date?
-    /// A pessoa mudou de etapa com o teclado: o painel que abre numa edição pendente não a tira de onde ela está.
-    @ObservationIgnored private var stageChangedByPerson = false
 
     /// - Parameters:
     ///   - library: de onde vem a lista de murais.
@@ -102,7 +78,6 @@ final class MenuBarPanelModel {
     ///   - activeBoard: o mural da aba ativa na janela, se houver; consultado ao carregar.
     ///   - reader: quem olha e lê a área de transferência. Sem valor padrão: o padrão leria a área de transferência geral.
     ///   - delivery: quem entrega o que foi copiado no mural do centro.
-    ///   - editor: a edição antes de colar, que vive além do painel; sem ele, não há a opção de editar.
     ///   - preferences: onde se guarda o último destino.
     ///   - now: o relógio da busca por letras; os testes trocam por um que anda quando se manda.
     init(
@@ -111,7 +86,6 @@ final class MenuBarPanelModel {
         activeBoard: @escaping @MainActor () -> BoardID?,
         reader: ClipboardReader,
         delivery: BoardDelivery,
-        editor: PasteEditor? = nil,
         preferences: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init
     ) {
@@ -120,7 +94,6 @@ final class MenuBarPanelModel {
         self.activeBoard = activeBoard
         self.reader = reader
         self.delivery = delivery
-        self.editor = editor
         self.preferences = preferences
         self.now = now
     }
@@ -145,10 +118,8 @@ final class MenuBarPanelModel {
     /// Só uma leitura que deu certo apaga as capas de murais que não existem mais: se a leitura falhou, não se sabe quais
     /// murais existem, e apagar por causa de um erro de leitura levaria capas de murais que estão lá.
     ///
-    /// Com uma edição pendente, o mural do centro é o dela e a área de transferência não é olhada: o painel mostra o que
-    /// foi editado, lido de volta (``loadEdit(_:)``). Sem edição, termina olhando a área de transferência
-    /// (``prepareClipboard()``). Se a lista não pôde ser lida não há para onde colar, e nada disso é feito. Um erro de
-    /// edição que chegou com o painel fechado aparece uma vez.
+    /// Termina olhando a área de transferência (``prepareClipboard()``). Se a lista não pôde ser lida não há para onde
+    /// colar, e a área de transferência nem é olhada.
     func load() async {
         let listing: BoardLibraryListing
         do {
@@ -162,50 +133,11 @@ final class MenuBarPanelModel {
         }
         entries = listing.entries
         loadError = nil
-        selection =
-            BoardPicker.initialIndex(
-                in: entries, lastDestination: editor?.pending?.boardID ?? lastDestination, activeBoard: activeBoard()) ?? 0
+        selection = BoardPicker.initialIndex(in: entries, lastDestination: lastDestination, activeBoard: activeBoard()) ?? 0
         isLoaded = true
         covers.sweep(keeping: Set(entries.map(\.manifest.id)))
         requestCovers()
-        if let pending = editor?.pending {
-            await loadEdit(pending)
-            if !stageChangedByPerson, stages.contains(.paste) { stage = .paste }
-        } else {
-            prepareClipboard()
-        }
-        if case .idle = pasteStatus, let message = editor?.takeLastFailure() {
-            pasteStatus = .failed(message)
-        }
-    }
-
-    /// Monta o painel sobre a edição pendente: só o tipo é conhecido até a leitura terminar, e então as opções são as do
-    /// conteúdo editado (colar, voltar ao editor, descartar). Se a leitura falha, ficam só as duas últimas.
-    private func loadEdit(_ pending: PasteEditor.Pending) async {
-        guard let editor else { return }
-        source = .edit
-        editorName = pending.editor.name
-        let hint: ClipboardKind =
-            switch pending.session.kind {
-            case .text: .text(nil)
-            case .image: .image
-            case .pdf: .pdf
-            }
-        clipboard = .available(hint)
-        clipboardContent = nil
-        options = []
-        selectedOption = 0
-        formats = []
-        pasteStatus = .working("Lendo a edição…")
-        do {
-            let content = try await editor.read()
-            apply(
-                ClipboardReading(state: .available(ClipboardReader.kind(of: .pasted(content))), content: .pasted(content)))
-            pasteStatus = .idle
-        } catch {
-            apply(ClipboardReading(state: .nothing, content: nil))
-            pasteStatus = .failed(error.localizedDescription)
-        }
+        prepareClipboard()
     }
 
     // MARK: Seleção
@@ -244,23 +176,10 @@ final class MenuBarPanelModel {
     // MARK: Etapas
 
     /// As etapas que o painel tem agora, na ordem do Tab: a vitrine sempre; as maneiras de colar quando há um mural no
-    /// centro e alguma opção de colar; a formatação quando, além disso, o que está copiado é texto e a opção escolhida o
-    /// cola (escolher "Editar" ou "Descartar" tira a etapa).
+    /// centro e alguma opção de colar; a formatação quando, além disso, o que está copiado é texto.
     var stages: [PanelStage] {
         guard selectedEntry != nil, !options.isEmpty else { return [.boards] }
-        return formats.isEmpty || !selectedOptionPastesText ? [.boards, .paste] : [.boards, .paste, .format]
-    }
-
-    /// A opção escolhida cola texto: é uma das de tipo de cartão ou a que lê na hora.
-    private var selectedOptionPastesText: Bool {
-        options.indices.contains(selectedOption) && Self.pastesText(options[selectedOption])
-    }
-
-    private static func pastesText(_ option: PasteOption) -> Bool {
-        switch option.action {
-        case .text, .read: true
-        case .asRead, .edit, .discardEdit: false
-        }
+        return formats.isEmpty ? [.boards, .paste] : [.boards, .paste, .format]
     }
 
     /// Tab: vai para a etapa seguinte e, depois da última, volta à vitrine.
@@ -271,7 +190,6 @@ final class MenuBarPanelModel {
         guard available.count > 1 else { return false }
         let index = available.firstIndex(of: stage) ?? 0
         stage = available[(index + 1) % available.count]
-        stageChangedByPerson = true
         return true
     }
 
@@ -282,7 +200,6 @@ final class MenuBarPanelModel {
         let available = stages
         guard let index = available.firstIndex(of: stage), index > 0 else { return false }
         stage = available[index - 1]
-        stageChangedByPerson = true
         return true
     }
 
@@ -292,7 +209,6 @@ final class MenuBarPanelModel {
     func returnToBoards() -> Bool {
         guard stage != .boards else { return false }
         stage = .boards
-        stageChangedByPerson = true
         return true
     }
 
@@ -379,14 +295,6 @@ final class MenuBarPanelModel {
     func selectOption(_ index: Int) {
         guard !options.isEmpty else { return }
         selectedOption = min(max(index, 0), options.count - 1)
-        keepStageAvailable()
-    }
-
-    /// O ⌘V nunca descarta: com "Descartar a edição" escolhida, volta à opção sugerida.
-    func preferPasteOverDiscard() {
-        guard options.indices.contains(selectedOption), options[selectedOption].action == .discardEdit else { return }
-        selectedOption = PasteOptions.suggestedIndex(in: options) ?? 0
-        keepStageAvailable()
     }
 
     /// A parte do colar que precisa acontecer de forma síncrona, dentro do tratamento da tecla ou do clique: ler a área
@@ -398,10 +306,6 @@ final class MenuBarPanelModel {
     ///   em andamento ou feita (um Return a mais não cola duas vezes) e quando acabou de ler um texto com mais de um tipo
     ///   de cartão possível: o painel passa às maneiras de colar, e a pessoa escolhe o tipo e confirma com um segundo
     ///   Return.
-    ///
-    /// Com uma edição pendente (``source`` em `.edit`) a área de transferência não é lida: editar e descartar não precisam
-    /// de conteúdo, e colar precisa de que a edição já tenha sido lida. Se a opção escolhida era "Editar" e a leitura a faz
-    /// sumir (um texto que virou links, por exemplo), nada é colado nem aberto: o painel só passa às maneiras de colar.
     func readForPaste() -> Bool {
         guard !isBusy else { return false }
         pasteStatus = .idle
@@ -409,39 +313,14 @@ final class MenuBarPanelModel {
             pasteStatus = .failed(Self.noBoardMessage)
             return false
         }
-        if source == .edit {
-            guard let action = selectedAction else { return false }
-            switch action {
-            case .edit, .discardEdit: return true
-            case .asRead, .read, .text: return clipboardContent != nil
-            }
-        }
         guard clipboardContent == nil else { return true }
 
-        let chosenID = options.indices.contains(selectedOption) ? options[selectedOption].id : nil
         apply(reader.read())
         guard let content = clipboardContent else {
             pasteStatus = .failed(Self.message(for: clipboard))
             return false
         }
-        if let chosenID {
-            guard let index = options.firstIndex(where: { $0.id == chosenID }) else {
-                if chosenID == "edit" {
-                    stage = .paste
-                    return false
-                }
-                return continuesAfterReading(content)
-            }
-            selectedOption = index
-            keepStageAvailable()
-            if options[index].action == .edit { return true }
-        }
-        return continuesAfterReading(content)
-    }
-
-    /// Texto com mais de um tipo de cartão possível: o painel passa às maneiras de colar para a pessoa escolher.
-    private func continuesAfterReading(_ content: ClipboardContent) -> Bool {
-        if case .pasted(.text) = content, options.filter({ if case .text = $0.action { true } else { false } }).count > 1 {
+        if case .pasted(.text) = content, options.count > 1 {
             stage = .paste
             return false
         }
@@ -451,31 +330,14 @@ final class MenuBarPanelModel {
     /// Entrega o que foi lido no mural do centro, no tipo de cartão da opção escolhida e, se for texto, com a formatação
     /// escolhida, e lembra o mural como o último destino. Chamada depois de ``readForPaste()``; o resultado fica em
     /// ``pasteStatus``.
-    ///
-    /// Quem decide o que fazer é a ação da opção escolhida: "Editar" abre o conteúdo no app de edição (ou, com uma edição
-    /// pendente, volta a ela); "Descartar a edição" a descarta e deixa o painel aberto; as demais entregam, e depois de
-    /// entregar uma edição a encerram.
-    /// - Returns: `true` se o cartão entrou no mural ou se o editor abriu (o painel pode fechar).
+    /// - Returns: `true` se o cartão entrou no mural.
     func paste() async -> Bool {
         guard !isBusy else { return false }
         guard let entry = selectedEntry else {
             pasteStatus = .failed(Self.noBoardMessage)
             return false
         }
-        guard options.indices.contains(selectedOption) else {
-            pasteStatus = .failed(Self.message(for: clipboard))
-            return false
-        }
-        switch options[selectedOption].action {
-        case .edit:
-            return source == .edit ? await reopenEdit() : await startEditing(in: entry)
-        case .discardEdit:
-            await discardEdit()
-            return false
-        case .asRead, .read, .text:
-            break
-        }
-        guard var content = clipboardContent else {
+        guard var content = clipboardContent, options.indices.contains(selectedOption) else {
             pasteStatus = .failed(Self.message(for: clipboard))
             return false
         }
@@ -494,7 +356,6 @@ final class MenuBarPanelModel {
         case .delivered:
             rememberDestination(entry.manifest.id)
             pasteStatus = .pasted("Colado em \(entry.manifest.name)")
-            if source == .edit { await editor?.finish() }
             // Com o mural aberto, a capa é redesenhada do modelo vivo e mostra o cartão novo; com ele fechado, a entrega
             // já refez a capa e este pedido não desenha nada.
             covers.request([entry])
@@ -505,66 +366,10 @@ final class MenuBarPanelModel {
         }
     }
 
-    /// Abre o conteúdo lido no app de edição e passa a esperar pela edição. Não lembra o mural como destino: isso só
-    /// acontece num colar de verdade.
-    ///
-    /// O painel fecha sozinho quando o editor toma o foco, e a tarefa de colar da vista é cancelada com ele; por isso, só
-    /// uma falha vista com a tarefa viva é mostrada aqui e descartada do editor. A que chega depois do fechamento fica
-    /// guardada para a próxima abertura.
-    private func startEditing(in entry: BoardLibraryEntry) async -> Bool {
-        guard let editor, case .pasted(let content)? = clipboardContent, let kind = PasteEditKind(clipboardKind) else {
-            pasteStatus = .failed(PasteEditFiles.Failure.unsupported.errorDescription ?? Self.nothingToPasteMessage)
-            return false
-        }
-        pasteStatus = .working("Abrindo com \(editorName ?? "o editor")…")
-        switch await editor.begin(content, as: kind, board: entry) {
-        case .opened(let pending):
-            pasteStatus = .pasted(Self.editingMessage(pending.editor.name))
-            return true
-        case .failed(let message):
-            pasteStatus = .failed(message)
-            if !Task.isCancelled { _ = editor.takeLastFailure() }
-            return false
-        }
-    }
-
-    /// Abre de novo a edição pendente, para quem fechou a janela do editor sem colar.
-    private func reopenEdit() async -> Bool {
-        guard let editor, let pending = editor.pending else {
-            pasteStatus = .failed(PasteEditFiles.Failure.missing.errorDescription ?? Self.nothingToPasteMessage)
-            return false
-        }
-        pasteStatus = .working("Abrindo com \(pending.editor.name)…")
-        if let message = await editor.reopen() {
-            pasteStatus = .failed(message)
-            return false
-        }
-        pasteStatus = .pasted(Self.editingMessage(pending.editor.name))
-        return true
-    }
-
-    /// Descarta a edição pendente e volta ao que está na área de transferência.
-    private func discardEdit() async {
-        await editor?.discard()
-        source = .clipboard
-        clipboardContent = nil
-        pasteStatus = .idle
-        prepareClipboard()
-    }
-
-    private static func editingMessage(_ name: String) -> String {
-        "Editando com \(name). Volte ao painel para colar."
-    }
-
-    /// A ação da opção escolhida; `nil` sem opções.
-    private var selectedAction: PasteOption.Action? {
-        options.indices.contains(selectedOption) ? options[selectedOption].action : nil
-    }
-
-    /// Há uma entrega ou um editor em andamento, ou uma entrega feita: outro pedido de colar seria um cartão repetido.
+    /// Há uma entrega em andamento ou feita: outro pedido de colar seria um cartão repetido.
     private var isBusy: Bool {
         switch pasteStatus {
-        case .pasting, .working, .pasted: true
+        case .pasting, .pasted: true
         case .idle, .failed: false
         }
     }
@@ -572,19 +377,10 @@ final class MenuBarPanelModel {
     private func apply(_ reading: ClipboardReading) {
         clipboard = reading.state
         clipboardContent = reading.content
-        switch source {
-        case .clipboard:
-            let app = PasteEditKind(clipboardKind).flatMap { editor?.editor(for: $0) }
-            editorName = app?.name
-            options = PasteOptions.options(for: clipboardKind, allowsEditing: app != nil)
-        case .edit:
-            editorName = editor?.pending?.editor.name
-            options = PasteOptions.options(forEdited: clipboardKind)
-        }
+        options = PasteOptions.options(for: clipboardKind)
         selectedOption = PasteOptions.suggestedIndex(in: options) ?? 0
-        // Texto ainda não lido também aceita formatação: ela vale para o que o colar ler. Sem opção que cole texto (texto
-        // editado em branco), não há o que formatar.
-        if case .text = clipboardKind, options.contains(where: Self.pastesText) {
+        // Texto ainda não lido também aceita formatação: ela vale para o que o colar ler.
+        if case .text = clipboardKind, !options.isEmpty {
             formats = PasteTextFormat.allCases
         } else {
             formats = []
