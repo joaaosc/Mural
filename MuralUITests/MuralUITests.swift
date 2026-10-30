@@ -366,6 +366,8 @@ final class MuralUITests: XCTestCase {
         XCTAssertEqual(after.minY, before.minY, accuracy: 2, "antes: \(before), depois: \(after)")
         XCTAssertEqual(after.width, before.width + 60, accuracy: 4, "antes: \(before), depois: \(after)")
         XCTAssertEqual(after.height, before.height + 60, accuracy: 4, "antes: \(before), depois: \(after)")
+        // O salvamento automático espera 250 ms e grava em segundo plano; o `terminate()` do teste encerra à força, sem esperar.
+        Thread.sleep(forTimeInterval: 1)
         app.terminate()
         let reopened = launch("-uiTestingKeep")
         let restored = reopened.buttons["foto-redimensionar"].firstMatch
