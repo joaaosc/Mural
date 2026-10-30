@@ -23,6 +23,7 @@ nonisolated enum LinkPreviewFetchError: Error, Equatable {
 ///   uma de 1×1 pixel do Safari, por exemplo, passa a vez para a `og:image`.
 /// - A imagem que veio com o link (a do Safari ao copiar um favorito) vale mais que a `og:image` da página, menos num pedido
 ///   de atualização (`LinkPreviewRequest.isRefresh`), que a ignora e procura a imagem de novo na página.
+/// - Só endereços da internet pública são buscados (`NetworkAddressPolicy`), inclusive nos redirecionamentos.
 /// - O `<head>` tem prioridade; a reserva só completa o que faltar.
 nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
     /// Reserva: recebe o endereço da página e devolve o que achou, ou `nil`.
@@ -98,7 +99,10 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
     // MARK: Busca
 
     func fetchPreview(for request: LinkPreviewRequest) async throws -> FetchedLinkPreview {
-        guard let pageURL = WebLink.secureVariant(of: request.url) else { throw LinkPreviewFetchError.unsupportedAddress }
+        // Rede local e o próprio Mac ficam de fora: o endereço vem de dentro do mural e pode não ter sido digitado por esta pessoa.
+        guard let pageURL = WebLink.secureVariant(of: request.url), NetworkAddressPolicy.isPublicWebAddress(pageURL) else {
+            throw LinkPreviewFetchError.unsupportedAddress
+        }
         try Task.checkCancellation()
 
         // 1. A página. Falha comum (rede, status, tamanho) não impede a imagem do Safari nem a reserva.
@@ -202,12 +206,12 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
     /// A primeira imagem que serve de prévia: a que já foi baixada (a própria página) ou a que baixa agora, até
     /// 5 MB, e que o ImageIO lê com lado menor de 32 px ou mais e até 40 milhões de pixels. Uma imagem que o ImageIO
     /// lê mas que a gravação recusaria (um pixel de rastreamento, por exemplo) passa a vez para a seguinte.
-    /// Endereços `http` viram `https` e cada endereço é tentado uma vez.
+    /// Endereços `http` viram `https`, cada endereço é tentado uma vez e os que não são da internet pública são pulados.
     private func firstImage(in urls: [URL], alreadyLoaded: [URL: Data]) async throws -> (data: Data, url: URL)? {
         var tried = Set<URL>()
         for url in urls {
             let secure = WebLink.secureVariant(of: url) ?? url
-            guard tried.insert(secure).inserted else { continue }
+            guard tried.insert(secure).inserted, NetworkAddressPolicy.isPublicWebAddress(secure) else { continue }
             try Task.checkCancellation()
             var data = alreadyLoaded[secure]
             if data == nil { data = try await downloadFile(at: secure, byteLimit: Self.imageByteLimit) }
@@ -221,7 +225,7 @@ nonisolated struct SystemLinkPreviewFetcher: LinkPreviewFetching {
         var tried = Set<URL>()
         for url in urls {
             let secure = WebLink.secureVariant(of: url) ?? url
-            guard tried.insert(secure).inserted else { continue }
+            guard tried.insert(secure).inserted, NetworkAddressPolicy.isPublicWebAddress(secure) else { continue }
             try Task.checkCancellation()
             if let data = try await downloadFile(at: secure, byteLimit: Self.iconByteLimit), LinkPreviewFiles.canStoreIcon(data) {
                 return data

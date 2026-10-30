@@ -18,7 +18,7 @@ struct MusicArtworkCoordinatorTests {
 
         let name = try #require(harness.music()?.artworkFile)
         #expect(harness.files.existingURL(for: name) != nil)
-        #expect(await harness.fetcher.requests.map(\.absoluteString) == ["https://exemplo.com/capa/600x600.jpg"])
+        #expect(await harness.fetcher.requests.map(\.absoluteString) == ["https://is1-ssl.mzstatic.com/capa/600x600.jpg"])
     }
 
     @Test("Capa já presente na pasta não é buscada")
@@ -166,9 +166,9 @@ private final class Harness {
     let files: LinkPreviewFiles
     let fetcher: FakeArtworkFetcher
     let itemID = UUID()
-    let address = URL(string: "https://exemplo.com/capa/600x600.jpg")!
+    let address = URL(string: "https://is1-ssl.mzstatic.com/capa/600x600.jpg")!
 
-    init(template: String? = "https://exemplo.com/capa/{w}x{h}.{f}", fails: Bool = false, delay: Duration? = nil) throws {
+    init(template: String? = "https://is1-ssl.mzstatic.com/capa/{w}x{h}.{f}", fails: Bool = false, delay: Duration? = nil) throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(
             "MuralTests-MusicArtwork-\(UUID().uuidString)", isDirectory: true)
         let music = MusicSnapshot(kind: .album, catalogID: "1", title: "Álbum de teste", artworkTemplate: template)

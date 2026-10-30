@@ -26,7 +26,7 @@ struct MusicSessionArtworkTests {
         }
     }
 
-    private let address = URL(string: "https://exemplo.com/capa/600x600.jpg")!
+    private let address = URL(string: "https://is1-ssl.mzstatic.com/capa/600x600.jpg")!
 
     private func makeRig(
         access: MusicAccess = .granted, template: String? = nil, snapshot: MusicSnapshot? = nil
@@ -107,7 +107,7 @@ struct MusicSessionArtworkTests {
 
     @Test("Com molde de endereço não faz nada")
     func withTemplateNothingHappens() async throws {
-        let rig = try await makeRig(template: "https://exemplo.com/capa/{w}x{h}.{f}")
+        let rig = try await makeRig(template: "https://is1-ssl.mzstatic.com/capa/{w}x{h}.{f}")
         defer { rig.tearDown() }
 
         await rig.session.completeMusicArtwork(rig.id, artwork: rig.coordinator)

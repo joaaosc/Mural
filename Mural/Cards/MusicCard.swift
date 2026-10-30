@@ -40,6 +40,7 @@ struct MusicCard: View {
     let item: BoardItem
 
     @Environment(\.musicArtworkCoordinator) private var artwork
+    @Environment(\.remoteContentAllowed) private var remoteContentAllowed
     @Environment(\.linkPreviewFiles) private var files
 
     private var music: MusicSnapshot? { item.music }
@@ -83,10 +84,16 @@ struct MusicCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
         // Sem a capa na pasta (cartão novo, pasta apagada), pede ao coordenador da janela.
-        .task(id: music?.artworkFile) {
+        .task(id: ArtworkTrigger(file: music?.artworkFile, isAllowed: remoteContentAllowed)) {
             guard let music, music.artworkFile.flatMap({ files?.existingURL(for: $0) }) == nil else { return }
             artwork?.request([item.id])
         }
+    }
+
+    /// Refaz o pedido quando a capa muda ou quando a pessoa permite buscar na internet.
+    private struct ArtworkTrigger: Equatable {
+        let file: String?
+        let isAllowed: Bool
     }
 
     @ViewBuilder

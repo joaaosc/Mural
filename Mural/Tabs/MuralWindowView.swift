@@ -28,6 +28,8 @@ struct MuralWindowView: View {
     /// O popover do botão Compartilhar está aberto (pelo botão ou por Arquivo › Compartilhar…).
     @State private var isSharePresented = false
     @State private var alert: WindowAlert?
+    /// Quais murais importados de arquivo ainda não podem buscar na internet; `nil` fora do app.
+    @Environment(RemoteContentConsent.self) private var remoteContent: RemoteContentConsent?
 
     private enum WindowRole {
         case pending, primary, extra
@@ -281,6 +283,8 @@ struct MuralWindowView: View {
             do {
                 let library = tabs.registry.library
                 let result = try await MuralPackageImport.importAsCopy(from: source, using: library)
+                // Antes de abrir o mural e a aba: o mural de um arquivo não busca nada na internet até a pessoa permitir.
+                remoteContent?.block(result.boardID)
                 let name = try await library.open(result.route)?.manifest.name ?? "Mural"
                 tabs.open(result.route, title: name)
                 tabs.libraryDidChange()

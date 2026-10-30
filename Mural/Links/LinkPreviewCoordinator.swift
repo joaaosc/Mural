@@ -22,6 +22,7 @@ final class LinkPreviewCoordinator {
     private let batchDelay: Duration
     private let sweepDelay: Duration
     private let sweepMinimumAge: TimeInterval
+    private let isAllowed: @MainActor () -> Bool
 
     /// Criada na primeira vez que é usada, porque o `deliver` dela precisa de `self`.
     private lazy var queue = LinkPreviewQueue(
@@ -39,9 +40,12 @@ final class LinkPreviewCoordinator {
     ///   - batchDelay: espera, depois do primeiro resultado, para juntar os que chegarem num lote só.
     ///   - sweepDelay: espera, depois de uma entrega, até varrer a pasta.
     ///   - sweepMinimumAge: idade mínima, em segundos, de um arquivo sem uso para ser apagado.
+    ///   - isAllowed: `false` enquanto o mural não tem permissão para buscar na internet (mural importado de arquivo);
+    ///     os pedidos automáticos ficam parados, e só `force` (ação da pessoa) passa.
     init(
         model: BoardModel, files: LinkPreviewFiles, fetcher: any LinkPreviewFetching,
-        batchDelay: Duration = .milliseconds(750), sweepDelay: Duration = .seconds(5), sweepMinimumAge: TimeInterval = 600
+        batchDelay: Duration = .milliseconds(750), sweepDelay: Duration = .seconds(5), sweepMinimumAge: TimeInterval = 600,
+        isAllowed: @escaping @MainActor () -> Bool = { true }
     ) {
         self.model = model
         self.files = files
@@ -49,6 +53,7 @@ final class LinkPreviewCoordinator {
         self.batchDelay = batchDelay
         self.sweepDelay = sweepDelay
         self.sweepMinimumAge = sweepMinimumAge
+        self.isAllowed = isAllowed
         scheduleSweep(after: .zero)
     }
 
@@ -56,6 +61,8 @@ final class LinkPreviewCoordinator {
     /// recente ficam de fora (política do domínio), exceto os de prévia pronta cujo arquivo de imagem ou de
     /// ícone não está mais na pasta; com `force`, todos os cartões de link entram.
     func request(_ itemIDs: [UUID], force: Bool = false) {
+        // Sem permissão, só a atualização pedida pela pessoa busca.
+        guard force || isAllowed() else { return }
         let requests = model.linkPreviewRequests(for: itemIDs, force: force, fileExists: { files.existingURL(for: $0) != nil })
         guard !requests.isEmpty else { return }
         perform { await $0.enqueue(requests) }

@@ -56,7 +56,12 @@ private struct LoadedRootView: View {
     @Environment(MuralTabs.self) private var tabs: MuralTabs?
     /// O Live Share do app; `nil` fora dele (nas prévias, por exemplo).
     @Environment(LiveShareController.self) private var liveShare: LiveShareController?
+    /// Quais murais importados de arquivo ainda não podem buscar na internet; `nil` fora do app.
+    @Environment(RemoteContentConsent.self) private var consent: RemoteContentConsent?
     @Environment(\.undoManager) private var undoManager
+
+    /// O mural veio de um arquivo e a pessoa ainda não permitiu buscas na internet.
+    private var isRemoteContentBlocked: Bool { consent?.isBlocked(session.boardID) ?? false }
 
     private var path: [Destination] { session.path }
     private var filter: BoardFilter? { session.filter }
@@ -167,6 +172,7 @@ private struct LoadedRootView: View {
         .environment(\.linkPreviewFiles, LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID)))
         .environment(\.linkPreviewCoordinator, linkPreviewCoordinator)
         .environment(\.musicArtworkCoordinator, musicArtworkCoordinator)
+        .environment(\.remoteContentAllowed, !isRemoteContentBlocked)
         // Passa por baixo da barra da janela, mas não da barra lateral: um cartão atrás dela não
         // teria como ser clicado.
         .ignoresSafeArea(edges: .vertical)
@@ -195,6 +201,9 @@ private struct LoadedRootView: View {
         }
         .overlay(alignment: .top) {
             errorBanner
+        }
+        .overlay(alignment: .top) {
+            remoteContentBanner
         }
         .focusable()
         .focusEffectDisabled()
@@ -326,15 +335,41 @@ private struct LoadedRootView: View {
         }
     }
 
+    /// Faixa do mural importado de arquivo que tem cartões de link ou de música: as buscas na internet esperam a permissão.
+    @ViewBuilder
+    private var remoteContentBanner: some View {
+        if isRemoteContentBlocked, model.board.items.contains(where: { $0.kind == .link || $0.kind == .music }) {
+            HStack(spacing: 12) {
+                Image(systemName: "network.badge.shield.half.filled")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text("Este mural veio de um arquivo. Carregar prévias e capas da internet?")
+                    .font(.callout)
+                Button("Carregar") { consent?.allow(session.boardID) }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Carregar prévias e capas da internet")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .glassEffect(.regular, in: .capsule)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Este mural veio de um arquivo. Carregar prévias e capas da internet?")
+            .padding(12)
+            .containerCornerOffset(.top)
+        }
+    }
+
     private func setupPreviewCoordinators() {
         let files = LinkPreviewFiles(directory: LaunchConfiguration.linkPreviewsDirectory(for: session.boardID))
         if linkPreviewCoordinator == nil {
             linkPreviewCoordinator = LinkPreviewCoordinator(
-                model: model, files: files, fetcher: LaunchConfiguration.linkPreviewFetcher())
+                model: model, files: files, fetcher: LaunchConfiguration.linkPreviewFetcher(),
+                isAllowed: { [consent, boardID = session.boardID] in !(consent?.isBlocked(boardID) ?? false) })
         }
         if musicArtworkCoordinator == nil {
             musicArtworkCoordinator = MusicArtworkCoordinator(
-                model: model, files: files, fetcher: LaunchConfiguration.musicArtworkFetcher())
+                model: model, files: files, fetcher: LaunchConfiguration.musicArtworkFetcher(),
+                isAllowed: { [consent, boardID = session.boardID] in !(consent?.isBlocked(boardID) ?? false) })
         }
     }
 

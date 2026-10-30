@@ -11,6 +11,8 @@ struct MuralApp: App {
     @State private var liveShare: LiveShareController?
     /// As cópias dos murais na pasta Mural do iCloud Drive. Existe com o entitlement do iCloud Drive; os Ajustes o recebem daqui.
     @State private var driveMirror: DriveMirrorController?
+    /// Murais importados de arquivo que ainda não podem buscar prévias e capas na internet.
+    @State private var remoteContent: RemoteContentConsent
 
     private static let log = Logger(subsystem: "com.joaocosta.Mural", category: "Sincronização")
 
@@ -52,6 +54,15 @@ struct MuralApp: App {
             })
         delivery.tabs = tabs
         _tabs = State(initialValue: tabs)
+
+        // A permissão fica na raiz da biblioteca, fora dos pacotes: não vai na exportação nem no iCloud. Ao apagar o mural, some junto.
+        let remoteContent = RemoteContentConsent(directory: LaunchConfiguration.libraryRoot())
+        let clearBoardCaches = tabs.removeBoardCaches
+        tabs.removeBoardCaches = { boardID in
+            clearBoardCaches(boardID)
+            remoteContent.forget(boardID)
+        }
+        _remoteContent = State(initialValue: remoteContent)
 
         // A sincronização com o iCloud. Sem o entitlement de CloudKit e fora dos testes de interface ela fica desligada: nenhum
         // controlador, nenhum motor, e o app se comporta como sempre. O delegado do app (buscar ao ativar) o encontra em `current`.
@@ -183,6 +194,7 @@ struct MuralApp: App {
         // principal, o app sairia ao fechar a janela.
         WindowGroup(id: MuralWindowView.sceneID) {
             MuralWindowView(tabs: tabs)
+                .environment(remoteContent)
                 // O Live Share para as telas que o leem; `nil` sem ele.
                 .environment(liveShare)
                 // Material fino do sistema atrás de tudo: o mural deixa ver o que está atrás da janela, como

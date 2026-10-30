@@ -46,7 +46,7 @@ final class NowPlayingUITests: XCTestCase {
             {"id":"1000000001","type":"albums","href":"/v1/catalog/br/albums/1000000001",
              "attributes":{"name":"Álbum de Teste","artistName":"Banda de Teste","trackCount":3,
               "url":"https://music.apple.com/br/album/album-de-teste/1000000001",
-              "artwork":{"url":"https://example.com/capa/{w}x{h}bb.{f}","bgColor":"1f3a5f",
+              "artwork":{"url":"https://is1-ssl.mzstatic.com/capa/{w}x{h}bb.{f}","bgColor":"1f3a5f",
                "textColor1":"ffffff","textColor2":"c9d6e8"},
               "playParams":{"id":"1000000001","kind":"album"}}}
             """

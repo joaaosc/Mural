@@ -14,20 +14,28 @@ final class MusicArtworkCoordinator {
     private let model: BoardModel
     private let files: LinkPreviewFiles
     private let fetcher: any MusicArtworkFetching
+    private let isAllowed: @MainActor () -> Bool
 
     private var tasks: [UUID: Task<Void, Never>] = [:]
     /// Cartões cuja busca falhou nesta janela; não são tentados de novo.
     private var failed: Set<UUID> = []
 
-    init(model: BoardModel, files: LinkPreviewFiles, fetcher: any MusicArtworkFetching) {
+    /// - Parameter isAllowed: `false` enquanto o mural não tem permissão para buscar na internet (mural importado de
+    ///   arquivo); `request` fica parado, mas `download`, que vem de colar ou arrastar, continua.
+    init(
+        model: BoardModel, files: LinkPreviewFiles, fetcher: any MusicArtworkFetching,
+        isAllowed: @escaping @MainActor () -> Bool = { true }
+    ) {
         self.model = model
         self.files = files
         self.fetcher = fetcher
+        self.isAllowed = isAllowed
     }
 
     /// Baixa a capa dos cartões de música indicados que ainda não a têm na pasta e têm molde de endereço.
     /// Quem está em andamento ou já falhou nesta janela fica de fora.
     func request(_ itemIDs: [UUID]) {
+        guard isAllowed() else { return }
         for id in itemIDs where tasks[id] == nil && !failed.contains(id) {
             guard let music = model.item(id: id)?.music, !hasArtworkOnDisk(music),
                 let url = music.artworkURL(side: 600)
@@ -50,7 +58,7 @@ final class MusicArtworkCoordinator {
 
     /// Baixa a capa de um endereço já pronto (sem molde), com as mesmas guardas de `request`.
     func download(_ url: URL, for itemID: UUID) {
-        guard tasks[itemID] == nil, !failed.contains(itemID),
+        guard tasks[itemID] == nil, !failed.contains(itemID), NetworkAddressPolicy.isPublicWebAddress(url),
             let music = model.item(id: itemID)?.music, !hasArtworkOnDisk(music)
         else { return }
         let fetcher = self.fetcher

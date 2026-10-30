@@ -11,6 +11,7 @@ struct LinkCard: View {
 
     @Environment(\.linkPreviewFiles) private var files
     @Environment(\.linkPreviewCoordinator) private var coordinator
+    @Environment(\.remoteContentAllowed) private var remoteContentAllowed
 
     /// Proporção (largura ÷ altura) da área da imagem: a das imagens de prévia que os sites publicam.
     static let imageAspectRatio: CGFloat = 1.91
@@ -52,16 +53,17 @@ struct LinkCard: View {
         }
         // A política do domínio ignora prévia pronta (com os arquivos no lugar) ou falha recente, então pedir a cada
         // aparição é barato. Com o arquivo faltando, o pedido refaz a busca e o cartão deixa de ficar no monograma.
-        .task(id: PreviewTrigger(itemID: item.id, coordinator: coordinator.map(ObjectIdentifier.init))) {
+        .task(id: PreviewTrigger(itemID: item.id, coordinator: coordinator.map(ObjectIdentifier.init), isAllowed: remoteContentAllowed)) {
             coordinator?.request([item.id])
         }
     }
 
     /// Refaz o pedido quando o cartão muda ou quando o coordenador passa a existir: ele é criado depois
-    /// da primeira exibição dos cartões da janela.
+    /// da primeira exibição dos cartões da janela, ou quando a pessoa permite buscar na internet.
     private struct PreviewTrigger: Equatable {
         let itemID: UUID
         let coordinator: ObjectIdentifier?
+        let isAllowed: Bool
     }
 
     // MARK: Topo

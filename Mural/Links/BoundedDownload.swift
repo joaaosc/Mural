@@ -1,4 +1,5 @@
 import Foundation
+import MuralKit
 import Synchronization
 
 /// Baixa uma resposta HTTP aos poucos e interrompe a transferência quando já tem o que precisa ou quando
@@ -146,6 +147,20 @@ nonisolated final class BoundedDownload: NSObject, URLSessionDataDelegate, Senda
             }
         }
         completionHandler(disposition)
+    }
+
+    /// Segue o redirecionamento só se o destino também for da internet pública: uma página pública não pode
+    /// mandar a busca para a rede local. Recusado, a resposta do redirecionamento é a que vale (e o status
+    /// 3xx faz a busca falhar como falha comum).
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        if let url = request.url, NetworkAddressPolicy.isPublicWebAddress(url) {
+            completionHandler(request)
+        } else {
+            completionHandler(nil)
+        }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
