@@ -143,7 +143,7 @@ final class NoteBodyEditorController {
 }
 
 /// `NSTextView` do corpo: aceita imagens ao colar e ao soltar, e conclui a edição com Esc.
-final class MarkdownSourceTextView: NSTextView {
+class MarkdownSourceTextView: NSTextView {
     /// Chamado com as peças quando o colar ou soltar traz alguma imagem.
     var onPasteImages: (([NoteImagePaste.Piece]) -> Void)?
     var onEscape: (() -> Void)?
