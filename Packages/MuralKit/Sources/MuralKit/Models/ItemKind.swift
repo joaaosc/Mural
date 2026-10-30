@@ -18,6 +18,8 @@ public enum ItemKind: String, Codable, Sendable, CaseIterable {
     case reminder
     /// Álbum, faixa, playlist ou estação do Apple Music, guardado como o último estado conhecido.
     case music
+    /// Pessoa ou empresa, lida de um vCard copiado, guardada como o último estado conhecido.
+    case contact
     /// Pasta que agrupa outros cartões (uma coleção).
     case folder
 
@@ -25,7 +27,7 @@ public enum ItemKind: String, Codable, Sendable, CaseIterable {
     public var storesFile: Bool {
         switch self {
         case .image, .video, .pdf: true
-        case .text, .checklist, .sticky, .link, .reminder, .music, .folder: false
+        case .text, .checklist, .sticky, .link, .reminder, .music, .contact, .folder: false
         }
     }
 }

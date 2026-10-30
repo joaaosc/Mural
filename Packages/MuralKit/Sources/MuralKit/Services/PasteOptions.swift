@@ -70,6 +70,8 @@ public enum PasteOptions {
             return [only(count > 0 ? .asRead : .read, kind: nil, count: count)]
         case .music(let count):
             return [only(count > 0 ? .asRead : .read, kind: .music, count: count)]
+        case .contact(let count):
+            return [only(count > 0 ? .asRead : .read, kind: .contact, count: count)]
         case .text(let text):
             guard let text else { return [only(.read, kind: nil, count: 0)] }
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }

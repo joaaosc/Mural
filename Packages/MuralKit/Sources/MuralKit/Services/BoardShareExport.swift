@@ -83,7 +83,7 @@ struct BoardShareExporter {
                 case .link(var link)?:
                     link.url = WebLink.removingTrackingParameters(from: link.url)
                     attachment.card = .link(link)
-                case .music?, nil:
+                case .music?, .contact?, nil:
                     break
                 }
                 return attachment

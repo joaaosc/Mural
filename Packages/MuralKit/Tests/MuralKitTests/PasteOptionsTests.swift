@@ -48,6 +48,12 @@ struct PasteOptionsTests {
         #expect(PasteOptions.options(for: .files(count: 0)) == [option(.read, nil, 0, suggested: true)])
     }
 
+    @Test("Contato lido: uma opção que cola os cartões de contato, com a contagem; sem ler, uma que lê na hora")
+    func contact() {
+        #expect(PasteOptions.options(for: .contact(count: 2)) == [option(.asRead, .contact, 2, suggested: true)])
+        #expect(PasteOptions.options(for: .contact(count: 0)) == [option(.read, .contact, 0, suggested: true)])
+    }
+
     @Test("Música lida: uma opção que cola os cartões de música, com a contagem; sem ler, uma que lê na hora")
     func music() {
         #expect(PasteOptions.options(for: .music(count: 2)) == [option(.asRead, .music, 2, suggested: true)])
@@ -184,7 +190,7 @@ struct PasteOptionsTests {
     func editIsNeverOfferedForOtherKinds() {
         let others: [ClipboardKind] = [
             .nothing, .image, .pdf, .links(count: 0), .links(count: 2), .files(count: 0), .files(count: 3), .music(count: 0),
-            .music(count: 2),
+            .music(count: 2), .contact(count: 0), .contact(count: 2),
         ]
 
         for kind in others {
@@ -267,9 +273,21 @@ struct ClipboardKindTests {
             (.files(count: 2), true), (.files(count: 0), false),
             (.text("oi"), true), (.text(""), true), (.text("   "), true), (.text(nil), false),
             (.music(count: 1), true), (.music(count: 0), false),
+            (.contact(count: 1), true), (.contact(count: 0), false),
         ])
     func isReadByKind(kind: ClipboardKind, expected: Bool) {
         #expect(kind.isRead == expected, "\(kind)")
+    }
+
+    // MARK: Contato
+
+    @Test("O vCard vale mais que o texto e os arquivos que vêm junto, e a música ainda vale mais que ele")
+    func vCardComesBeforeTextAndFiles() {
+        let vCard = "public.vcard"
+        #expect(ClipboardKind.hint(typeIdentifiers: [vCard]) == .contact(count: 0))
+        #expect(ClipboardKind.hint(typeIdentifiers: ["public.utf8-plain-text", vCard]) == .contact(count: 0))
+        #expect(ClipboardKind.hint(typeIdentifiers: ["public.file-url", vCard], fileContentType: "public.png") == .contact(count: 0))
+        #expect(ClipboardKind.hint(typeIdentifiers: [vCard, "com.apple.tv.metadata"]) == .music(count: 0))
     }
 
     // MARK: Música

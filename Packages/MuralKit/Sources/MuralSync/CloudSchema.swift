@@ -42,7 +42,7 @@ public enum CloudSchema {
     public enum Key: String, CaseIterable, Sendable {
         // Cartão (o texto livre também usa `createdAt`, `x`, `y`, `width`, `height` e `text`).
         case kind, title, createdAt, parentID, x, y, layer, folderX, folderY, fileName, text, caption
-        case stickyColor, colorTag, tag, checklist, imageMetadata, link, reminder, music, attachments
+        case stickyColor, colorTag, tag, checklist, imageMetadata, link, reminder, music, contact, attachments
         case width, height
         // Cartão, texto livre e mural.
         case formatVersion

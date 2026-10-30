@@ -40,7 +40,7 @@ struct SyncMetadataStoreTests {
         #expect(loaded.base.freeTexts == state.base.freeTexts)
         #expect(loaded.layers == state.layers && loaded.systemFields == state.systemFields)
         #expect(loaded.baseName == "Casa 🏠" && loaded.cloud == SyncFixtures.cloudInfo)
-        #expect(loaded.baseBoardFormatVersion == 10 && loaded.mediaOwners == state.mediaOwners && loaded.mediaOwners.count == 2)
+        #expect(loaded.baseBoardFormatVersion == 14 && loaded.mediaOwners == state.mediaOwners && loaded.mediaOwners.count == 2)
         let dates = { (board: Board) in board.items.map { $0.createdAt.timeIntervalSinceReferenceDate.bitPattern } }
         #expect(dates(loaded.base) == dates(state.base), "as datas voltam bit a bit")
     }
@@ -195,7 +195,7 @@ struct SyncMetadataStoreTests {
                 "cloud", "base", "baseName", "baseBoardFormatVersion", "layers", "systemFields", "uploadedFiles", "mediaOwners",
                 "unsupportedRecordNames",
             ])
-        #expect(object["baseBoardFormatVersion"] as? Int == 10)
+        #expect(object["baseBoardFormatVersion"] as? Int == 14)
         let owners = try #require(object["mediaOwners"] as? [String: String])
         #expect(owners == state.mediaOwners.mapValues(\.uuidString))
         let layers = try #require(object["layers"] as? [String: Double])

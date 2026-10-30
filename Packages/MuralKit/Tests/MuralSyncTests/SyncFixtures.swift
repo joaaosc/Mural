@@ -99,6 +99,10 @@ enum SyncFixtures {
                 trackCount: 12,
                 releaseDate: "2024-05-01",
                 duration: 215.123_456),
+            contact: ContactSnapshot(
+                givenName: "Fulana", familyName: "de Tal", organization: "Empresa",
+                phones: [LabeledValue(label: "celular", value: "+55 21 99999-0000")],
+                emails: [LabeledValue(label: "trabalho", value: "fulana@example.com")], thumbnailFile: "foto.png"),
             colorTag: .purple,
             attachments: [NoteAttachment(fileName: "AAAAAAAA-0000-4000-8000-000000000002.png", pixelWidth: 640, pixelHeight: 480)],
             folderPosition: BoardPoint(x: -12, y: 48.5),

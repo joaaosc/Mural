@@ -13,12 +13,14 @@ public enum ClipboardKind: Equatable, Sendable {
     case text(String?)
     /// Itens do app Música (faixa, álbum, playlist); `count` é 0 enquanto ainda não foram lidos.
     case music(count: Int)
+    /// Contatos (vCard); `count` é 0 enquanto ainda não foram lidos.
+    case contact(count: Int)
 
-    /// O conteúdo já foi lido. É falso para o que só se sabe pelo tipo: links, arquivos e música sem contagem e texto
+    /// O conteúdo já foi lido. É falso para o que só se sabe pelo tipo: links, arquivos, música e contatos sem contagem e texto
     /// sem o texto.
     public var isRead: Bool {
         switch self {
-        case .links(let count), .files(let count), .music(let count): count > 0
+        case .links(let count), .files(let count), .music(let count), .contact(let count): count > 0
         case .text(let text): text != nil
         case .nothing, .image, .pdf: true
         }
@@ -26,7 +28,7 @@ public enum ClipboardKind: Equatable, Sendable {
 
     /// Palpite pelos identificadores de tipo da área de transferência, sem ler o conteúdo.
     ///
-    /// Segue a prioridade do ⌘V do mural: música (os tipos que o app Música põe ao copiar, lidos antes de tudo), depois
+    /// Segue a prioridade do ⌘V do mural: música (os tipos que o app Música põe ao copiar, lidos antes de tudo), contato (vCard, antes do texto e dos arquivos), depois
     /// a de `PasteboardImporter.read`: arquivos, PNG, PDF, outra imagem (TIFF, JPEG, HEIC, GIF), links, qualquer outro
     /// tipo de imagem e, por último, texto. Música, links, arquivos e texto saem sem contagem nem conteúdo (ver
     /// `isRead`). Links do Apple Music copiados sem os tipos do Música só viram música depois da leitura.
@@ -35,6 +37,7 @@ public enum ClipboardKind: Equatable, Sendable {
     public static func hint(typeIdentifiers: [String], fileContentType: String? = nil) -> ClipboardKind {
         let types = Set(typeIdentifiers)
         if !types.isDisjoint(with: musicTypes) { return .music(count: 0) }
+        if types.contains(UTType.vCard.identifier) { return .contact(count: 0) }
         if types.contains(UTType.fileURL.identifier) {
             let fileType = fileContentType.flatMap { UTType($0) }
             if fileType?.conforms(to: .image) == true { return .image }

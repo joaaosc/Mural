@@ -290,6 +290,7 @@ public enum BoardMerge {
         case .link: target.link = source.link
         case .reminder: target.reminder = source.reminder
         case .music: target.music = source.music
+        case .contact: target.contact = source.contact
         case .colorTag: target.colorTag = source.colorTag
         case .attachments: target.attachments = source.attachments
         case .folderPosition: target.folderPosition = source.folderPosition

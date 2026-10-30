@@ -55,6 +55,7 @@ public enum BoardPortablePackageError: Error, Equatable, Sendable {
     case invalidFileName(UUID)
     case invalidReminder(UUID)
     case invalidMusic(UUID)
+    case invalidContact(UUID)
     case missingAsset(String)
     case duplicateAsset(String)
     case unreferencedAsset(String)
@@ -391,6 +392,7 @@ public actor BoardPortablePackageService {
             }
             try validateReminder(of: item)
             try validateMusic(of: item, forImport: forImport)
+            try validateContact(of: item, forImport: forImport)
             if item.kind.storesFile {
                 guard let fileName = item.fileName else {
                     throw BoardPortablePackageError.missingAsset("\(item.id.uuidString):fileName")
@@ -469,6 +471,26 @@ public actor BoardPortablePackageService {
         else { throw BoardPortablePackageError.invalidMusic(item.id) }
     }
 
+    /// Um cartão de contato guarda só o estado, sem arquivo; a foto reduzida não viaja no pacote. Nomes, telefones e e-mails têm
+    /// quantidade e tamanho razoáveis.
+    private func validateContact(of item: BoardItem, forImport: Bool) throws {
+        guard item.kind == .contact else {
+            if item.contact != nil { throw BoardPortablePackageError.invalidContact(item.id) }
+            return
+        }
+        guard let contact = item.contact, item.fileName == nil, item.title.count <= 1_000,
+            isValid(contact, forImport: forImport)
+        else { throw BoardPortablePackageError.invalidContact(item.id) }
+    }
+
+    private func isValid(_ contact: ContactSnapshot, forImport: Bool) -> Bool {
+        let values = contact.phones + contact.emails
+        return contact.givenName.count <= 1_000 && contact.familyName.count <= 1_000 && (contact.organization?.count ?? 0) <= 1_000
+            && contact.phones.count <= 50 && contact.emails.count <= 50
+            && values.allSatisfy { $0.value.count <= 1_000 && ($0.label?.count ?? 0) <= 1_000 }
+            && (contact.thumbnailFile.map { isSafeFileName($0, forImport: forImport) } ?? true)
+    }
+
     /// Um anexo de nota é uma imagem legível, com nome seguro, tamanho positivo e sem colidir com a mídia de um cartão.
     private func validateAttachment(
         _ attachment: NoteAttachment, of item: BoardItem, mediaNames: Set<String>, itemsURL: URL, forImport: Bool
@@ -519,6 +541,8 @@ public actor BoardPortablePackageService {
                 music.duration.map({ $0.isFinite && $0 >= 0 && $0 <= 10_000_000 }) ?? true,
                 music.trackCount.map({ (0...100_000).contains($0) }) ?? true
             else { throw BoardPortablePackageError.invalidMusic(item.id) }
+        case .contact(let contact):
+            guard isValid(contact, forImport: forImport) else { throw BoardPortablePackageError.invalidContact(item.id) }
         case .link(let link):
             guard let scheme = link.url.scheme?.lowercased(), scheme == "http" || scheme == "https", link.url.host != nil else {
                 throw BoardPortablePackageError.invalidBoard("Cartão embutido de link com endereço inválido: \(item.id.uuidString)")

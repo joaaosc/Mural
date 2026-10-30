@@ -104,7 +104,7 @@ extension CloudSchema.Key {
         case .formatVersion: .integer
         case .createdAt, .x, .y, .layer, .folderX, .folderY, .width, .height: .floatingPoint
         case .kind, .title, .parentID, .fileName, .text, .caption, .stickyColor, .colorTag, .tag, .checklist, .imageMetadata, .link,
-            .reminder, .music, .attachments, .name, .file, .cardID:
+            .reminder, .music, .contact, .attachments, .name, .file, .cardID:
             nil
         }
     }
@@ -119,7 +119,8 @@ extension CloudSchema.RecordType {
         case .card:
             [
                 .kind, .title, .createdAt, .parentID, .x, .y, .layer, .folderX, .folderY, .fileName, .text, .caption, .stickyColor,
-                .colorTag, .tag, .checklist, .imageMetadata, .link, .reminder, .music, .attachments, .width, .height, .formatVersion,
+                .colorTag, .tag, .checklist, .imageMetadata, .link, .reminder, .music, .contact, .attachments, .width, .height,
+                .formatVersion,
             ]
         case .freeText:
             [.text, .x, .y, .createdAt, .width, .height, .formatVersion]

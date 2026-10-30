@@ -60,6 +60,7 @@ private func fullItem() -> BoardItem {
         link: LinkInfo(url: URL(string: "https://apple.com")!, pageTitle: "Apple"),
         reminder: ReminderSnapshot(identifier: "R-1", title: "Lembrete"),
         music: MusicSnapshot(kind: .album, title: "Álbum"),
+        contact: ContactSnapshot(givenName: "Fulana", familyName: "de Tal"),
         colorTag: .red,
         attachments: [attachment(34)],
         folderPosition: BoardPoint(x: 3, y: 4),
@@ -77,7 +78,7 @@ struct BoardItemFieldTests {
         let expected = Set(BoardItem.Field.allCases.map(\.rawValue)).union(["id"])
         let difference = Set(object.keys).symmetricDifference(expected)
         #expect(difference.isEmpty, "propriedade de BoardItem sem BoardItem.Field (ou o contrário): \(difference.sorted())")
-        #expect(BoardItem.Field.allCases.count == 20)
+        #expect(BoardItem.Field.allCases.count == 21)
     }
 
     @Test("Os nomes das propriedades guardadas também são o id e os campos, mesmo que o cartão do teste não as preencha")
@@ -118,6 +119,7 @@ struct BoardItemFieldTests {
         edit(.link) { $0.link?.pageTitle = "Outra página" }
         edit(.reminder) { $0.reminder?.isCompleted = true }
         edit(.music) { $0.music?.title = "Outro álbum" }
+        edit(.contact) { $0.contact?.givenName = "Outra" }
         edit(.colorTag) { $0.colorTag = .blue }
         edit(.attachments) { $0.attachments = [] }
         edit(.folderPosition) { $0.folderPosition = nil }

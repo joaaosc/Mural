@@ -32,6 +32,8 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
     public var reminder: ReminderSnapshot?
     /// Último estado conhecido do item do Apple Music, quando `kind == .music`. Murais antigos não têm o campo.
     public var music: MusicSnapshot?
+    /// Último estado conhecido da pessoa ou empresa, quando `kind == .contact`. Murais anteriores à versão 14 não têm o campo.
+    public var contact: ContactSnapshot?
     /// Cor escolhida pela pessoa no menu do cartão, como as tags do Finder.
     public var colorTag: TagColor?
     /// Imagens coladas no corpo, quando `kind == .text`. Murais antigos não têm o campo.
@@ -62,6 +64,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         link: LinkInfo? = nil,
         reminder: ReminderSnapshot? = nil,
         music: MusicSnapshot? = nil,
+        contact: ContactSnapshot? = nil,
         colorTag: TagColor? = nil,
         attachments: [NoteAttachment]? = nil,
         folderPosition: BoardPoint? = nil,
@@ -84,6 +87,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
         self.link = link
         self.reminder = reminder
         self.music = music
+        self.contact = contact
         self.colorTag = colorTag
         self.attachments = attachments
         self.folderPosition = folderPosition
@@ -94,7 +98,7 @@ public struct BoardItem: Codable, Identifiable, Hashable, Sendable {
 extension BoardItem {
     private enum CodingKeys: String, CodingKey {
         case id, kind, title, createdAt, parentID, position, fileName, text, caption
-        case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music
+        case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music, contact
         case colorTag, attachments, folderPosition, size
     }
 
@@ -121,6 +125,7 @@ extension BoardItem {
             link: try container.decodeIfPresent(LinkInfo.self, forKey: .link),
             reminder: try container.decodeIfPresent(ReminderSnapshot.self, forKey: .reminder),
             music: try container.decodeIfPresent(MusicSnapshot.self, forKey: .music),
+            contact: try container.decodeIfPresent(ContactSnapshot.self, forKey: .contact),
             colorTag: try container.decodeIfPresent(TagColor.self, forKey: .colorTag),
             attachments: try container.decodeIfPresent([NoteAttachment].self, forKey: .attachments),
             folderPosition: try container.decodeIfPresent(BoardPoint.self, forKey: .folderPosition),
@@ -146,6 +151,7 @@ extension BoardItem {
         try container.encodeIfPresent(link, forKey: .link)
         try container.encodeIfPresent(reminder, forKey: .reminder)
         try container.encodeIfPresent(music, forKey: .music)
+        try container.encodeIfPresent(contact, forKey: .contact)
         try container.encodeIfPresent(colorTag, forKey: .colorTag)
         try container.encodeIfPresent(attachments, forKey: .attachments)
         try container.encodeIfPresent(folderPosition, forKey: .folderPosition)
@@ -158,7 +164,7 @@ extension BoardItem {
     /// o cartão campo a campo, e uma propriedade nova precisa de um caso aqui (o teste das chaves do JSON avisa quando falta).
     public enum Field: String, CaseIterable, Sendable {
         case kind, title, createdAt, parentID, position, fileName, text, caption
-        case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music
+        case checklist, stickyColor, imageMetadata, tag, keySentences, link, reminder, music, contact
         case colorTag, attachments, folderPosition, size
     }
 
@@ -186,6 +192,7 @@ extension BoardItem {
         case .link: link != other.link
         case .reminder: reminder != other.reminder
         case .music: music != other.music
+        case .contact: contact != other.contact
         case .colorTag: colorTag != other.colorTag
         case .attachments: attachments != other.attachments
         case .folderPosition: folderPosition != other.folderPosition

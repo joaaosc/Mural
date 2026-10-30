@@ -119,6 +119,8 @@ extension BoardPortablePackageError: LocalizedError {
             "O pacote tem um cartão de lembrete inválido."
         case .invalidMusic:
             "O pacote tem um cartão de música inválido."
+        case .invalidContact:
+            "O pacote tem um cartão de contato inválido."
         case .missingAsset(let name):
             "Falta um arquivo de mídia no pacote (\(name))."
         case .duplicateAsset(let name):

@@ -14,7 +14,7 @@ public enum NoteFolding {
             switch item.kind {
             case .text: item.text
             case .checklist: item.checklist?.intro
-            case .image, .video, .pdf, .sticky, .folder, .link, .reminder, .music: nil
+            case .image, .video, .pdf, .sticky, .folder, .link, .reminder, .music, .contact: nil
             }
         guard let source, !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return source

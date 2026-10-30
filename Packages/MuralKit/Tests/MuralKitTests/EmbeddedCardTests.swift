@@ -77,7 +77,7 @@ struct EmbeddedCardTests {
 
     @Test("Tipo embutido desconhecido é recusado")
     func unknownKindThrows() {
-        let json = #"{"fileName":"\#(cardID.uuidString).card","pixelWidth":0,"pixelHeight":0,"card":{"kind":"contact","contact":{}}}"#
+        let json = #"{"fileName":"\#(cardID.uuidString).card","pixelWidth":0,"pixelHeight":0,"card":{"kind":"futuro","futuro":{}}}"#
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(NoteAttachment.self, from: Data(json.utf8)) }
     }
 
@@ -95,7 +95,7 @@ struct EmbeddedCardTests {
     func versionThirteen() {
         let plain = BoardItem(
             kind: .text, title: "N", attachments: [NoteAttachment(fileName: "\(cardID.uuidString).png", pixelWidth: 1, pixelHeight: 1)])
-        #expect(Board.currentFormatVersion == 13)
+        #expect(Board.currentFormatVersion == 14)
         #expect(Board(items: [plain]).requiredFormatVersion == 5)
         let withCard = BoardItem(kind: .text, title: "N", attachments: [attachment(cardID, .reminder(reminder()))])
         #expect(Board(items: [plain, withCard]).requiredFormatVersion == 13)

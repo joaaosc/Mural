@@ -16,7 +16,9 @@ public struct Board: Codable, Equatable, Sendable {
     /// - 11: tamanho escolhido para post-it e texto livre (`BoardItem.size`, `BoardFreeText.size`).
     /// - 12: tamanho escolhido para imagens (`BoardItem.size`).
     /// - 13: cartão embutido numa nota (`NoteAttachment.card`).
-    public static let currentFormatVersion = 13
+    /// - 14: cartão de contato (`ItemKind.contact`, `BoardItem.contact`, `EmbeddedCard.contact`); builds antigas recusam o mural como
+    ///   ilegível, não como versão futura, porque leem o tipo do cartão antes de conferir a versão.
+    public static let currentFormatVersion = 14
 
     /// Quantos níveis de pasta podem ficar uns dentro dos outros. Uma pasta solta no mural é o nível 1;
     /// uma pasta nunca fica abaixo do nível 8. Cartões que não são pasta cabem em qualquer pasta.
@@ -62,6 +64,14 @@ public struct Board: Codable, Equatable, Sendable {
     /// não abriria ou perderia ao gravar o que ela não conhece. Cada versão nova do formato precisa de uma regra aqui.
     public var requiredFormatVersion: Int { Self.minimumFormatVersion(for: items, freeTexts: freeTexts) }
 
+    /// Cartão de contato avulso, ou contato embutido numa nota.
+    private static func usesContact(_ item: BoardItem) -> Bool {
+        item.kind == .contact
+            || item.embeddedCards.contains { attachment in
+                if case .contact? = attachment.card { true } else { false }
+            }
+    }
+
     static func minimumFormatVersion(for items: [BoardItem]) -> Int {
         var version = 1
         if items.contains(where: { $0.kind == .folder && $0.parentID != nil }) { version = max(version, 2) }
@@ -75,6 +85,7 @@ public struct Board: Codable, Equatable, Sendable {
         if items.contains(where: { $0.size != nil }) { version = max(version, 11) }
         if items.contains(where: { $0.kind == .image && $0.size != nil }) { version = max(version, 12) }
         if items.contains(where: { ($0.attachments ?? []).contains(where: \.isCard) }) { version = max(version, 13) }
+        if items.contains(where: Self.usesContact) { version = max(version, 14) }
         return version
     }
 

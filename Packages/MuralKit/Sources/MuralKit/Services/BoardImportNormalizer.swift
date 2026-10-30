@@ -66,6 +66,11 @@ enum BoardImportNormalizer {
                     pixelHeight: max(1, size?.height ?? 0))
             }
         }
+        // A foto reduzida de um contato é de cada Mac: o pacote não a leva, e o nome que ele declara não aponta para nada.
+        if var contact = item.contact {
+            contact.thumbnailFile = nil
+            item.contact = contact
+        }
         // O lembrete chega desligado do app Lembretes: sem identificador, nenhum arquivo consegue ler nem marcar um lembrete real.
         if var reminder = item.reminder {
             reminder.identifier = ""
@@ -98,6 +103,7 @@ enum BoardImportNormalizer {
                 texts.append(contentsOf: section.entries.map(\.text))
             }
         }
+        if let contact = item.contact { texts.append(contentsOf: contactTexts(contact)) }
         if let link = item.link {
             texts.append(contentsOf: [link.pageTitle, link.siteName, link.summary])
         }
@@ -107,6 +113,8 @@ enum BoardImportNormalizer {
                 texts.append(contentsOf: [link.pageTitle, link.siteName, link.summary, link.remoteImageURL?.absoluteString])
             case .reminder(let reminder)?:
                 texts.append(contentsOf: [reminder.title, reminder.notes, reminder.listTitle, reminder.url?.absoluteString])
+            case .contact(let contact)?:
+                texts.append(contentsOf: contactTexts(contact))
             case .music(let music)?:
                 texts.append(contentsOf: [music.title, music.subtitle, music.albumTitle, music.libraryPlaylistName])
             case nil:
@@ -116,6 +124,11 @@ enum BoardImportNormalizer {
         for case let text? in texts where text.utf8.count > maximumTextBytes {
             throw BoardPortablePackageError.textTooLarge(item.id)
         }
+    }
+
+    private static func contactTexts(_ contact: ContactSnapshot) -> [String?] {
+        [contact.givenName, contact.familyName, contact.organization]
+            + (contact.phones + contact.emails).flatMap { [$0.label, $0.value] }
     }
 
     /// Dimensões e tamanho vêm do arquivo, não do pacote; sem cabeçalho legível, o cartão fica sem metadados.

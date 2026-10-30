@@ -72,6 +72,7 @@ public enum CardRecordMapping {
         values[.link] = try shared.link.map { .data(try SyncJSON.encode($0)) }
         values[.reminder] = try shared.reminder.map { .data(try SyncJSON.encode($0)) }
         values[.music] = try shared.music.map { .data(try SyncJSON.encode($0)) }
+        values[.contact] = try shared.contact.map { .data(try SyncJSON.encode($0)) }
         values[.attachments] = try shared.attachments.map { .data(try SyncJSON.encode($0)) }
 
         guard values.values.reduce(0, { $0 + payloadBytes(of: $1) }) <= maximumFieldBytes else {
@@ -155,6 +156,7 @@ public enum CardRecordMapping {
             link: try reader.json(LinkInfo.self, .link),
             reminder: try reader.json(ReminderSnapshot.self, .reminder),
             music: try reader.json(MusicSnapshot.self, .music),
+            contact: try reader.json(ContactSnapshot.self, .contact),
             colorTag: colorTag,
             attachments: attachments,
             folderPosition: folderPosition,

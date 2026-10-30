@@ -239,6 +239,7 @@ struct CardRecordMappingTests {
             ("anexo", BoardItem(kind: .text, title: "n", attachments: [attachment]), 5),
             ("lembrete", BoardItem(kind: .reminder, title: "r"), 6),
             ("música", BoardItem(kind: .music, title: "m"), 8),
+            ("contato", BoardItem(kind: .contact, title: "c", contact: ContactSnapshot(givenName: "Ana")), 14),
             ("lugar na pasta", BoardItem(kind: .sticky, title: "p", parentID: UUID(), folderPosition: BoardPoint(x: 1, y: 2)), 9),
             ("legenda", BoardItem(kind: .image, title: "i", caption: "legenda"), 10),
             ("tamanho", BoardItem(kind: .sticky, title: "t", size: BoardSize(width: 200, height: 150)), 11),

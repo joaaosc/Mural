@@ -51,9 +51,13 @@ extension SyncFixtures {
         let music = BoardItem(
             kind: .music, title: "Álbum",
             music: MusicSnapshot(kind: .album, catalogID: "1234", title: "Álbum", subtitle: "Artista", duration: 215.5))
+        let contact = BoardItem(
+            kind: .contact, title: "Fulana de Tal",
+            contact: ContactSnapshot(
+                givenName: "Fulana", familyName: "de Tal", phones: [LabeledValue(label: "celular", value: "+55 21 99999-0000")]))
         let freeText = BoardFreeText(text: "Oi", position: BoardPoint(x: 5, y: 6), createdAt: fractionalDate)
         return Board(
-            items: [folder, subfolder, sticky, note, image, video, pdf, list, link, reminder, music], freeTexts: [freeText])
+            items: [folder, subfolder, sticky, note, image, video, pdf, list, link, reminder, music, contact], freeTexts: [freeText])
     }
 
     /// O estado de um mural já enviado, com tudo preenchido.

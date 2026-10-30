@@ -410,7 +410,7 @@ struct SyncCoreTests {
     func deletedBoardRecordIsPendingAgain() throws {
         var scenario = try syncedScenario()
         defer { cleanUp(scenario.items) }
-        #expect(scenario.state.baseName == Self.boardName && scenario.state.baseBoardFormatVersion == 11)
+        #expect(scenario.state.baseName == Self.boardName && scenario.state.baseBoardFormatVersion == 14)
 
         let received = try SyncCore.receive(saved: [], deleted: [recordID("mural")], into: &scenario.state)
 
@@ -940,7 +940,7 @@ struct SyncCoreTests {
             (Board(), 1),
             (Board(items: [link]), 3),
             (Board(freeTexts: [BoardFreeText(text: "Oi")]), 7),
-            (Self.board(), 11),
+            (Self.board(), 14),
         ]
         for (board, version) in boards {
             let record = SyncFixtures.record(.mural, name: "mural", fields: CardRecordMapping.boardFields(name: "Casa", board: board))

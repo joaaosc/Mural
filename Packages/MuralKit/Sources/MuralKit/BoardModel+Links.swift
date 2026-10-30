@@ -41,7 +41,7 @@ extension BoardModel {
 
     // MARK: Prévias
 
-    /// Nomes dos arquivos de prévia (imagem e ícone dos links, capa das músicas) que algum cartão do mural usa.
+    /// Nomes dos arquivos de prévia (imagem e ícone dos links, capa das músicas, foto dos contatos) que algum cartão do mural usa.
     ///
     /// É o que `LinkPreviewFiles.sweep(keeping:minimumAge:now:)` precisa para apagar o resto.
     public var referencedLinkPreviewFiles: Set<String> {
@@ -50,6 +50,9 @@ extension BoardModel {
             if let link = item.link {
                 if let image = link.previewImageFile { names.insert(image) }
                 if let icon = link.iconFile { names.insert(icon) }
+            }
+            if let thumbnail = item.contact?.thumbnailFile {
+                names.insert(thumbnail)
             }
             if let artwork = item.music?.artworkFile {
                 names.insert(artwork)

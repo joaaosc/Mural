@@ -18,7 +18,7 @@ public enum SharedFieldPolicy {
         case .keySentences:
             .local
         case .kind, .title, .createdAt, .parentID, .position, .fileName, .text, .caption, .checklist, .stickyColor, .imageMetadata,
-            .tag, .link, .reminder, .music, .colorTag, .attachments, .folderPosition, .size:
+            .tag, .link, .reminder, .music, .contact, .colorTag, .attachments, .folderPosition, .size:
             .shared
         }
     }
@@ -40,6 +40,12 @@ public enum SharedFieldPolicy {
         "backgroundHex", "primaryTextHex", "secondaryTextHex", "trackCount", "releaseDate", "duration",
     ]
 
+    /// Chaves do JSON de `ContactSnapshot` que são de cada Mac: o arquivo da foto reduzida.
+    public static let localContactKeys: Set<String> = ["thumbnailFile"]
+
+    /// Chaves do JSON de `ContactSnapshot` que vão para as outras pessoas.
+    public static let sharedContactKeys: Set<String> = ["givenName", "familyName", "organization", "phones", "emails"]
+
     /// Tipos que só o Mac de quem criou o cartão atualiza a partir do Lembretes ou do Música; os outros mostram o último estado
     /// guardado.
     public static let creatorMaintainedKinds: Set<ItemKind> = [.reminder, .music]
@@ -60,6 +66,9 @@ public enum SharedFieldPolicy {
             music.artworkFile = nil
             music.libraryID = nil
             return .music(music)
+        case .contact(var contact):
+            contact.thumbnailFile = nil
+            return .contact(contact)
         case .reminder:
             return card
         }
@@ -74,6 +83,9 @@ public enum SharedFieldPolicy {
             link.iconFile = localLink.iconFile
             link.preview = localLink.preview
             return .link(link)
+        case (.contact(let localContact), .contact(var contact)) where localContact.dedupeKey == contact.dedupeKey:
+            contact.thumbnailFile = localContact.thumbnailFile
+            return .contact(contact)
         case (.music(let localMusic), .music(var music)) where isSameItem(localMusic, music):
             music.artworkFile = localMusic.artworkFile
             music.libraryID = localMusic.libraryID
@@ -100,6 +112,10 @@ public enum SharedFieldPolicy {
             link.iconFile = nil
             link.preview = .pending
             copy.link = link
+        }
+        if var contact = copy.contact {
+            contact.thumbnailFile = nil
+            copy.contact = contact
         }
         if var music = copy.music {
             music.artworkFile = nil
@@ -128,6 +144,10 @@ public enum SharedFieldPolicy {
             link.iconFile = localLink.iconFile
             link.preview = localLink.preview
             result.link = link
+        }
+        if let localContact = local.contact, var contact = result.contact, localContact.dedupeKey == contact.dedupeKey {
+            contact.thumbnailFile = localContact.thumbnailFile
+            result.contact = contact
         }
         if let localMusic = local.music, var music = result.music, isSameItem(localMusic, music) {
             music.artworkFile = localMusic.artworkFile

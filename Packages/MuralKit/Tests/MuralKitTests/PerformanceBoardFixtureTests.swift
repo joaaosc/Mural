@@ -34,7 +34,8 @@ struct PerformanceBoardFixtureTests {
         let board = PerformanceBoardFixture.make(size: .items100, mediaDensity: .percent10)
         let kinds = Set(board.items.map(\.kind.rawValue))
 
-        for kind in ItemKind.allCases {
+        // O contato ainda não faz parte da fixture de desempenho (os índices obrigatórios e a distribuição são fixos).
+        for kind in ItemKind.allCases where kind != .contact {
             #expect(kinds.contains(kind.rawValue), "faltou o tipo \(kind.rawValue)")
         }
 

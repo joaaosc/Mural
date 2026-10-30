@@ -103,6 +103,12 @@ public enum CloudSchemaSample {
                     subtitle: "Artista de exemplo", albumTitle: "Álbum de exemplo",
                     artworkTemplate: "https://example.com/{w}x{h}.{f}", backgroundHex: "#223344", primaryTextHex: "#ffffff",
                     secondaryTextHex: "#dddddd", trackCount: 12, releaseDate: "2024-05-01", duration: 215.5)),
+            BoardItem(
+                kind: .contact, title: "Fulana de Tal", createdAt: date(9), position: place(4, 1),
+                contact: ContactSnapshot(
+                    givenName: "Fulana", familyName: "de Tal", organization: "Empresa de exemplo",
+                    phones: [LabeledValue(label: "celular", value: "+55 21 99999-0000")],
+                    emails: [LabeledValue(label: "trabalho", value: "fulana@example.com")])),
         ]
     }
 }
