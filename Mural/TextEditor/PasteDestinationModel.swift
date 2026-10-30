@@ -220,7 +220,7 @@ final class PasteDestinationModel {
         }
         // O editor pode ter ganhado cartões ou imagens depois de a galeria abrir: os jeitos valem para o texto de agora.
         refreshKinds()
-        let built = Self.content(for: selectedKind, text: document.text, embeds: document.embeds, images: document.images)
+        let built = Self.content(for: selectedKind, text: document.deliverableText, embeds: document.embeds, images: document.images)
         switch await delivery.deliver(built.content, textKind: built.textKind, to: entry) {
         case .delivered:
             preferences.set(entry.manifest.id.rawValue.uuidString, forKey: Self.lastDestinationKey)

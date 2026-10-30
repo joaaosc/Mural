@@ -87,4 +87,81 @@ final class TextEditorUITests: XCTestCase {
         XCTAssertTrue(window.waitForNonExistence(timeout: 5), "vazio fecha sem confirmação")
         XCTAssertFalse(app.buttons["Descartar"].exists)
     }
+
+    // MARK: Anexos
+
+    /// Põe na área de transferência uma imagem azul, que não se confunde com nada do editor.
+    private func copyBlueImage() throws {
+        let image = NSImage(size: NSSize(width: 64, height: 48), flipped: false) { rect in
+            NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1).setFill()
+            rect.fill()
+            return true
+        }
+        let tiff = try XCTUnwrap(image.tiffRepresentation)
+        let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setData(png, forType: .png)
+    }
+
+    /// Quantos pontos azuis, numa grade de 6 pixels, há na captura do campo.
+    private func bluePoints(in field: XCUIElement) throws -> Int {
+        let tiff = try XCTUnwrap(field.screenshot().image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
+        var count = 0
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 6) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 6) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if color.blueComponent > 0.8, color.redComponent < 0.25, color.greenComponent < 0.35 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// O vídeo do defeito: colada no fim, a imagem ficava em branco até se digitar depois dela, e ao voltar com o cursor sumia de
+    /// novo, com o texto de baixo saltando uma linha.
+    @MainActor
+    func testPastedImageStaysVisibleWhileTheCursorMoves() throws {
+        let app = launch()
+        openEditorFromMenu(in: app)
+        let window = editorWindow(in: app)
+        XCTAssertTrue(window.waitForExistence(timeout: 10), "a janela do editor deveria abrir")
+        let field = window.textViews.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.click()
+        field.typeText("eeee")
+        try copyBlueImage()
+        app.typeKey("v", modifierFlags: .command)
+
+        Thread.sleep(forTimeInterval: 0.3)
+        let screenshot = XCTAttachment(screenshot: field.screenshot())
+        screenshot.name = "imagem-colada"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let wholeImage = try bluePoints(in: field)
+        XCTAssertGreaterThan(wholeImage, 100, "a imagem deveria aparecer logo depois de colar")
+
+        // Sem nada digitado: o cursor sobe, desce e volta, e a imagem fica igual em cada passo.
+        for (key, moment) in [
+            (XCUIKeyboardKey.upArrow, "cursor acima"), (.downArrow, "cursor abaixo"), (.leftArrow, "cursor à esquerda"),
+            (.rightArrow, "cursor à direita"),
+        ] {
+            app.typeKey(key, modifierFlags: [])
+            Thread.sleep(forTimeInterval: 0.15)
+            XCTAssertEqual(try bluePoints(in: field), wholeImage, "\(moment): a imagem deveria continuar inteira")
+        }
+
+        // Escrever continua na linha de baixo, com a imagem à vista. Números: a correção automática do campo não mexe neles.
+        field.typeText("123")
+        XCTAssertEqual(try bluePoints(in: field), wholeImage, "digitar não mexe na imagem")
+        let text = fieldText(in: app)
+        XCTAssertTrue(text.hasSuffix("\n123"), "o texto fica na linha de baixo da imagem: \(text)")
+
+        // ⌫ até o começo da linha e mais um apaga a imagem; ⌘Z a devolve.
+        for _ in 0..<4 { app.typeKey(.delete, modifierFlags: []) }
+        let isGone = NSPredicate { _, _ in ((try? self.bluePoints(in: field)) ?? 1) == 0 }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: isGone, object: nil)], timeout: 5), .completed)
+        app.typeKey("z", modifierFlags: .command)
+        let isBack = NSPredicate { _, _ in ((try? self.bluePoints(in: field)) ?? 0) == wholeImage }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: isBack, object: nil)], timeout: 5), .completed)
+    }
 }

@@ -264,22 +264,206 @@ struct EditorAttachmentBridgeTests {
         #expect(coordinator.undoManager(for: rig.textView) !== rig.window.undoManager)
     }
 
-    @Test("No layout os anexos pedem o tamanho e criam a view, com no máximo 320 pt")
-    func layoutCreatesTheAttachmentViews() throws {
+    @Test("O anexo tem no máximo 320 pt, é desenhado como imagem e nunca como view")
+    func attachmentIsDrawnAsAnImage() throws {
         let rig = makeRig()
         defer { rig.window.close() }
         fill(rig)
         layout(rig)
         let attachment = try #require(attachments(in: rig.textView).first?.attachment)
+        let location = try #require(rig.textView.textLayoutManager?.documentRange.location)
         let bounds = attachment.attachmentBounds(
-            for: [:], location: rig.textView.textLayoutManager!.documentRange.location, textContainer: rig.textView.textContainer,
+            for: [:], location: location, textContainer: rig.textView.textContainer,
             proposedLineFragment: CGRect(x: 0, y: 0, width: 480, height: 20), position: .zero)
-        #expect(bounds.width <= 320 && bounds.width > 0 && bounds.height > 0)
-        let provider = try #require(
-            attachment.viewProvider(
-                for: rig.textView, location: rig.textView.textLayoutManager!.documentRange.location,
-                textContainer: rig.textView.textContainer))
-        provider.loadView()
-        #expect(provider.view is NSHostingView<EmbeddedCardStrip>)
+        #expect(bounds.width == EmbeddedCardStrip.maximumWidth && bounds.height == EmbeddedCardStrip.height)
+        #expect(attachment.viewProvider(for: rig.textView, location: location, textContainer: rig.textView.textContainer) == nil)
+        #expect(!attachment.allowsTextAttachmentView)
+        let image = attachment.image(for: bounds, attributes: [:], location: location, textContainer: rig.textView.textContainer)
+        #expect(image?.size == bounds.size)
+        #expect(image?.accessibilityDescription == "Música, Abbey Road")
+    }
+
+    @Test("O anexo escolhe o desenho pela aparência do campo")
+    func attachmentFollowsTheAppearance() throws {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        fill(rig)
+        let attachment = try #require(attachments(in: rig.textView).first?.attachment)
+        let location = try #require(rig.textView.textLayoutManager?.documentRange.location)
+        func drawn() -> NSImage? {
+            attachment.image(for: .zero, attributes: [:], location: location, textContainer: rig.textView.textContainer)
+        }
+        rig.textView.appearance = NSAppearance(named: .aqua)
+        #expect(drawn() === attachment.picture?.light)
+        rig.textView.appearance = NSAppearance(named: .darkAqua)
+        #expect(drawn() === attachment.picture?.dark)
+    }
+
+    @Test("Recarregar o texto não desenha o anexo de novo")
+    func picturesAreReusedAcrossReloads() throws {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        fill(rig)
+        let before = try #require(attachments(in: rig.textView).first?.attachment.picture?.light)
+        rig.bridge.reload(rig.document.text)
+        #expect(attachments(in: rig.textView).first?.attachment.picture?.light === before)
+    }
+
+    @Test("O desenho do anexo já vem pronto com o conteúdo da imagem colada, sem esperar a tela")
+    func pictureHoldsThePastedImage() throws {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        rig.document.insertImages([.data(png(), fileExtension: "png")])
+        let picture = try #require(attachments(in: rig.textView).first?.attachment.picture?.light)
+        var rect = CGRect(origin: .zero, size: picture.size)
+        let image = try #require(picture.cgImage(forProposedRect: &rect, context: nil, hints: nil))
+        #expect(picture.size == CGSize(width: 320, height: 160))
+        #expect(image.width == 640, "o dobro dos pontos, para ficar nítido nas telas Retina")
+        let center = try #require(NSBitmapImageRep(cgImage: image).colorAt(x: image.width / 2, y: image.height / 2))
+        #expect(center.blueComponent > 0.8 && center.redComponent < 0.3 && center.alphaComponent > 0.9)
+    }
+
+    @Test("Colar no fim deixa uma linha livre e o cursor nela; as setas passam por cima do anexo")
+    func cursorJumpsOverTheAttachment() throws {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        let coordinator = TextEditorBody.Coordinator(document: rig.document)
+        coordinator.install(in: rig.textView)
+        rig.textView.delegate = coordinator
+        rig.textView.insertText("eeee", replacementRange: rig.textView.selectedRange())
+        rig.document.insertCards([.contact(ContactSnapshot(givenName: "Ana"))])
+        // "eeee", duas quebras, o anexo e a quebra da linha livre.
+        #expect(rig.textView.string == "eeee\n\n\u{FFFC}\n")
+        #expect(rig.textView.selectedRange() == NSRange(location: 8, length: 0))
+
+        rig.textView.moveUp(nil)
+        #expect(rig.textView.selectedRange().location == 5, "sobe para a linha em branco de antes do anexo")
+        rig.textView.moveDown(nil)
+        #expect(rig.textView.selectedRange().location == 8, "desce para a linha livre de depois dele")
+        rig.textView.moveLeft(nil)
+        #expect(rig.textView.selectedRange().location == 5)
+        rig.textView.moveRight(nil)
+        #expect(rig.textView.selectedRange().location == 8)
+    }
+
+    @Test("Selecionar um trecho que tem o anexo continua possível")
+    func rangeSelectionIsNotTouched() throws {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        let coordinator = TextEditorBody.Coordinator(document: rig.document)
+        coordinator.install(in: rig.textView)
+        rig.textView.delegate = coordinator
+        fill(rig)
+        let first = try #require(attachments(in: rig.textView).first)
+        rig.textView.setSelectedRange(first.range)
+        #expect(rig.textView.selectedRange() == first.range)
+    }
+
+    @Test("⌫ logo abaixo do anexo e Delete logo acima apagam o bloco, e o ⌘Z o devolve")
+    func deletingAroundAnAttachment() throws {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        let coordinator = TextEditorBody.Coordinator(document: rig.document)
+        coordinator.install(in: rig.textView)
+        rig.textView.delegate = coordinator
+        let id = UUID()
+        rig.document.embeds[id] = .contact(ContactSnapshot(givenName: "Ana"))
+        let line = NoteImageMarkup.cardLine(id: id, title: "Ana")
+        let text = "um\n\(line)\ndois"
+        rig.document.text = text
+        rig.bridge.reload(text)
+        let undo = try #require(coordinator.undoManager(for: rig.textView))
+        undo.groupsByEvent = false
+
+        rig.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        undo.beginUndoGrouping()
+        rig.textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        undo.endUndoGrouping()
+        #expect(rig.bridge.markdown() == "um\ndois")
+        undo.undo()
+        #expect(rig.bridge.markdown() == text)
+
+        rig.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        undo.beginUndoGrouping()
+        rig.textView.doCommand(by: #selector(NSResponder.deleteForward(_:)))
+        undo.endUndoGrouping()
+        #expect(rig.bridge.markdown() == "um\ndois")
+
+        // Longe de um anexo, o ⌫ é o de sempre.
+        rig.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        undo.beginUndoGrouping()
+        rig.textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        undo.endUndoGrouping()
+        #expect(rig.bridge.markdown() == "u\ndois")
+    }
+
+    @Test("A linha livre do fim não vai para o mural")
+    func deliverableTextDropsTheFreeLine() {
+        let rig = makeRig()
+        defer { rig.window.close() }
+        rig.document.insertCards([.contact(ContactSnapshot(givenName: "Ana"))])
+        rig.document.sync(markdown: rig.bridge.markdown(), selectionUTF16: rig.bridge.markdownSelection())
+        #expect(rig.document.text.hasSuffix("\n"))
+        #expect(!rig.document.deliverableText.hasSuffix("\n"))
+    }
+}
+
+/// A regra do cursor em volta dos anexos, sem campo: ▣ é o anexo.
+@Suite("Cursor em volta dos anexos")
+struct EditorCaretTests {
+    private func text(_ string: String) -> NSString {
+        string.replacingOccurrences(of: "▣", with: "\u{FFFC}") as NSString
+    }
+
+    @Test("Posição longe de um anexo fica como está")
+    func farFromAnAttachment() {
+        #expect(EditorCaret.location(for: 2, movingForward: true, in: text("abcd\n▣\n")) == 2)
+        #expect(EditorCaret.location(for: 5, movingForward: false, in: text("abcd\n\n▣")) == 5)
+    }
+
+    @Test("Colada a um anexo, a posição vai para a linha seguinte ou a anterior, conforme o movimento")
+    func jumpsOverTheAttachment() {
+        let string = text("ab\n▣\ncd")
+        for proposed in [3, 4] {
+            #expect(EditorCaret.location(for: proposed, movingForward: true, in: string) == 5)
+            #expect(EditorCaret.location(for: proposed, movingForward: false, in: string) == 2)
+        }
+    }
+
+    @Test("Passa por dois anexos seguidos")
+    func jumpsOverTwoAttachments() {
+        let string = text("a\n▣\n▣\nb")
+        #expect(EditorCaret.location(for: 2, movingForward: true, in: string) == 6)
+        #expect(EditorCaret.location(for: 5, movingForward: false, in: string) == 1)
+    }
+
+    @Test("No começo do texto o cursor pode ficar antes do anexo; depois dele, sem linha, fica colado")
+    func edges() {
+        #expect(EditorCaret.location(for: 0, movingForward: true, in: text("▣\nab")) == 0)
+        #expect(EditorCaret.location(for: 1, movingForward: false, in: text("▣\nab")) == 0)
+        #expect(EditorCaret.location(for: 1, movingForward: true, in: text("▣\nab")) == 2)
+        #expect(EditorCaret.location(for: 3, movingForward: true, in: text("ab\n▣")) == 4)
+        #expect(EditorCaret.location(for: 4, movingForward: true, in: text("ab\n▣")) == 4)
+    }
+
+    @Test("Texto vazio não quebra a regra")
+    func emptyText() {
+        #expect(EditorCaret.location(for: 0, movingForward: true, in: "") == 0)
+        #expect(EditorCaret.rangeDeletedBackward(from: 0, in: "") == nil)
+        #expect(EditorCaret.rangeDeletedForward(from: 0, in: "") == nil)
+    }
+
+    @Test("⌫ apaga o anexo e a quebra só no começo da linha logo abaixo dele")
+    func deleteBackward() {
+        #expect(EditorCaret.rangeDeletedBackward(from: 4, in: text("a\n▣\nb")) == NSRange(location: 2, length: 2))
+        #expect(EditorCaret.rangeDeletedBackward(from: 5, in: text("a\n▣\n\nb")) == nil)
+        #expect(EditorCaret.rangeDeletedBackward(from: 1, in: text("a\n▣\nb")) == nil)
+    }
+
+    @Test("Delete apaga o anexo e a quebra só no fim da linha logo acima dele")
+    func deleteForward() {
+        #expect(EditorCaret.rangeDeletedForward(from: 1, in: text("a\n▣\nb")) == NSRange(location: 2, length: 2))
+        #expect(EditorCaret.rangeDeletedForward(from: 1, in: text("a\n▣")) == NSRange(location: 2, length: 1))
+        #expect(EditorCaret.rangeDeletedForward(from: 0, in: text("a\n▣\nb")) == nil)
     }
 }

@@ -42,8 +42,8 @@ struct TextEditorBody: NSViewRepresentable {
         if coordinator.bridge.markdown() != document.text { coordinator.bridge.reload(document.text) }
     }
 
-    /// Leva as mudanças do campo (texto e seleção) para o documento, guarda o desfazer do campo e diz às Ferramentas de Escrita
-    /// quais trechos são anexos.
+    /// Leva as mudanças do campo (texto e seleção) para o documento, guarda o desfazer do campo, mantém o cursor fora da linha dos
+    /// anexos (`EditorCaret`) e diz às Ferramentas de Escrita quais trechos são anexos.
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var document: TextEditorDocument
@@ -76,6 +76,26 @@ struct TextEditorBody: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             sync()
+        }
+
+        /// Um cursor que cairia colado a um anexo vai para a linha vizinha, no sentido do movimento. O clique vale sempre para depois
+        /// do anexo: é onde se espera continuar escrevendo. Seleções de um trecho ficam como estão.
+        func textView(
+            _ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange, toCharacterRange newRange: NSRange
+        ) -> NSRange {
+            guard newRange.length == 0 else { return newRange }
+            let movingForward = NSApp.currentEvent?.type == .leftMouseDown || newRange.location >= oldRange.location
+            let location = EditorCaret.location(for: newRange.location, movingForward: movingForward, in: textView.string as NSString)
+            return NSRange(location: location, length: 0)
+        }
+
+        /// ⌫ e Delete junto de um anexo apagam o bloco, em vez de juntar o texto a ele.
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.deleteBackward(_:)): bridge.deleteAttachmentBackward()
+            case #selector(NSResponder.deleteForward(_:)): bridge.deleteAttachmentForward()
+            default: false
+            }
         }
 
         /// Os anexos ficam fora das reescritas das Ferramentas de Escrita.

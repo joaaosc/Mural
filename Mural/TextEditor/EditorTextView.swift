@@ -13,7 +13,7 @@ final class EditorTextView: MarkdownSourceTextView {
     weak var bridge: EditorAttachmentBridge?
 
     /// Um campo de texto de prosa com TextKit 2. Nunca leia `layoutManager` ou `textContainer.layoutManager`: a view voltaria ao
-    /// TextKit 1 e perderia os anexos como views.
+    /// TextKit 1 para sempre, e os anexos só sabem o próprio tamanho no TextKit 2.
     static func make() -> EditorTextView {
         let textView = EditorTextView(usingTextLayoutManager: true)
         textView.configure()

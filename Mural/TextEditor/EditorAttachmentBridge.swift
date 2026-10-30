@@ -33,6 +33,8 @@ final class EditorAttachmentBridge {
     /// seguidos leem o texto uma vez só.
     private var cachedMapping: Mapping?
     private var storageObserver: (any NSObjectProtocol)?
+    /// Os desenhos já feitos, por linha de Markdown: cada recarga refaz os anexos, e o desenho de uma linha não muda.
+    private var pictures: [String: EmbeddedTextAttachment.Picture] = [:]
 
     init(resolve: @escaping Resolver) {
         self.resolve = resolve
@@ -77,8 +79,7 @@ final class EditorAttachmentBridge {
         for (index, line) in lines.enumerated() {
             if index > 0 { result.append(NSAttributedString(string: "\n", attributes: attributes)) }
             if Self.isBlockLine(line), let content = resolve(String(line)) {
-                let attachment = EmbeddedTextAttachment(markdownLine: String(line), content: content)
-                let piece = NSMutableAttributedString(attachment: attachment)
+                let piece = NSMutableAttributedString(attachment: attachment(for: String(line), content: content))
                 piece.addAttributes(attributes.filter { $0.key != .attachment }, range: NSRange(location: 0, length: piece.length))
                 result.append(piece)
             } else {
@@ -171,6 +172,7 @@ final class EditorAttachmentBridge {
     /// Troca tudo pelo Markdown dado, sem registrar o desfazer (o documento mudou por fora: limpar, abrir).
     func reload(_ markdown: String) {
         guard let textView, let storage = textView.textStorage else { return }
+        if markdown.isEmpty { pictures = [:] }
         storage.setAttributedString(render(markdown, attributes: textView.typingAttributes))
         textView.undoManager?.removeAllActions()
     }
@@ -206,7 +208,7 @@ final class EditorAttachmentBridge {
     }
 
     /// Insere as linhas de bloco no cursor (no lugar da seleção), cada uma num bloco próprio, separadas do texto vizinho por uma
-    /// linha em branco (`NoteImageMarkup.insertion`).
+    /// linha em branco (`NoteImageMarkup.insertion`). Sem nada depois, deixa uma linha livre para o cursor continuar (`EditorCaret`).
     func insertBlocks(_ lines: [String]) {
         guard let textView else { return }
         let mapping = currentMapping()
@@ -214,7 +216,20 @@ final class EditorAttachmentBridge {
         let units = Array(mapping.markdown.utf16)
         let before = String(decoding: units[..<mapping.offsets[selected.location]], as: UTF16.self)
         let after = String(decoding: units[mapping.offsets[selected.location + selected.length]...], as: UTF16.self)
-        replaceSelection(withMarkdown: NoteImageMarkup.insertion(of: lines, after: before[...], before: after[...]))
+        let insertion = NoteImageMarkup.insertion(of: lines, after: before[...], before: after[...])
+        replaceSelection(withMarkdown: after.isEmpty ? insertion + "\n" : insertion)
+    }
+
+    /// ⌫ no começo da linha logo abaixo de um anexo apaga o anexo, desfazível (`EditorCaret.rangeDeletedBackward`).
+    /// - Returns: `true` se apagou; `false` deixa o ⌫ com o campo.
+    func deleteAttachmentBackward() -> Bool {
+        deleteAttachment { EditorCaret.rangeDeletedBackward(from: $0, in: $1) }
+    }
+
+    /// Delete no fim da linha logo acima de um anexo apaga o anexo, desfazível (`EditorCaret.rangeDeletedForward`).
+    /// - Returns: `true` se apagou; `false` deixa o Delete com o campo.
+    func deleteAttachmentForward() -> Bool {
+        deleteAttachment { EditorCaret.rangeDeletedForward(from: $0, in: $1) }
     }
 
     /// Escolhe no campo o trecho do Markdown (em unidades UTF-16); uma ponta dentro de um anexo vai para depois dele.
@@ -228,6 +243,20 @@ final class EditorAttachmentBridge {
     }
 
     // MARK: Interno
+
+    private func attachment(for line: String, content: EmbeddedTextAttachment.Content) -> EmbeddedTextAttachment {
+        let picture = pictures[line] ?? EditorAttachmentPicture.make(for: content)
+        pictures[line] = picture
+        return EmbeddedTextAttachment(markdownLine: line, content: content, picture: picture)
+    }
+
+    private func deleteAttachment(in range: (_ location: Int, _ text: NSString) -> NSRange?) -> Bool {
+        guard let textView else { return false }
+        let selected = textView.selectedRange()
+        guard selected.length == 0, let target = range(selected.location, textView.string as NSString) else { return false }
+        replace(target, with: NSAttributedString(), in: textView)
+        return true
+    }
 
     private func replace(_ range: NSRange, with attributed: NSAttributedString, in textView: NSTextView) {
         guard textView.shouldChangeText(in: range, replacementString: attributed.string) else { return }

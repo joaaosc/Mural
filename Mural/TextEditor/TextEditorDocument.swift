@@ -57,6 +57,13 @@ final class TextEditorDocument {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// O Markdown a entregar ao mural: sem as quebras do fim, como a linha livre que fica depois de um cartão inserido por último.
+    var deliverableText: String {
+        var result = text
+        while result.last?.isNewline == true { result.removeLast() }
+        return result
+    }
+
     /// Palavras do texto, sem contar as linhas dos cartões e das imagens.
     var wordCount: Int {
         text.split(separator: "\n", omittingEmptySubsequences: true)
