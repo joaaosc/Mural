@@ -50,13 +50,16 @@ struct MenuBarPanelView: View {
         let clipboard: ClipboardState
         let pasteStatus: PasteStatus
         let showsNowPlaying: Bool
+        /// A barra de tempo muda a altura da seção "Tocando agora" (estações não a têm).
+        let showsNowPlayingScrubber: Bool
     }
 
     private var layout: Layout {
         Layout(
             isLoaded: model.isLoaded, optionCount: model.options.count, formatCount: model.formats.count,
             stage: model.stage, clipboard: model.clipboard, pasteStatus: model.pasteStatus,
-            showsNowPlaying: playback.source != nil)
+            showsNowPlaying: playback.source != nil,
+            showsNowPlayingScrubber: playback.summary(in: tabs).map(NowPlayingSection.showsScrubber(for:)) ?? false)
     }
 
     /// O ⇧Tab chega como o caractere de tabulação para trás do AppKit (`NSBackTabCharacter`).
@@ -91,7 +94,8 @@ struct MenuBarPanelView: View {
                 .padding(.top, PanelMetrics.contentPadding)
                 .padding(.bottom, PanelMetrics.contentSpacing)
             if let summary = playback.summary(in: tabs) {
-                NowPlayingSection(summary: summary, actions: nowPlayingActions(for: summary))
+                NowPlayingSection(
+                    summary: summary, elapsed: { playback.playbackTime }, actions: nowPlayingActions(for: summary))
             }
             if showsPasteSection {
                 PasteSection(
@@ -129,7 +133,10 @@ struct MenuBarPanelView: View {
             playPause: { Task { await playback.pauseOrResume() } },
             previous: { Task { await playback.skipToPrevious() } },
             next: { Task { await playback.skipToNext() } },
-            stop: { playback.stopCurrent() })
+            stop: { playback.stopCurrent() },
+            toggleShuffle: { playback.toggleShuffle() },
+            cycleRepeat: { playback.cycleRepeat() },
+            seek: { playback.seek(to: $0) })
     }
 
     /// A seção de colar só aparece com murais na vitrine: sem eles não há para onde colar.

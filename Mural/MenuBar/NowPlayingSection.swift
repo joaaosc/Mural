@@ -1,21 +1,28 @@
 import SwiftUI
 
-/// A seção "Tocando agora" do painel da barra de menus: a capa, de onde vem a música e os controles.
+/// A seção "Tocando agora" do painel da barra de menus: a capa, de onde vem a música, a barra de tempo e os controles.
 ///
-/// Sem vidro nem material próprio: o painel já os tem. Os botões não tomam o foco, que é do contêiner da vitrine.
+/// Sem vidro nem material próprio: o painel já os tem. Nada aqui toma o foco, que é do contêiner da vitrine (as setas
+/// são do coverflow).
 struct NowPlayingSection: View {
     let summary: NowPlayingSummary
+    let elapsed: () -> TimeInterval
     let actions: NowPlayingActions
 
+    /// Se a barra de tempo aparece: precisa de duração conhecida (estações não têm).
+    static func showsScrubber(for summary: NowPlayingSummary) -> Bool {
+        summary.canSeek && (summary.duration ?? 0) > 0
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Tocando agora")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
             HStack(spacing: 12) {
                 NowPlayingArtwork(summary: summary, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(summary.title)
                         .font(.headline)
                         .lineLimit(1)
@@ -40,9 +47,24 @@ struct NowPlayingSection: View {
                             .accessibilityIdentifier("menu-bar-now-playing-open")
                     }
                 }
-                Spacer(minLength: 8)
-                transportButtons
+                Spacer(minLength: 0)
             }
+            if Self.showsScrubber(for: summary), let duration = summary.duration {
+                NowPlayingScrubber(
+                    duration: duration, isPlaying: summary.phase == .playing, elapsed: elapsed, seek: actions.seek,
+                    id: "menu-bar-now-playing-scrubber"
+                )
+                .focusable(false)
+            }
+            NowPlayingControls(
+                summary: summary, actions: actions,
+                ids: .init(
+                    shuffle: "menu-bar-now-playing-shuffle", previous: "menu-bar-now-playing-previous",
+                    playPause: "menu-bar-now-playing-play-pause", next: "menu-bar-now-playing-next",
+                    repeatMode: "menu-bar-now-playing-repeat", stop: "menu-bar-now-playing-stop"),
+                buttonWidth: 36, showsStop: true, takesFocus: false
+            )
+            .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, PanelMetrics.contentPadding)
         .padding(.bottom, PanelMetrics.contentSpacing)
@@ -50,53 +72,6 @@ struct NowPlayingSection: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tocando agora")
         .accessibilityIdentifier("menu-bar-now-playing")
-    }
-
-    private var transportButtons: some View {
-        let isLoading = summary.phase == .loading
-        let playPauseTitle = isLoading ? "Carregando" : (summary.phase == .playing ? "Pausar" : "Tocar")
-        return HStack(spacing: 2) {
-            button(
-                "Faixa anterior", symbol: "backward.fill", id: "menu-bar-now-playing-previous",
-                isEnabled: summary.canSkipBackward, action: actions.previous)
-            Button(action: actions.playPause) {
-                Group {
-                    if isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label(playPauseTitle, systemImage: summary.phase == .playing ? "pause.fill" : "play.fill")
-                            .labelStyle(.iconOnly)
-                    }
-                }
-                .frame(width: 34, height: 30)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.borderless)
-            .focusable(false)
-            .disabled(isLoading)
-            .help(playPauseTitle)
-            .accessibilityLabel(playPauseTitle)
-            .accessibilityIdentifier("menu-bar-now-playing-play-pause")
-            button("Próxima faixa", symbol: "forward.fill", id: "menu-bar-now-playing-next", action: actions.next)
-            button("Parar", symbol: "xmark", id: "menu-bar-now-playing-stop", action: actions.stop)
-        }
-        .font(.body.weight(.medium))
-    }
-
-    private func button(
-        _ title: String, symbol: String, id: String, isEnabled: Bool = true, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .labelStyle(.iconOnly)
-                .frame(width: 34, height: 30)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.borderless)
-        .focusable(false)
-        .disabled(!isEnabled)
-        .help(title)
-        .accessibilityIdentifier(id)
     }
 }
 
@@ -107,7 +82,7 @@ private struct SectionPreview: View {
     let summary: NowPlayingSummary
 
     var body: some View {
-        NowPlayingSection(summary: summary, actions: previewSectionActions)
+        NowPlayingSection(summary: summary, elapsed: { 75 }, actions: previewSectionActions)
             .padding(.top, PanelMetrics.contentPadding)
             .frame(width: 600)
             .background(.regularMaterial)
