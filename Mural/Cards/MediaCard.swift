@@ -11,6 +11,7 @@ struct MediaCard: View {
     var previewVideoURL: URL? = nil
 
     @Environment(\.hoverVideoPreviewEnabled) private var previewEnabled
+    @Environment(\.cardEmphasis) private var emphasis
     @State private var preview = HoverVideoPreviewController()
     @State private var isPreviewReady = false
 
@@ -59,13 +60,14 @@ struct MediaCard: View {
             // Vem depois da folha de trás de propósito: a forma vale para o conjunto e a folha não aumenta a área do cartão.
             .contentShape(.rect(cornerRadius: kind == .pdf ? Theme.cardCorner : Theme.mediaCorner))
             .onHover { inside in
-                if inside, previewEnabled, let previewVideoURL {
+                if inside, previewEnabled, emphasis >= 1, let previewVideoURL {
                     preview.pointerEntered(previewVideoURL)
                 } else {
                     stopPreview()
                 }
             }
             .onChange(of: previewEnabled) { _, enabled in if !enabled { stopPreview() } }
+            .onChange(of: emphasis) { _, value in if value < 1 { stopPreview() } }
             .onChange(of: previewVideoURL) { stopPreview() }
             .onDisappear { stopPreview() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
