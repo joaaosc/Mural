@@ -20,9 +20,9 @@ public enum LinkNavigationPolicy {
     /// Esquemas que só existem dentro do WebKit (HTML local, dados embutidos, scripts): não há outro app para abri-los.
     private static let internalSchemes: Set<String> = ["about", "data", "blob", "javascript"]
 
-    /// Esquemas de fora da web que um clique pode entregar ao sistema: e-mail, ligação, mensagem e FaceTime.
+    /// Esquemas de fora da web que um clique pode entregar ao sistema (ver `ExternalURLPolicy.systemSchemes`).
     /// Qualquer outro (links de apps, `itms-apps:`, `zoommtg:`...) é descartado.
-    private static let externalSchemes: Set<String> = ["mailto", "tel", "sms", "facetime", "facetime-audio"]
+    private static let externalSchemes = ExternalURLPolicy.systemSchemes
 
     /// Decide o que fazer com um pedido de navegação (clique, redirecionamento, formulário, janela nova, download).
     ///
