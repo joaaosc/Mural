@@ -9,11 +9,11 @@ final class NowPlayingUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch() -> XCUIApplication {
+    private func launch(_ argument: String = "-uiTesting") -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
         // O par vem primeiro: depois de "-uiTesting", o macOS o leria como valor daquele argumento.
-        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "-uiTesting"]
+        app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", argument]
         app.launch()
         app.activate()
         openExampleBoardIfNeeded(in: app)
@@ -89,6 +89,38 @@ final class NowPlayingUITests: XCTestCase {
     }
 
     @MainActor
+    private func waitForValue(_ value: String, of element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: element)
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 5), .completed,
+            "o valor deveria virar “\(value)” (é “\(element.value ?? "")”)", file: file, line: line)
+    }
+
+    /// Arrasta a cápsula na horizontal até o meio dela ficar em `midX` (coordenadas de tela).
+    @MainActor
+    private func drag(_ bar: XCUIElement, toMidX midX: CGFloat, in app: XCUIApplication) {
+        let start = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = start.withOffset(CGVector(dx: midX - bar.frame.midX, dy: 0))
+        start.click(forDuration: 0.2, thenDragTo: end)
+    }
+
+    @MainActor
+    private func waitForMidX(of element: XCUIElement, near target: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, abs(element.frame.midX - target) > 40 { Thread.sleep(forTimeInterval: 0.1) }
+        XCTAssertEqual(element.frame.midX, target, accuracy: 40, "o miniplayer deveria encaixar perto de \(target)", file: file, line: line)
+        Thread.sleep(forTimeInterval: 0.4)
+    }
+
+    @MainActor
+    private func attachScreenshot(_ name: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    @MainActor
     private func waitForLabel(_ label: String, of element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", label), object: element)
         XCTAssertEqual(
@@ -120,8 +152,93 @@ final class NowPlayingUITests: XCTestCase {
             XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: next, object: source)], timeout: 5), .completed,
             "Próxima faixa deveria mostrar a Faixa 2 (é “\(source.label)”)")
 
+        attachScreenshot("Miniplayer compacto")
+        // Parar fica no cartão expandido.
+        source.click()
+        XCTAssertTrue(element("now-playing-expanded", in: app).waitForExistence(timeout: 5), "clicar no título deveria expandir")
+        XCTAssertFalse(app.buttons["Voltar"].exists, "expandir não abre o mural")
+        attachScreenshot("Miniplayer expandido")
         element("now-playing-stop", in: app).click()
         XCTAssertTrue(bar.waitForNonExistence(timeout: 5), "Parar deveria esconder o miniplayer")
+    }
+
+    @MainActor
+    func testExpandedPlayerTogglesShuffleAndRepeat() throws {
+        let app = launch()
+        pasteAndPlayAlbum(in: app)
+        let source = element("now-playing-source", in: app)
+        XCTAssertTrue(source.waitForExistence(timeout: 5))
+        source.click()
+        let expanded = element("now-playing-expanded", in: app)
+        XCTAssertTrue(expanded.waitForExistence(timeout: 5), "clicar no título deveria expandir")
+        XCTAssertTrue(element("now-playing-scrubber", in: app).exists, "o álbum tem duração: a barra de tempo aparece")
+        XCTAssertTrue(element("now-playing-open", in: app).exists)
+
+        let shuffle = element("now-playing-shuffle", in: app)
+        waitForValue("Desligado", of: shuffle)
+        shuffle.click()
+        waitForValue("Ligado", of: shuffle)
+
+        let repeatButton = element("now-playing-repeat", in: app)
+        waitForValue("Desligado", of: repeatButton)
+        for expected in ["Tudo", "Uma", "Desligado"] {
+            repeatButton.click()
+            waitForValue(expected, of: repeatButton)
+        }
+
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(expanded.waitForNonExistence(timeout: 5), "Esc deveria recolher o cartão")
+        XCTAssertTrue(element("now-playing-bar", in: app).exists)
+
+        // Clique fora também recolhe.
+        source.click()
+        XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.2)).click()
+        XCTAssertTrue(expanded.waitForNonExistence(timeout: 5), "clicar fora deveria recolher o cartão")
+    }
+
+    /// Arrastar a cápsula na horizontal encaixa nos três pontos do rodapé, e o ponto é lembrado ao reabrir.
+    @MainActor
+    func testMiniPlayerSnapsToDockAndRemembersIt() throws {
+        let app = launch()
+        pasteAndPlayAlbum(in: app)
+        let bar = element("now-playing-bar", in: app)
+        XCTAssertTrue(bar.waitForExistence(timeout: 5))
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThan(bar.frame.midX - window.minX, window.width / 3, "começa à esquerda")
+        Thread.sleep(forTimeInterval: 0.5)
+        attachScreenshot("Miniplayer à esquerda")
+
+        drag(bar, toMidX: window.midX, in: app)
+        waitForMidX(of: bar, near: window.midX)
+        attachScreenshot("Miniplayer no centro")
+
+        drag(bar, toMidX: window.maxX - 60, in: app)
+        waitForMidX(of: bar, near: window.maxX - 18 - 125)
+        attachScreenshot("Miniplayer à direita")
+
+        // O miniplayer à direita ainda expande, e o cartão fica junto da margem direita.
+        element("now-playing-source", in: app).click()
+        let expanded = element("now-playing-expanded", in: app)
+        XCTAssertTrue(expanded.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(expanded.frame.midX, window.midX)
+        attachScreenshot("Cartão expandido à direita")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(expanded.waitForNonExistence(timeout: 5))
+
+        app.terminate()
+        let reopened = launch("-uiTestingKeep")
+        let card = reopened.buttons["Álbum de Teste"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "o cartão de música continua no mural")
+        card.hover()
+        let toggle = reopened.buttons["music-toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.click()
+        let reopenedBar = element("now-playing-bar", in: reopened)
+        XCTAssertTrue(reopenedBar.waitForExistence(timeout: 5))
+        let reopenedWindow = reopened.windows.firstMatch.frame
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertGreaterThan(reopenedBar.frame.midX - reopenedWindow.minX, reopenedWindow.width * 2 / 3, "continua à direita")
     }
 
     @MainActor
@@ -186,10 +303,10 @@ final class NowPlayingUITests: XCTestCase {
         let section = element("menu-bar-now-playing", in: app)
         XCTAssertTrue(section.waitForExistence(timeout: 10), "a música deveria continuar no painel depois de fechar a aba")
         waitForLabel("Pausar", of: element("menu-bar-now-playing-play-pause", in: app))
-        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        shot.name = "Painel com o Tocando agora"
-        shot.lifetime = .keepAlways
-        add(shot)
+        XCTAssertTrue(element("menu-bar-now-playing-shuffle", in: app).exists, "o painel mostra o aleatório")
+        XCTAssertTrue(element("menu-bar-now-playing-repeat", in: app).exists, "o painel mostra a repetição")
+        XCTAssertTrue(element("menu-bar-now-playing-scrubber", in: app).exists, "o painel mostra a barra de tempo")
+        attachScreenshot("Painel com o Tocando agora")
         let sourceLine = element("menu-bar-now-playing-source", in: app)
         XCTAssertTrue(sourceLine.exists)
         XCTAssertTrue(
