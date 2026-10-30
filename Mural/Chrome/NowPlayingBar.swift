@@ -205,7 +205,7 @@ struct NowPlayingPositioned: View {
                     .onTapGesture { setExpanded(false) }
             }
         }
-        .sensoryFeedback(.alignment, trigger: dock)
+        .onChange(of: dock) { HapticFeedback.play() }
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement.bottomPadding)
     }
 

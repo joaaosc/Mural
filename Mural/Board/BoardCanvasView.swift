@@ -288,7 +288,9 @@ struct BoardCanvasView: View {
         .onChange(of: liveDrag) { _, drag in liveShare?.dragChanged(drag, in: boardID) }
         // Libera a pasta depois de `armingDelay` com o ponteiro em cima dela; o toque marca o momento.
         .task(id: drag?.tracker?.candidate) { await armCandidateFolder() }
-        .sensoryFeedback(.levelChange, trigger: drag?.tracker?.target) { _, new in new != nil }
+        .onChange(of: drag?.tracker?.target) { _, new in
+            if new != nil { HapticFeedback.play() }
+        }
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: hoveredFolder)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: filter)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: colorFilter)

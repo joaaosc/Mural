@@ -9,6 +9,7 @@ struct GeneralSettingsView: View {
     let loginItem: LoginItemModel
     /// As cópias no iCloud Drive; `nil` sem iCloud Drive (nos testes, ou sem o entitlement): a opção não aparece.
     var driveMirror: DriveMirrorController?
+    @AppStorage(HapticFeedback.enabledKey) private var hapticFeedback = true
 
     var body: some View {
         @Bindable var loginItem = loginItem
@@ -38,6 +39,13 @@ struct GeneralSettingsView: View {
                         "Os murais que você criou ganham uma cópia na pasta Mural do iCloud Drive. Os recebidos de outras pessoas não. "
                             + "Desligar não apaga as cópias que já existem.")
                 }
+            }
+
+            Section {
+                Toggle("Retorno tátil", isOn: $hapticFeedback)
+                    .accessibilityIdentifier("settings-haptic-feedback")
+            } footer: {
+                Text("Toque no trackpad Force Touch ao encaixar proporções, liberar a pasta e encaixar o miniplayer.")
             }
 
             Section {

@@ -44,7 +44,9 @@ extension View {
             }
             .animation(.easeOut(duration: 0.12), value: proportion)
         }
-        .sensoryFeedback(.levelChange, trigger: proportion) { _, new in new != nil }
+        .onChange(of: proportion) { old, new in
+            if new != nil, new != old { HapticFeedback.play() }
+        }
     }
 }
 
