@@ -1,7 +1,8 @@
 import MuralKit
 import SwiftUI
 
-/// O conteúdo da janela do editor de texto: o campo de texto, a barra de ferramentas e a escolha de lembretes.
+/// O conteúdo da janela do editor de texto: o campo de texto, a contagem de palavras no canto, a barra de ferramentas e a escolha de
+/// lembretes.
 ///
 /// Fechar a janela com texto pergunta antes (`dismissalConfirmationDialog`, que vale para o botão de fechar, ⌘W e o fechamento
 /// por código): "Descartar" limpa o documento e fecha, e o texto não fica guardado entre aberturas. Com o documento vazio,
@@ -15,8 +16,11 @@ struct TextEditorView: View {
         let document = session.document
         TextEditorBody(document: document)
             .frame(minWidth: 640, idealWidth: 720, maxWidth: .infinity, minHeight: 320, idealHeight: 520, maxHeight: .infinity)
+            .overlay(alignment: .bottomTrailing) {
+                TextEditorWordCount(count: document.wordCount)
+            }
             .toolbar {
-                TextEditorToolbar(actions: actions, wordCount: document.wordCount)
+                TextEditorToolbar(actions: actions)
             }
             .navigationTitle("Editor de texto")
             .toolbar(removing: .title)
@@ -45,6 +49,28 @@ struct TextEditorView: View {
             insertReminder: { isPickingReminders = true },
             requestPaste: { session.onPasteRequested?() },
             canPaste: session.canRequestPaste)
+    }
+}
+
+/// A contagem de palavras, no canto de baixo à direita do editor. Vidro por cima do texto, para ficar legível com ele rolando atrás;
+/// só informa, então os cliques passam para o campo.
+struct TextEditorWordCount: View {
+    /// A altura que a etiqueta ocupa no canto, para o fim do texto não ficar atrás dela.
+    static let reservedHeight: CGFloat = 40
+
+    let count: Int
+
+    var body: some View {
+        Text(TextEditorWording.wordCount(count))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .glassEffect(.regular, in: .capsule)
+            .padding(10)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("text-editor-word-count")
     }
 }
 

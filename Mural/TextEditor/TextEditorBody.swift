@@ -26,6 +26,7 @@ struct TextEditorBody: NSViewRepresentable {
         scrollView.documentView = textView
         scrollView.drawsBackground = false
         scrollView.hasHorizontalScroller = false
+        scrollView.additionalSafeAreaInsets.bottom = TextEditorWordCount.reservedHeight
         context.coordinator.bridge.reload(document.text)
         return scrollView
     }

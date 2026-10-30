@@ -54,6 +54,13 @@ final class TextEditorUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.click()
         field.typeText("ovos\nleite")
+
+        // A contagem de palavras fica no canto de baixo à direita da janela.
+        let wordCount = window.descendants(matching: .any)["text-editor-word-count"].firstMatch
+        XCTAssertTrue(wordCount.waitForExistence(timeout: 5), "a contagem de palavras deveria aparecer")
+        XCTAssertLessThan(window.frame.maxX - wordCount.frame.maxX, 40, "encostada à direita")
+        XCTAssertLessThan(window.frame.maxY - wordCount.frame.maxY, 40, "encostada embaixo")
+
         // ⌘⇧L: lista com marcadores.
         app.typeKey("a", modifierFlags: .command)
         app.typeKey("l", modifierFlags: [.command, .shift])
