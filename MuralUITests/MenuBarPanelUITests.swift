@@ -93,6 +93,79 @@ final class MenuBarPanelUITests: XCTestCase {
             "Return deveria colar o post-it no mural do centro")
     }
 
+    /// Anexa só a seção de colar do painel: uma captura da tela inteira levaria o que há em outros apps.
+    @MainActor
+    private func attachPasteSection(of app: XCUIApplication, named name: String) {
+        let section = app.descendants(matching: .any)["menu-bar-paste-section"].firstMatch
+        XCTAssertTrue(section.waitForExistence(timeout: 5), "a seção de colar do painel deveria existir")
+        let attachment = XCTAttachment(screenshot: section.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Abre o painel com um texto copiado, lê-o com ⌘V, abre o editor do painel pela opção "Editar antes de colar" e
+    /// acrescenta " (editado)" ao fim do texto.
+    @MainActor
+    private func editTextInThePanel(_ text: String, in app: XCUIApplication) {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.joaocosta.Mural.UITests.Clipboard"))
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        openPanelFromMenu(in: app)
+        let coverflow = app.descendants(matching: .any)["menu-bar-coverflow"].firstMatch
+        XCTAssertTrue(coverflow.waitForExistence(timeout: 10), "o painel deveria abrir com a vitrine de murais")
+        app.typeKey("v", modifierFlags: .command)
+        let edit = app.descendants(matching: .any)["menu-bar-paste-option-edit"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5), "⌘V lê o texto e oferece editar antes de colar")
+        edit.click()
+
+        let editor = app.descendants(matching: .any)["menu-bar-paste-editor"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5), "o editor de texto deveria abrir no painel")
+        app.typeKey(.downArrow, modifierFlags: .command)
+        app.typeText(" (editado)")
+    }
+
+    /// Escolher "Editar antes de colar" abre o editor no painel; ⌘↩ cola o texto editado e fecha o painel.
+    @MainActor
+    func testEditingTextInThePanelBeforePasting() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        editTextInThePanel("Comprar pão pelo painel", in: app)
+        attachPasteSection(of: app, named: "mini-editor-aberto")
+
+        app.typeKey(.return, modifierFlags: .command)
+
+        let coverflow = app.descendants(matching: .any)["menu-bar-coverflow"].firstMatch
+        XCTAssertTrue(coverflow.waitForNonExistence(timeout: 10), "o painel fecha depois de colar")
+        XCTAssertTrue(
+            app.buttons["Comprar pão pelo painel (editado)"].firstMatch.waitForExistence(timeout: 10),
+            "⌘↩ deveria colar o post-it com o texto editado no mural do centro")
+    }
+
+    /// Esc no editor volta às maneiras de colar mantendo a edição ("Editado:"), e Return cola com o tipo escolhido.
+    @MainActor
+    func testLeavingTheEditorKeepsTheEditedText() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["The Cottage"].firstMatch.waitForExistence(timeout: 10))
+        editTextInThePanel("Comprar pão pelo painel", in: app)
+
+        app.typeKey(.escape, modifierFlags: [])
+
+        let copiedLine = app.descendants(matching: .any)["menu-bar-copied-line"].firstMatch
+        XCTAssertTrue(copiedLine.waitForExistence(timeout: 5), "as maneiras de colar voltam")
+        // Conforme o tipo do elemento, o texto da linha chega como rótulo ou como valor.
+        let edited = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Editado:", "Editado:")
+        expectation(for: edited, evaluatedWith: copiedLine)
+        waitForExpectations(timeout: 5)
+        attachPasteSection(of: app, named: "mini-editor-voltou")
+
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(
+            app.buttons["Comprar pão pelo painel (editado)"].firstMatch.waitForExistence(timeout: 10),
+            "Return deveria colar o post-it com o texto editado")
+    }
+
     /// O atributo de foco do teclado da acessibilidade; `XCUIElement` não o expõe como propriedade no macOS.
     private func hasKeyboardFocus(_ element: XCUIElement) -> Bool {
         (element.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
