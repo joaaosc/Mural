@@ -1,10 +1,13 @@
 import Foundation
 import MuralKit
 
-/// O que foi lido da área de transferência para colar: música (lida pelo leitor do Música, como no ⌘V), contatos (vCard) ou o resto.
+/// O que foi lido da área de transferência para colar: música (lida pelo leitor do Música, como no ⌘V), contatos (vCard), a
+/// nota do editor de texto ou o resto.
 enum ClipboardContent: Sendable {
     case music([MusicDraft])
     case contacts([ContactDraft])
+    /// Uma nota do editor de texto, com cartões embutidos e imagens.
+    case note(PastedNote)
     case pasted(PasteboardImporter.Content)
 }
 
@@ -37,6 +40,9 @@ final class BoardDelivery {
 
     /// As abas da janela: quem tem a aba de um mural é o dono da sessão dele.
     weak var tabs: MuralTabs?
+
+    /// Um aviso da última entrega que deu certo (uma imagem da nota que não pôde ser colada, por exemplo); `nil` sem aviso.
+    private(set) var lastWarning: String?
 
     private let covers: BoardCoverService?
     private let openSessions: OpenBoardSessions
@@ -213,6 +219,7 @@ final class BoardDelivery {
     ) async -> Outcome {
         guard let model = session.model else { return .failed(session.error ?? Self.unopenedMessage) }
         var outcome = await apply(content, textKind: textKind, to: session, model: model)
+        if case .delivered = outcome { lastWarning = model.lastError } else { lastWarning = nil }
         guard isDetached, case .delivered = outcome else { return outcome }
         // As fotos dos contatos recém-criados precisam estar gravadas (e ligadas aos cartões) antes de a sessão avulsa gravar e fechar.
         await session.contactThumbnails?.waitUntilIdle()
@@ -257,6 +264,11 @@ final class BoardDelivery {
             // `importMusic` da sessão exige o mural na tela; aqui o modelo recebe direto.
             if model.importMusic(drafts.map(\.snapshot), into: nil, at: anchor).isEmpty {
                 model.lastError = Self.unreadableMessage
+            }
+            session.captureBoardIfNeeded()
+        case .note(let note):
+            if await session.importNote(note, at: anchor) == nil {
+                model.lastError = model.lastError ?? Self.unreadableMessage
             }
             session.captureBoardIfNeeded()
         case .contacts(let drafts):

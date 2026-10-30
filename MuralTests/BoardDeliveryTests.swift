@@ -58,6 +58,28 @@ struct BoardDeliveryTests {
         await workspace.finish()
     }
 
+    @Test("Nota do editor com cartão embutido: o mural fechado recebe um cartão de texto com o anexo e a capa é refeita")
+    func deliversANoteToClosedBoard() async throws {
+        let workspace = try DeliveryWorkspace()
+        defer { workspace.removeFiles() }
+        let entry = try await workspace.makeEntry("Fechado")
+        let id = UUID()
+        let card = EmbeddedCard.reminder(ReminderSnapshot(identifier: "", title: "Pagar a conta"))
+        let note = PastedNote(text: "Hoje.\n\n\(NoteImageMarkup.cardLine(id: id, title: card.title))", embeds: [id: card])
+
+        let outcome = await workspace.delivery.deliver(.note(note), textKind: nil, to: entry)
+
+        #expect(outcome == .delivered(count: 1))
+        let board = try await workspace.savedBoard(entry)
+        let item = try #require(board.items.first { $0.kind == .text })
+        #expect(item.embeddedCard(id: id) == card)
+        #expect(item.text == note.text)
+        #expect(item.parentID == nil)
+        #expect(board.formatVersion == board.requiredFormatVersion)
+        #expect(workspace.delivery.detachedSession(for: entry.manifest.id) == nil)
+        await workspace.finish()
+    }
+
     @Test("Sem nada para colar a entrega falha sem abrir o mural")
     func nothingToPasteLeavesTheBoardAlone() async throws {
         let workspace = try DeliveryWorkspace()

@@ -100,6 +100,8 @@ final class ClipboardReader {
         switch content {
         case .contacts(let drafts):
             .contact(count: drafts.count)
+        case .note(let note):
+            .text(note.text)
         case .music(let drafts):
             .music(count: drafts.count)
         case .pasted(.files(let urls)):
