@@ -218,7 +218,7 @@ nonisolated enum PasteEditFiles {
     }
 
     /// O arquivo da edição: o gravado ou, se ele sumiu, o único arquivo comum que restou na pasta.
-    private static func locate(_ session: Session) throws -> URL {
+    static func locate(_ session: Session) throws -> URL {
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: session.file.path) { return session.file }
         let entries =

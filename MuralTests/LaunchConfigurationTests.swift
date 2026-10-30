@@ -90,6 +90,15 @@ struct LaunchConfigurationTests {
         }
     }
 
+    @Test("O lançador do editor só é o de mentira nos testes de interface sem -realPasteEditor")
+    func pasteEditorLauncherFollowsLaunchArguments() {
+        #expect(LaunchConfiguration.pasteEditorLauncher(arguments: ["-uiTesting"]) is FixtureEditorLauncher)
+        #expect(LaunchConfiguration.pasteEditorLauncher(arguments: ["-uiTestingKeep"]) is FixtureEditorLauncher)
+        #expect(LaunchConfiguration.pasteEditorLauncher(arguments: ["-uiTesting", "-realPasteEditor"]) is WorkspaceEditorLauncher)
+        #expect(LaunchConfiguration.pasteEditorLauncher(arguments: []) is WorkspaceEditorLauncher)
+        #expect(LaunchConfiguration.pasteEditorLauncher(arguments: ["-realPasteEditor"]) is WorkspaceEditorLauncher)
+    }
+
     @Test("Com -realPasteEditor, ou sem testes de interface, a pasta visível é a Downloads de verdade")
     func pasteEditRootsUseTheRealDownloads() {
         let home = LaunchConfiguration.realHomeDirectory().path

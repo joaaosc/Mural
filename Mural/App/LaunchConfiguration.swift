@@ -122,6 +122,14 @@ enum LaunchConfiguration {
         return SystemLinkPreviewFetcher()
     }
 
+    /// Quem abre as cópias de "Editar antes de colar": nos testes de interface, um que não abre nada e só simula a edição; com
+    /// `-realPasteEditor` e no resto, o de verdade.
+    static func pasteEditorLauncher(arguments: [String] = ProcessInfo.processInfo.arguments) -> any PasteEditorLaunching {
+        let isUITesting = ["-uiTesting", "-uiTestingKeep"].contains(where: arguments.contains)
+        if isUITesting && !arguments.contains("-realPasteEditor") { return FixtureEditorLauncher() }
+        return WorkspaceEditorLauncher()
+    }
+
     /// Quem baixa as capas de música: nos testes de interface, um buscador falso, sem rede; no resto, o de verdade.
     static func musicArtworkFetcher(arguments: [String] = ProcessInfo.processInfo.arguments) -> any MusicArtworkFetching {
         if arguments.contains("-uiTesting") || arguments.contains("-uiTestingKeep") { return FixtureMusicArtworkFetcher() }
