@@ -17,7 +17,7 @@ struct FolderHoverShrinkTests {
                     progress: progress,
                     anchor: CGPoint(x: cardSize.width / 2, y: cardSize.height / 2),
                     minScale: FolderHoverShrink.minScale(for: cardSize),
-                    reduceMotion: false))
+                    size: cardSize, reduceMotion: false))
         let renderer = ImageRenderer(content: view)
         renderer.scale = 1
         let image = try #require(renderer.cgImage)

@@ -165,7 +165,8 @@ struct BoardCanvasView: View {
                     .modifier(
                         FolderHoverShrink(
                             progress: shrink.isShrunk ? 1 : 0, anchor: shrink.anchor, minScale: shrink.minScale,
-                            reduceMotion: reduceMotion, allowsDistortion: item.kind != .video)
+                            size: CGSize(width: itemSize.width, height: itemSize.height), reduceMotion: reduceMotion,
+                            allowsDistortion: item.kind != .video)
                     )
                     .animation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.35), value: shrink.isShrunk)
                     // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.

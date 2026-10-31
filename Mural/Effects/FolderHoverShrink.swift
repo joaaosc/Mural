@@ -9,6 +9,9 @@ import SwiftUI
 /// A view fica sempre no mesmo ramo durante o arrasto: trocar de ramo (um `if` que entra e sai do filtro) recria o
 /// cartão no meio do gesto, o arrasto é cancelado e o cartão volta ao lugar ao chegar na pasta. Por isso o filtro é
 /// ligado e desligado por `isEnabled`, e só `allowsDistortion` (fixo por cartão) decide se ele existe.
+///
+/// O tamanho do cartão vem de quem chama, e não de um `visualEffect`: este modificador está em todos os cartões do mural, e um
+/// `visualEffect` seria reavaliado em cada um deles a cada quadro de rolagem e de zoom, mesmo com o cartão parado.
 @Animatable
 struct FolderHoverShrink: ViewModifier {
     var progress: Double
@@ -16,6 +19,8 @@ struct FolderHoverShrink: ViewModifier {
     @AnimatableIgnored var anchor: CGPoint
     /// Escala no fim da transição; 1 quando o cartão já é pequeno e não precisa encolher.
     @AnimatableIgnored var minScale: CGFloat
+    /// O tamanho do cartão, em pontos.
+    @AnimatableIgnored var size: CGSize
     @AnimatableIgnored var reduceMotion: Bool
     /// Se o cartão pode passar pelo shader. Falso nos cartões de vídeo: o filtro Metal envolveria a camada nativa do
     /// player e a prévia ao passar o ponteiro deixaria de aparecer. Não muda durante um arrasto.
@@ -36,29 +41,23 @@ struct FolderHoverShrink: ViewModifier {
     func body(content: Content) -> some View {
         // Os dois ramos dependem só de valores fixos durante o gesto (`allowsDistortion`, Reduzir Movimento).
         if allowsDistortion && !reduceMotion {
-            content.visualEffect { [progress, anchor, minScale, pinch = Self.pinch] content, proxy in
-                let size = proxy.size
-                // Distância da âncora ao canto mais longe: limita o quanto a amostra se desloca.
-                let reachX = max(abs(anchor.x), abs(size.width - anchor.x)) * pinch
-                let reachY = max(abs(anchor.y), abs(size.height - anchor.y)) * pinch
-                return
-                    content
-                    .distortionEffect(
-                        ShaderLibrary.default.muralFolderHoverPinch(.float2(size), .float2(anchor), .float(progress)),
-                        maxSampleOffset: CGSize(width: reachX, height: reachY),
-                        isEnabled: minScale < 1 && progress > 0 && progress < 1
-                    )
-                    .scaleEffect(1 - progress * (1 - minScale), anchor: Self.unit(anchor, in: size))
-            }
+            // Distância da âncora ao canto mais longe: limita o quanto a amostra se desloca.
+            let reachX = max(abs(anchor.x), abs(size.width - anchor.x)) * Self.pinch
+            let reachY = max(abs(anchor.y), abs(size.height - anchor.y)) * Self.pinch
+            content
+                .distortionEffect(
+                    ShaderLibrary.default.muralFolderHoverPinch(.float2(size), .float2(anchor), .float(progress)),
+                    maxSampleOffset: CGSize(width: reachX, height: reachY),
+                    isEnabled: minScale < 1 && progress > 0 && progress < 1
+                )
+                .scaleEffect(1 - progress * (1 - minScale), anchor: Self.unit(anchor, in: size))
         } else {
-            content.visualEffect { [progress, anchor, minScale] content, proxy in
-                content.scaleEffect(1 - progress * (1 - minScale), anchor: Self.unit(anchor, in: proxy.size))
-            }
+            content.scaleEffect(1 - progress * (1 - minScale), anchor: Self.unit(anchor, in: size))
         }
     }
 
-    /// A âncora como fração do quadro do cartão. Chamado de dentro do `visualEffect`, fora do main actor.
-    private nonisolated static func unit(_ anchor: CGPoint, in size: CGSize) -> UnitPoint {
+    /// A âncora como fração do quadro do cartão.
+    private static func unit(_ anchor: CGPoint, in size: CGSize) -> UnitPoint {
         UnitPoint(
             x: size.width > 0 ? anchor.x / size.width : 0.5,
             y: size.height > 0 ? anchor.y / size.height : 0.5)
@@ -77,7 +76,7 @@ struct FolderHoverShrink: ViewModifier {
                     progress: isShrunk ? 1 : 0,
                     anchor: CGPoint(x: 75, y: 95),
                     minScale: FolderHoverShrink.minScale(for: CGSize(width: 150, height: 190)),
-                    reduceMotion: false)
+                    size: CGSize(width: 150, height: 190), reduceMotion: false)
             )
             .animation(.smooth(duration: 0.5), value: isShrunk)
 
