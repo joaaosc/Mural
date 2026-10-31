@@ -3,24 +3,21 @@ import MuralKit
 import SwiftUI
 
 /// Cores e medidas do mural, com variante clara e escura.
+///
+/// Os fundos e o papel vêm da paleta escolhida nos Ajustes (`ThemeStore`); como são lidos no `body` das views, a
+/// Observação redesenha tudo quando a paleta muda. Post-its e medidas não variam com a paleta.
 enum Theme {
-    /// Fundo cinza do mural e das coleções.
-    static let canvas = dynamic(
-        light: NSColor(srgbRed: 0.895, green: 0.902, blue: 0.914, alpha: 1),
-        dark: NSColor(srgbRed: 0.118, green: 0.122, blue: 0.133, alpha: 1))
-    /// Fundo claro das telas de detalhe.
-    static let page = dynamic(
-        light: NSColor(srgbRed: 0.957, green: 0.965, blue: 0.976, alpha: 1),
-        dark: NSColor(srgbRed: 0.090, green: 0.094, blue: 0.102, alpha: 1))
+    /// Fundo do mural e das coleções.
+    @MainActor static var canvas: Color { ThemeStore.shared.colors.canvas }
+    /// Tom mais fundo do mural, para o gradiente do fundo.
+    @MainActor static var canvasDeep: Color { ThemeStore.shared.colors.canvasDeep }
+    /// Fundo das telas de detalhe.
+    @MainActor static var page: Color { ThemeStore.shared.colors.page }
     /// Papel dos cartões de texto.
-    static let paper = dynamic(
-        light: .white,
-        dark: NSColor(srgbRed: 0.200, green: 0.204, blue: 0.216, alpha: 1))
+    @MainActor static var paper: Color { ThemeStore.shared.colors.paper }
     /// Folha de trás da pasta: um tom entre o papel e o mural, mas opaco, para a mídia
     /// guardada atrás dela não aparecer através da folha.
-    static let paperBack = dynamic(
-        light: NSColor(srgbRed: 0.984, green: 0.985, blue: 0.987, alpha: 1),
-        dark: NSColor(srgbRed: 0.188, green: 0.192, blue: 0.204, alpha: 1))
+    @MainActor static var paperBack: Color { ThemeStore.shared.colors.paperBack }
 
     static let cardCorner: CGFloat = 8
     static let mediaCorner: CGFloat = 12
@@ -43,13 +40,6 @@ enum Theme {
 
     /// Texto escuro sobre post-it, legível em qualquer modo.
     static let stickyInk = Color.black.opacity(0.78)
-
-    private static func dynamic(light: NSColor, dark: NSColor) -> Color {
-        Color(
-            nsColor: NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            })
-    }
 }
 
 /// Fundo de cada nível: o mural deixa passar um pouco do material da janela (`MuralApp`), e as
@@ -70,9 +60,6 @@ struct SurfaceFill: View {
     let surface: Surface
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    /// Quanto da cor do mural cobre o material da janela: pouco, para o mural parecer vidro e se distinguir
-    /// da barra lateral (mais encorpada); os cartões, opacos e com sombra, continuam se destacando.
-    private static let boardTint = 0.3
     /// Quanto da cor da página cobre o material sobre o mural: o mural vira só um tom por trás.
     private static let pageTint = 0.82
 
@@ -86,7 +73,11 @@ struct SurfaceFill: View {
         } else {
             switch surface {
             case .board:
-                Theme.canvas.opacity(Self.boardTint)
+                // Um gradiente leve, de cima para baixo, dá profundidade ao mural; a cobertura do material
+                // (`boardTint`) é pouca, para o mural parecer vidro e se distinguir da barra lateral (mais encorpada);
+                // os cartões, opacos e com sombra, continuam se destacando.
+                LinearGradient(colors: [Theme.canvas, Theme.canvasDeep], startPoint: .top, endPoint: .bottom)
+                    .opacity(ThemeStore.shared.palette.boardTint)
             case .collectionPage:
                 Rectangle().fill(.regularMaterial).overlay(Theme.canvas.opacity(Self.pageTint))
             case .itemPage:
