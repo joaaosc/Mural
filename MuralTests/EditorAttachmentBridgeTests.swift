@@ -297,6 +297,9 @@ struct EditorAttachmentBridgeTests {
         #expect(drawn() === attachment.picture?.light)
         rig.textView.appearance = NSAppearance(named: .darkAqua)
         #expect(drawn() === attachment.picture?.dark)
+        // O cartão de contato usa as cores do sistema: as duas aparências precisam sair diferentes de verdade.
+        let contact = EditorAttachmentPicture.make(for: .card(.contact(ContactSnapshot(givenName: "Ana")), title: "Ana"))
+        #expect(contact.light.tiffRepresentation != contact.dark.tiffRepresentation)
     }
 
     @Test("Recarregar o texto não desenha o anexo de novo")
