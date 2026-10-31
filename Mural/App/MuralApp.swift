@@ -77,6 +77,8 @@ struct MuralApp: App {
                 delivery.adoptDetachedSession(for: route) ?? BoardWindowSession(route: route, registry: registry)
             })
         delivery.tabs = tabs
+        // As miniaturas da barra lateral vêm do mesmo serviço de capas do painel.
+        tabs.covers = coverService
         _tabs = State(initialValue: tabs)
 
         // A permissão fica na raiz da biblioteca, fora dos pacotes: não vai na exportação nem no iCloud. Ao apagar o mural, some junto.

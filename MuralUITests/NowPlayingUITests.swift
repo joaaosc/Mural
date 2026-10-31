@@ -96,22 +96,6 @@ final class NowPlayingUITests: XCTestCase {
             "o valor deveria virar “\(value)” (é “\(element.value ?? "")”)", file: file, line: line)
     }
 
-    /// Arrasta a cápsula na horizontal até o meio dela ficar em `midX` (coordenadas de tela).
-    @MainActor
-    private func drag(_ bar: XCUIElement, toMidX midX: CGFloat, in app: XCUIApplication) {
-        let start = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let end = start.withOffset(CGVector(dx: midX - bar.frame.midX, dy: 0))
-        start.click(forDuration: 0.2, thenDragTo: end)
-    }
-
-    @MainActor
-    private func waitForMidX(of element: XCUIElement, near target: CGFloat, file: StaticString = #filePath, line: UInt = #line) {
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline, abs(element.frame.midX - target) > 40 { Thread.sleep(forTimeInterval: 0.1) }
-        XCTAssertEqual(element.frame.midX, target, accuracy: 40, "o miniplayer deveria encaixar perto de \(target)", file: file, line: line)
-        Thread.sleep(forTimeInterval: 0.4)
-    }
-
     @MainActor
     private func attachScreenshot(_ name: String) {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -270,48 +254,25 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertTrue(expanded.waitForNonExistence(timeout: 5), "clicar fora deveria recolher o cartão")
     }
 
-    /// Arrastar a cápsula na horizontal encaixa nos três pontos do rodapé, e o ponto é lembrado ao reabrir.
+    /// A cápsula fica centralizada no rodapé, e o cartão expandido abre centralizado acima dela.
     @MainActor
-    func testMiniPlayerSnapsToDockAndRemembersIt() throws {
+    func testMiniPlayerStaysCentered() throws {
         let app = launch()
         pasteAndPlayAlbum(in: app)
         let bar = element("now-playing-bar", in: app)
         XCTAssertTrue(bar.waitForExistence(timeout: 5))
         let window = app.windows.firstMatch.frame
-        XCTAssertLessThan(bar.frame.midX - window.minX, window.width / 3, "começa à esquerda")
         Thread.sleep(forTimeInterval: 0.5)
-        attachScreenshot("Miniplayer à esquerda")
-
-        drag(bar, toMidX: window.midX, in: app)
-        waitForMidX(of: bar, near: window.midX)
+        XCTAssertEqual(bar.frame.midX, window.midX, accuracy: 40, "o miniplayer fica no centro do rodapé")
         attachScreenshot("Miniplayer no centro")
 
-        drag(bar, toMidX: window.maxX - 60, in: app)
-        waitForMidX(of: bar, near: window.maxX - 18 - 140)
-        attachScreenshot("Miniplayer à direita")
-
-        // O miniplayer à direita ainda expande, e o cartão fica junto da margem direita.
         element("now-playing-source", in: app).click()
         let expanded = element("now-playing-expanded", in: app)
         XCTAssertTrue(expanded.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(expanded.frame.midX, window.midX)
-        attachScreenshot("Cartão expandido à direita")
+        XCTAssertEqual(expanded.frame.midX, window.midX, accuracy: 40, "o cartão expandido fica centralizado")
+        attachScreenshot("Cartão expandido no centro")
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(expanded.waitForNonExistence(timeout: 5))
-
-        app.terminate()
-        let reopened = launch("-uiTestingKeep")
-        let card = reopened.buttons["Álbum de Teste"].firstMatch
-        XCTAssertTrue(card.waitForExistence(timeout: 10), "o cartão de música continua no mural")
-        card.hover()
-        let toggle = reopened.buttons["music-toggle"].firstMatch
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        toggle.click()
-        let reopenedBar = element("now-playing-bar", in: reopened)
-        XCTAssertTrue(reopenedBar.waitForExistence(timeout: 5))
-        let reopenedWindow = reopened.windows.firstMatch.frame
-        Thread.sleep(forTimeInterval: 0.5)
-        XCTAssertGreaterThan(reopenedBar.frame.midX - reopenedWindow.minX, reopenedWindow.width * 2 / 3, "continua à direita")
     }
 
     @MainActor

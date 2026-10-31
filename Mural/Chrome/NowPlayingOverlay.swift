@@ -12,24 +12,23 @@ struct NowPlayingOverlay: View {
     let obstacles: [CGRect]
     let container: CGSize
 
-    var dockStore: NowPlayingDockStore = .shared
+    var sidebarStore: NowPlayingSidebarStore = .shared
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let summary = playback.summary(in: tabs)
-        let floating = dockStore.isInSidebar && tabs.isSidebarVisible ? nil : summary
-        ZStack(alignment: .bottomLeading) {
+        let floating = sidebarStore.isInSidebar && tabs.isSidebarVisible ? nil : summary
+        ZStack(alignment: .bottom) {
             if let floating {
                 NowPlayingPositioned(
                     summary: floating, elapsed: { playback.playbackTime }, actions: actions(for: floating),
-                    obstacles: obstacles, container: container, dock: dockStore.dock,
-                    setDock: { dockStore.dock = $0 }
+                    obstacles: obstacles, container: container
                 )
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: floating?.itemID)
     }
 
@@ -37,7 +36,7 @@ struct NowPlayingOverlay: View {
         playback.nowPlayingActions(
             openSource: { tabs.showBoard(summary.route, title: summary.boardTitle) },
             moveToSidebar: {
-                dockStore.isInSidebar = true
+                sidebarStore.isInSidebar = true
                 tabs.isSidebarVisible = true
             })
     }

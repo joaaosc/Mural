@@ -148,9 +148,8 @@ struct NowPlayingBar: View {
     }
 }
 
-/// O miniplayer no rodapé da janela, encaixado à esquerda, no centro ou à direita, acima dos controles do rodapé que
-/// cruzem o lugar dele. Arrastar a cápsula na horizontal a leva ao ponto mais perto; clicar nela abre o cartão expandido
-/// acima.
+/// O miniplayer centralizado no rodapé da janela, acima dos controles do rodapé que cruzem o lugar dele. Clicar na
+/// cápsula abre o cartão expandido acima.
 ///
 /// Com o ponteiro parado sobre ele por `optionsDelay`, surgem acima da cápsula duas opções: levar a música para a barra
 /// lateral ou fechá-la. Sem ponteiro (VoiceOver, teclado), as mesmas duas ações estão no menu de contexto da cápsula e entre
@@ -161,8 +160,6 @@ struct NowPlayingPositioned: View {
     let actions: NowPlayingActions
     let obstacles: [CGRect]
     let container: CGSize
-    let dock: NowPlayingDock
-    let setDock: (NowPlayingDock) -> Void
 
     /// Quanto o ponteiro fica sobre o miniplayer até as opções surgirem.
     static let optionsDelay: Duration = .seconds(2)
@@ -178,7 +175,7 @@ struct NowPlayingPositioned: View {
         case show
         /// O ponteiro saiu: esconde depois de `optionsGrace`.
         case hideSoon
-        /// O cartão expandiu ou a cápsula está sendo arrastada: esconde já.
+        /// O cartão expandiu: esconde já.
         case hideNow
     }
 
@@ -187,19 +184,15 @@ struct NowPlayingPositioned: View {
     /// O ponteiro está sobre a cápsula, as opções ou o cartão.
     @State private var isHovering = false
     @State private var showsOptions = false
-    @GestureState private var dragX: CGFloat = 0
-    @GestureState private var isDragging = false
-    @State private var lastDragEnd = Date.distantPast
     @FocusState private var cardHasFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let placement = NowPlayingPlacement(
-            container: container, obstacles: obstacles, dock: dock, barWidth: NowPlayingPlacement.pillWidth)
+        let placement = NowPlayingPlacement(container: container, obstacles: obstacles)
         // `spacing: 0`: o vidro só se funde com formas que se tocam; com o vão de `cardGap`, o cartão e a cápsula ficam
         // duas formas separadas, sem "cola" entre elas.
         GlassEffectContainer(spacing: 0) {
-            VStack(alignment: dock.horizontalAlignment, spacing: Self.cardGap) {
+            VStack(spacing: Self.cardGap) {
                 if isExpanded {
                     NowPlayingExpanded(
                         summary: summary, elapsed: elapsed, actions: expandedActions, glassNamespace: glassNamespace,
@@ -212,21 +205,17 @@ struct NowPlayingPositioned: View {
                     .onExitCommand { setExpanded(false) }
                     .transition(reduceMotion ? .opacity : .identity)
                 }
-                if showsOptions && !isExpanded && !isDragging {
+                if showsOptions && !isExpanded {
                     NowPlayingHoverOptions(
                         moveToSidebar: actions.moveToSidebar, stop: actions.stop, reducesMotion: reduceMotion
                     )
                     .transition(reduceMotion ? .opacity : .identity)
                 }
                 NowPlayingBar(
-                    summary: summary, elapsed: elapsed, actions: barActions, expand: { setExpanded(!isExpanded) },
+                    summary: summary, elapsed: elapsed, actions: actions, expand: { setExpanded(!isExpanded) },
                     glassNamespace: glassNamespace
                 )
                 .frame(width: placement.maxWidth)
-                .simultaneousGesture(drag(placement))
-                .accessibilityAction(named: "Encaixar à esquerda") { snap(to: .leading) }
-                .accessibilityAction(named: "Encaixar no centro") { snap(to: .center) }
-                .accessibilityAction(named: "Encaixar à direita") { snap(to: .trailing) }
                 .contextMenu {
                     Button("Levar para a barra lateral", systemImage: "sidebar.left", action: actions.moveToSidebar)
                     Button("Parar a música e fechar", systemImage: "xmark", action: actions.stop)
@@ -237,10 +226,9 @@ struct NowPlayingPositioned: View {
             .onHover { isHovering = $0 }
             .task(id: optionsIntent) { await apply(optionsIntent) }
         }
-        .offset(x: dragX)
         .padding(.horizontal, NowPlayingPlacement.margin)
         .padding(.bottom, placement.bottomPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: dock.bottomAlignment)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .background {
             // Um clique fora do cartão o recolhe.
             if isExpanded {
@@ -249,14 +237,13 @@ struct NowPlayingPositioned: View {
                     .onTapGesture { setExpanded(false) }
             }
         }
-        .onChange(of: dock) { HapticFeedback.play() }
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: placement.bottomPadding)
     }
 
     // MARK: Opções ao segurar o ponteiro
 
     private var optionsIntent: OptionsIntent {
-        if isExpanded || isDragging { return .hideNow }
+        if isExpanded { return .hideNow }
         return isHovering ? .show : .hideSoon
     }
 
@@ -285,43 +272,6 @@ struct NowPlayingPositioned: View {
         }
     }
 
-    // MARK: Arrastar
-
-    private func drag(_ placement: NowPlayingPlacement) -> some Gesture {
-        DragGesture(minimumDistance: 4, coordinateSpace: .global)
-            .updating($isDragging) { _, active, _ in active = true }
-            .updating($dragX) { value, offset, _ in
-                let lower = NowPlayingPlacement.margin - placement.originX
-                let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
-                offset = min(max(value.translation.width, lower), max(upper, lower))
-            }
-            .onEnded { value in
-                let lower = NowPlayingPlacement.margin - placement.originX
-                let upper = container.width - NowPlayingPlacement.margin - placement.maxWidth - placement.originX
-                let offset = min(max(value.translation.width, lower), max(upper, lower))
-                let midX = placement.originX + placement.maxWidth / 2 + offset
-                lastDragEnd = Date()
-                snap(to: NowPlayingDock.nearest(toMidX: midX, container: container, barWidth: placement.maxWidth))
-            }
-    }
-
-    private func snap(to target: NowPlayingDock) {
-        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.45, bounce: 0.25)) {
-            setDock(target)
-        }
-    }
-
-    /// Cliques que terminam um arrasto não contam: a cápsula acompanha o ponteiro, que acaba solto sobre um botão.
-    private var justDragged: Bool { isDragging || Date().timeIntervalSince(lastDragEnd) < 0.3 }
-
-    private var barActions: NowPlayingActions {
-        var guarded = actions
-        guarded.previous = { if !justDragged { actions.previous() } }
-        guarded.playPause = { if !justDragged { actions.playPause() } }
-        guarded.next = { if !justDragged { actions.next() } }
-        return guarded
-    }
-
     // MARK: Expandir
 
     /// O cartão com "Abrir" recolhendo-o depois de abrir o mural.
@@ -335,7 +285,6 @@ struct NowPlayingPositioned: View {
     }
 
     private func setExpanded(_ value: Bool) {
-        guard !justDragged else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(duration: 0.4, bounce: 0.15)) {
             isExpanded = value
         }
@@ -362,7 +311,6 @@ private struct PreviewBar: View {
 /// Simula a janela: uma barra de criação ao centro e o zoom à direita, ambos marcados como obstáculos.
 private struct PreviewPlacement: View {
     let size: CGSize
-    @State private var dock = NowPlayingDock.leading
 
     var body: some View {
         Theme.canvas
@@ -380,7 +328,7 @@ private struct PreviewPlacement: View {
                 GeometryReader { proxy in
                     NowPlayingPositioned(
                         summary: .playing, elapsed: { 60 }, actions: previewActions,
-                        obstacles: anchors.map { proxy[$0] }, container: proxy.size, dock: dock, setDock: { dock = $0 }
+                        obstacles: anchors.map { proxy[$0] }, container: proxy.size
                     )
                 }
             }

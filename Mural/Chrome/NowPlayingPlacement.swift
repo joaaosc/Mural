@@ -21,9 +21,6 @@ struct NowPlayingPlacement: Equatable {
     static let margin: CGFloat = 18
     static let gap: CGFloat = 12
     static let liftGap: CGFloat = 10
-    /// Largura da forma média do miniplayer (título curto e os quatro botões): menos que isso ao lado da barra, ele sobe.
-    static let preferredWidth: CGFloat = 320
-    static let maximumWidth: CGFloat = 420
     /// Largura da cápsula compacta.
     static let pillWidth: CGFloat = 280
     /// Só os controles que chegam a esta distância do fundo contam como obstáculo.
@@ -34,38 +31,14 @@ struct NowPlayingPlacement: Equatable {
     /// Onde começa a cápsula, na horizontal.
     let originX: CGFloat
 
-    /// Sem `barWidth`, vale a regra antiga (canto esquerdo, ao lado dos controles ou acima deles). Com ele, a cápsula
-    /// fica no `dock` escolhido e sobe acima de qualquer controle do rodapé que cruze a faixa que ela ocupa ali.
-    init(container: CGSize, obstacles: [CGRect], dock: NowPlayingDock = .leading, barWidth: CGFloat? = nil) {
+    /// A cápsula fica centralizada no rodapé e sobe acima de qualquer controle do rodapé que cruze a faixa que ela ocupa ali.
+    init(container: CGSize, obstacles: [CGRect], barWidth: CGFloat = NowPlayingPlacement.pillWidth) {
         let bottom = obstacles.filter { $0.maxY > container.height - Self.bottomZone }
-        if let barWidth {
-            let width = max(min(barWidth, container.width - 2 * Self.margin), 0)
-            let originX = Self.originX(for: dock, container: container, width: width)
-            let crossing = bottom.filter { $0.minX < originX + width + Self.gap && $0.maxX > originX - Self.gap }
-            maxWidth = width
-            self.originX = originX
-            bottomPadding = crossing.map(\.minY).min().map { container.height - $0 + Self.liftGap } ?? Self.margin
-            return
-        }
-        originX = Self.margin
-        let free = (bottom.map(\.minX).min() ?? container.width) - Self.gap - Self.margin
-        let room = min(Self.maximumWidth, free)
-        if room >= Self.preferredWidth {
-            maxWidth = room
-            bottomPadding = Self.margin
-        } else {
-            let top = bottom.map(\.minY).min() ?? container.height
-            bottomPadding = container.height - top + Self.liftGap
-            maxWidth = min(Self.maximumWidth, container.width - 2 * Self.margin)
-        }
-    }
-
-    /// A posição horizontal de uma cápsula de `width` em cada ponto: margem à esquerda, centro ou margem à direita.
-    static func originX(for dock: NowPlayingDock, container: CGSize, width: CGFloat) -> CGFloat {
-        switch dock {
-        case .leading: margin
-        case .center: (container.width - width) / 2
-        case .trailing: container.width - margin - width
-        }
+        let width = max(min(barWidth, container.width - 2 * Self.margin), 0)
+        let originX = (container.width - width) / 2
+        let crossing = bottom.filter { $0.minX < originX + width + Self.gap && $0.maxX > originX - Self.gap }
+        maxWidth = width
+        self.originX = originX
+        bottomPadding = crossing.map(\.minY).min().map { container.height - $0 + Self.liftGap } ?? Self.margin
     }
 }
