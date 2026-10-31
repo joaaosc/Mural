@@ -18,9 +18,13 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 - **Uma janela, com abas como as do Safari** (layout compacto): cada mural aberto é uma aba na
   mesma linha dos botões da janela. Um mural fica em uma aba só; abri-lo de novo leva à aba dele.
   Trocar de aba não relê o disco, e o mural volta ao mesmo ponto.
-- **Barra lateral** (botão ao lado dos botões da janela, ⌃⌘S): todos os murais; clicar abre a aba.
-  **+** e ⌘N criam um mural novo numa aba. Com ela aberta, as abas começam depois dela, num vidro
-  só em volta delas; a barra lateral é mais encorpada que o mural, que deixa ver o fundo como vidro.
+- **Barra lateral** (botão ao lado dos botões da janela, ⌃⌘S): todos os murais, cada um com a capa em
+  miniatura, quando foi atualizado e um selo quando está no iCloud ou foi compartilhado; clicar abre a aba.
+  Os murais abertos nesta janela vêm primeiro; com mais de cinco, os cinco mais recentes ganham a seção
+  "Recentes" e o resto fica em ordem alfabética. O campo de busca no alto filtra pelo nome. **+** (no alto e
+  no rodapé) e ⌘N criam um mural novo numa aba; o rodapé mostra a contagem ("12 murais · 3 no iCloud").
+  Com ela aberta, as abas começam depois dela, num vidro só em volta delas; a barra lateral é mais
+  encorpada que o mural, que deixa ver o fundo como vidro.
 - ⌘W fecha a aba; fechar a última fecha a janela, e o app continua aberto. Visualizar › Mostrar
   Todos os Murais (⇧⌘\) ou o Dock reabrem a janela. ⌃⇥ e ⌃⇧⇥ passam de uma aba para outra.
 - As abas abertas voltam junto com a janela quando o macOS reabre as janelas do app.
@@ -30,6 +34,10 @@ Controles flutuantes usam o material Liquid Glass padrão do sistema.
 
 ## Cores
 
+- **Tema em Ajustes › Geral › Aparência**: Neutro (os cinzas de sempre), Quente (areia e linho), Frio
+  (azul-gelo) ou Verde (sálvia). O tema muda o fundo do mural (com um gradiente leve), das páginas e o papel
+  dos cartões, com variante clara, escura e de alto contraste; claro e escuro continuam seguindo o sistema.
+  Post-its e as cores das tags não mudam. As capas já desenhadas só acompanham o tema quando o mural muda.
 - **Cor no menu do botão direito**, como as tags do Finder: vermelho, laranja, amarelo, verde, azul,
   roxo e cinza, uma por cartão. Tocar de novo na cor (ou em "Remover cor") tira a cor.
 - **Vários de uma vez**: com cartões marcados (⌘-clique ou Shift + arrastar), as bolinhas da barra do
