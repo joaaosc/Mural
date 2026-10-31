@@ -168,7 +168,10 @@ final class ThemeStore {
             HStack(spacing: 8) {
                 Text(palette.title).frame(width: 60, alignment: .leading)
                 ForEach(
-                    [palette.colors.canvas, palette.colors.canvasDeep, palette.colors.page, palette.colors.paper, palette.colors.paperBack],
+                    [
+                        palette.colors.canvas, palette.colors.canvasDeep, palette.colors.page, palette.colors.paper,
+                        palette.colors.paperBack,
+                    ],
                     id: \.self
                 ) { color in
                     RoundedRectangle(cornerRadius: 6).fill(color).frame(width: 44, height: 32)
