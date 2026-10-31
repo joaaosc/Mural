@@ -63,7 +63,8 @@ struct MuralsSidebar: View {
                     "Não foi possível ler os murais", systemImage: "exclamationmark.triangle", description: Text(error))
             }
         }
-        .safeAreaInset(edge: .bottom) {
+        // Uma barra, e não um recuo: com muitos murais a lista passa por baixo, e a seção de música precisa continuar legível.
+        .safeAreaBar(edge: .bottom) {
             VStack(spacing: 0) {
                 SidebarNowPlaying(tabs: tabs, playback: playback, dockStore: dockStore)
                 Button("Novo mural", systemImage: "plus", action: tabs.requestNewBoard)
