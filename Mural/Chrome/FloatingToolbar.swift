@@ -7,9 +7,12 @@ import SwiftUI
 /// uma coluna à esquerda com legenda embaixo de cada ícone; o vidro se transforma de um
 /// formato no outro e o botão Voltar nasce do mesmo vidro.
 ///
-/// Os botões usam o estilo de vidro do sistema (`.glass`); o grupo de filtros é um vidro
-/// estático por trás de botões sem borda. Não há vidro interativo aplicado à mão sobre
-/// botões: essa combinação deixava cliques sem resposta.
+/// Voltar e o grupo de filtros são vidro estático por trás de botões sem borda, com a área de clique dentro do rótulo, para o
+/// clique valer em todo o espaço visível. Nada aqui usa vidro interativo, nem o `.buttonStyle(.glass)`: nesta barra, que morfa
+/// dentro de um `GlassEffectContainer`, ele deixava cliques sem resposta, com o vidro acendendo normalmente.
+///
+/// O primeiro clique vale mesmo com a janela sem foco (`allowsWindowActivationEvents`): quem volta de outra janela e clica em
+/// Voltar não precisa clicar duas vezes.
 struct FloatingToolbar: View {
     var level: NavigationLevel
     var onBack: () -> Void
@@ -17,6 +20,7 @@ struct FloatingToolbar: View {
     @Binding var colorFilter: TagColor?
 
     @Namespace private var glass
+    @State private var isHoveringBack = false
 
     private var isRail: Bool { level != .board }
     private var filters: [BoardFilter] { BoardFilter.available(at: level) }
@@ -26,15 +30,9 @@ struct FloatingToolbar: View {
         GlassEffectContainer(spacing: 10) {
             layout {
                 if level != .board {
-                    Button("Voltar", systemImage: "chevron.backward", action: onBack)
-                        .labelStyle(ToolbarLabelStyle(showsTitle: isRail))
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.roundedRectangle(radius: 14))
-                        .contentShape(.rect)
+                    backButton
+                        .glassEffect(.regular, in: .rect(cornerRadius: 14))
                         .glassEffectID("back", in: glass)
-                        .accessibilityLabel("Voltar")
-                        .keyboardShortcut("[", modifiers: .command)
-                        .help("Voltar (⌘[ ou Esc)")
                 }
                 if !filters.isEmpty {
                     filterGroup
@@ -43,6 +41,25 @@ struct FloatingToolbar: View {
                 }
             }
         }
+        .allowsWindowActivationEvents()
+    }
+
+    /// As margens ficam dentro do rótulo: são parte da área de clique, e o botão inteiro responde, de borda a borda do vidro.
+    private var backButton: some View {
+        Button(action: onBack) {
+            Label("Voltar", systemImage: "chevron.backward")
+                .labelStyle(ToolbarLabelStyle(showsTitle: isRail))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(isHoveringBack ? AnyShapeStyle(.fill.quaternary) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 14))
+                .contentShape(.rect)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.primary)
+        .onHover { isHoveringBack = $0 }
+        .accessibilityLabel("Voltar")
+        .keyboardShortcut("[", modifiers: .command)
+        .help("Voltar (⌘[ ou Esc)")
     }
 
     private var filterGroup: some View {

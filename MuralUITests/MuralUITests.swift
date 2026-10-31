@@ -179,6 +179,42 @@ final class MuralUITests: XCTestCase {
         XCTAssertTrue(back.waitForNonExistence(timeout: 5), "um clique em qualquer ponto do botão deve voltar")
     }
 
+    /// O ponteiro para sobre o botão, como quem hesita, e o clique vale em qualquer ponto dele, com a barra lateral aberta ou fechada.
+    @MainActor
+    func testBackRespondsAcrossItsWholeArea() throws {
+        let app = launch()
+        let folder = app.buttons["The Cottage"].firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 10))
+        let points: [(name: String, x: CGFloat, y: CGFloat)] = [
+            ("topo", 0.5, 0.12), ("centro", 0.5, 0.5), ("esquerda", 0.12, 0.5), ("direita", 0.88, 0.5), ("base", 0.5, 0.88),
+        ]
+        var failures: [String] = []
+        for isSidebarOpen in [false, true] {
+            if isSidebarOpen { app.buttons["murals-sidebar-button"].firstMatch.click() }
+            for point in points {
+                folder.click()
+                let back = app.buttons["Voltar"].firstMatch
+                XCTAssertTrue(back.waitForExistence(timeout: 5))
+                Thread.sleep(forTimeInterval: 0.5)
+                let target = back.coordinate(withNormalizedOffset: CGVector(dx: point.x, dy: point.y))
+                target.hover()
+                Thread.sleep(forTimeInterval: 1.2)
+                target.click()
+                if !back.waitForNonExistence(timeout: 1.5) {
+                    failures.append("\(point.name), barra lateral \(isSidebarOpen ? "aberta" : "fechada"), botão \(back.frame)")
+                    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                    shot.name = "voltar-sem-resposta-\(point.name)"
+                    shot.lifetime = .keepAlways
+                    add(shot)
+                    app.typeKey(.escape, modifierFlags: [])
+                    XCTAssertTrue(back.waitForNonExistence(timeout: 5), "Esc deveria sair da pasta")
+                }
+                Thread.sleep(forTimeInterval: 0.4)
+            }
+        }
+        XCTAssertEqual(failures, [], "o clique deveria valer em todo o botão")
+    }
+
     /// Aproximar pelo teclado mantém o centro da janela parado: um cartão se afasta do
     /// centro exatamente na proporção do zoom (1,25×), em vez de o mural "fugir" para o canto.
     @MainActor
