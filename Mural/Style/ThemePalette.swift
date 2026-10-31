@@ -129,7 +129,8 @@ enum ThemePalette: String, CaseIterable, Identifiable, Sendable {
 /// A paleta escolhida pela pessoa, lida das preferências ao criar e gravada a cada mudança. Como `Theme` lê daqui, toda
 /// view que usa as cores do tema no `body` passa a depender desta paleta e é redesenhada quando ela muda.
 ///
-/// Nos testes de interface as preferências são as de um conjunto próprio, que não mexe nas do app.
+/// Nos testes, de interface ou de unidade, as preferências são as de um conjunto próprio: não mexem nas do app, e a paleta
+/// escolhida neste Mac não muda o resultado deles.
 @MainActor
 @Observable
 final class ThemeStore {
@@ -156,7 +157,8 @@ final class ThemeStore {
     }
 
     static func defaultPreferences() -> UserDefaults {
-        guard LaunchConfiguration.isUITesting else { return .standard }
+        let isTesting = LaunchConfiguration.isUITesting || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        guard isTesting else { return .standard }
         return UserDefaults(suiteName: "com.joaocosta.Mural.uitests") ?? .standard
     }
 }

@@ -15,6 +15,12 @@ struct ThemePaletteTests {
         return defaults
     }
 
+    @Test("Nos testes, a paleta escolhida neste Mac não vale: as preferências são de um conjunto próprio")
+    func testsIgnoreThePaletteOfTheApp() {
+        #expect(ThemeStore.defaultPreferences() !== UserDefaults.standard)
+        #expect(ThemeStore.shared.palette == .neutral)
+    }
+
     @Test("Sem nada guardado, começa no neutro")
     func defaultsToNeutral() {
         #expect(ThemeStore(preferences: makeDefaults()).palette == .neutral)
