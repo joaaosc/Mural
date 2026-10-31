@@ -176,6 +176,9 @@ final class MuralTabs {
     @ObservationIgnored var openMainWindow: (@MainActor () -> Void)?
     /// O tocador do app; os testes trocam.
     @ObservationIgnored var musicPlayback: MusicPlayback = .shared
+    /// As capas dos murais, para as miniaturas da barra lateral; `nil` nos testes que não as têm. O serviço é observável
+    /// por conta própria, então a barra redesenha quando uma capa chega.
+    @ObservationIgnored var covers: BoardCoverService?
     @ObservationIgnored private let makeSession: @MainActor (BoardRoute) -> BoardWindowSession
     /// Uma folha (nome, ⌘V, painel de arquivos, confirmação) está aberta na janela.
     @ObservationIgnored var isShowingSheet: @MainActor () -> Bool = { false }
