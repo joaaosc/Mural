@@ -61,23 +61,23 @@ enum ThemePalette: String, CaseIterable, Identifiable, Sendable {
                 paperBack: Self.paper(light: (0.984, 0.985, 0.987), dark: (0.188, 0.192, 0.204)))
         case .warm:
             Colors(
-                canvas: Self.surface(light: (0.925, 0.900, 0.860), dark: (0.180, 0.165, 0.150)),
-                canvasDeep: Self.surface(light: (0.885, 0.855, 0.805), dark: (0.140, 0.128, 0.115)),
-                page: Self.surface(light: (0.968, 0.955, 0.930), dark: (0.150, 0.138, 0.125)),
+                canvas: Self.surface(light: (0.915, 0.885, 0.835), dark: (0.180, 0.165, 0.150)),
+                canvasDeep: Self.surface(light: (0.870, 0.835, 0.775), dark: (0.140, 0.128, 0.115)),
+                page: Self.surface(light: (0.962, 0.945, 0.915), dark: (0.150, 0.138, 0.125)),
                 paper: Self.paper(light: (0.995, 0.985, 0.965), dark: (0.250, 0.232, 0.212)),
                 paperBack: Self.paper(light: (0.980, 0.968, 0.945), dark: (0.230, 0.214, 0.196)))
         case .cool:
             Colors(
-                canvas: Self.surface(light: (0.870, 0.895, 0.925), dark: (0.150, 0.165, 0.195)),
-                canvasDeep: Self.surface(light: (0.820, 0.855, 0.900), dark: (0.110, 0.122, 0.150)),
-                page: Self.surface(light: (0.945, 0.958, 0.975), dark: (0.125, 0.138, 0.165)),
+                canvas: Self.surface(light: (0.850, 0.880, 0.920), dark: (0.150, 0.165, 0.195)),
+                canvasDeep: Self.surface(light: (0.795, 0.835, 0.890), dark: (0.110, 0.122, 0.150)),
+                page: Self.surface(light: (0.935, 0.950, 0.970), dark: (0.125, 0.138, 0.165)),
                 paper: Self.paper(light: (0.985, 0.990, 1.000), dark: (0.215, 0.230, 0.265)),
                 paperBack: Self.paper(light: (0.965, 0.975, 0.990), dark: (0.200, 0.214, 0.246)))
         case .sage:
             Colors(
-                canvas: Self.surface(light: (0.880, 0.905, 0.880), dark: (0.145, 0.170, 0.150)),
-                canvasDeep: Self.surface(light: (0.830, 0.865, 0.830), dark: (0.105, 0.128, 0.110)),
-                page: Self.surface(light: (0.950, 0.965, 0.950), dark: (0.122, 0.142, 0.126)),
+                canvas: Self.surface(light: (0.862, 0.895, 0.862), dark: (0.145, 0.170, 0.150)),
+                canvasDeep: Self.surface(light: (0.810, 0.850, 0.810), dark: (0.105, 0.128, 0.110)),
+                page: Self.surface(light: (0.940, 0.958, 0.940), dark: (0.122, 0.142, 0.126)),
                 paper: Self.paper(light: (0.990, 0.995, 0.985), dark: (0.215, 0.245, 0.222)),
                 paperBack: Self.paper(light: (0.970, 0.980, 0.965), dark: (0.198, 0.226, 0.204)))
         }
