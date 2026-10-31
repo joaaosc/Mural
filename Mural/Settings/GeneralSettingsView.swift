@@ -42,10 +42,18 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                ThemePalettePicker(store: ThemeStore.shared)
+            } header: {
+                Text("Aparência")
+            } footer: {
+                Text("A cor do mural, das páginas e do papel dos cartões. Claro e escuro continuam seguindo o sistema.")
+            }
+
+            Section {
                 Toggle("Retorno tátil", isOn: $hapticFeedback)
                     .accessibilityIdentifier("settings-haptic-feedback")
             } footer: {
-                Text("Toque no trackpad Force Touch ao encaixar proporções, liberar a pasta e encaixar o miniplayer.")
+                Text("Toque no trackpad Force Touch ao encaixar proporções e liberar a pasta.")
             }
 
             Section {
