@@ -160,11 +160,12 @@ struct BoardCanvasView: View {
                         rendersContent: rendered.visualItemIDs.contains(item.id)
                     )
                     .cardEmphasis(itemEmphasis)
-                    // Sobre uma pasta: encolhe em direção ao ponteiro para a pasta continuar visível.
+                    // Sobre uma pasta: encolhe em direção ao ponteiro para a pasta continuar visível. O vídeo só encolhe, sem o
+                    // shader, para a prévia ao passar o ponteiro continuar funcionando.
                     .modifier(
                         FolderHoverShrink(
                             progress: shrink.isShrunk ? 1 : 0, anchor: shrink.anchor, minScale: shrink.minScale,
-                            reduceMotion: reduceMotion)
+                            reduceMotion: reduceMotion, allowsDistortion: item.kind != .video)
                     )
                     .animation(reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.35), value: shrink.isShrunk)
                     // Guardado numa pasta: encolhe em direção a ela e some antes de sair do mural.
@@ -578,6 +579,9 @@ struct BoardCanvasView: View {
                     final.tracker?.update(
                         folderUnderPointer: folderID(
                             at: value.location, among: final.acceptedRootItems, excluding: item.id))
+                    // Decide pelo tempo decorrido sobre a pasta, e não pela tarefa que a libera: com o sistema ocupado, ela pode
+                    // acordar só depois do soltar, e o cartão ficaria de fora mesmo tendo esperado o suficiente.
+                    final.tracker?.arm()
                     if let destination = final.tracker?.target {
                         if let onMoveGroupIntoFolder {
                             onMoveGroupIntoFolder(final.origins, destination)
@@ -615,6 +619,8 @@ struct BoardCanvasView: View {
                         at: value.location,
                         among: final.acceptedRootItems,
                         excluding: item.id))
+                // Pelo tempo decorrido, como no grupo: a tarefa de liberar pode ainda não ter acordado.
+                final.tracker?.arm()
                 if let folderID = final.tracker?.target {
                     drag = final
                     store(item, in: folderID)
